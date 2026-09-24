@@ -1,1 +1,41 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>ESP32 AI Robot · LVGL Preview</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070b}body{position:fixed;inset:0}.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}.device{background:#111722;border:1px solid #293548;border-radius:22px;padding:10px;box-shadow:0 20px 60px #0008;box-sizing:border-box}canvas{display:block;background:#06080d;border-radius:12px;touch-action:none;max-width:none}</style></head><body><div class="stage"><div class="device"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div></div><script>var Module={canvas:document.getElementById('canvas')};const c=Module.canvas,device=document.querySelector('.device');function fit(){const scale=Math.min(2.4,(innerWidth-44)/640,(innerHeight-44)/172);const w=640*scale,h=172*scale;c.style.width=w+'px';c.style.height=h+'px';device.style.width=(w+22)+'px';device.style.height=(h+22)+'px'}addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,120));fit();</script>{{{ SCRIPT }}}</body></html>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>ESP32 AI Robot · LVGL Preview</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070b}body{position:fixed;inset:0}.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}.device{background:#111722;border:1px solid #293548;border-radius:22px;padding:10px;box-shadow:0 20px 60px #0008;box-sizing:border-box}canvas{display:block;background:#06080d;border-radius:12px;touch-action:none;max-width:none}</style></head><body><div class="stage"><div class="device"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div></div><script>
+var Module={canvas:document.getElementById('canvas')};
+const c=Module.canvas,device=document.querySelector('.device');
+function fit(){
+  const scale=Math.min(2.4,(innerWidth-44)/640,(innerHeight-44)/172);
+  const w=640*scale,h=172*scale;
+  c.style.width=w+'px';c.style.height=h+'px';
+  device.style.width=(w+22)+'px';device.style.height=(h+22)+'px';
+}
+function sendPointer(ev,pressed){
+  const r=c.getBoundingClientRect();
+  if(!r.width||!r.height||typeof Module._web_pointer!=='function') return;
+  let x=Math.floor((ev.clientX-r.left)*640/r.width);
+  let y=Math.floor((ev.clientY-r.top)*172/r.height);
+  if(x<0)x=0;else if(x>639)x=639;
+  if(y<0)y=0;else if(y>171)y=171;
+  Module._web_pointer(x,y,pressed?1:0);
+}
+c.addEventListener('pointerdown',ev=>{
+  ev.preventDefault();
+  c.setPointerCapture?.(ev.pointerId);
+  sendPointer(ev,true);
+},{passive:false});
+c.addEventListener('pointermove',ev=>{
+  if(ev.buttons||ev.pointerType==='touch'){
+    ev.preventDefault();
+    sendPointer(ev,true);
+  }
+},{passive:false});
+function releasePointer(ev){
+  ev.preventDefault();
+  sendPointer(ev,false);
+  try{c.releasePointerCapture?.(ev.pointerId)}catch(_){}
+}
+c.addEventListener('pointerup',releasePointer,{passive:false});
+c.addEventListener('pointercancel',releasePointer,{passive:false});
+c.addEventListener('lostpointercapture',ev=>sendPointer(ev,false),{passive:false});
+addEventListener('resize',fit);
+addEventListener('orientationchange',()=>setTimeout(fit,120));
+fit();
+</script>{{{ SCRIPT }}}</body></html>
