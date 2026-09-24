@@ -11,8 +11,9 @@
  * 24x24 x 3 gives a 72x72 on-screen icon while retaining finer pixel detail.
  */
 #define UI_ICON_GRID         24
-#define UI_MENU_ICON_SCALE   3
-#define UI_MENU_ICON_SIZE    (UI_ICON_GRID * UI_MENU_ICON_SCALE)
+#define UI_MENU_CELL_SIZE    3
+#define UI_MENU_DOT_SIZE     2
+#define UI_MENU_ICON_SIZE    (UI_ICON_GRID * UI_MENU_CELL_SIZE)
 
 #define UI_MENU_ITEM_W       146
 #define UI_MENU_ITEM_H       136
@@ -118,40 +119,32 @@ static void draw_pixel_bitmap(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GR
     lv_obj_clear_flag(pixel_layer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(pixel_layer, LV_OBJ_FLAG_CLICKABLE);
 
+    /*
+     * Dot-matrix rendering:
+     * each logical pixel owns a 3x3 cell, but only a 2x2 square is lit.
+     * The remaining 1 px gap stays black, creating the separated LCD-dot look.
+     */
     for (int y = 0; y < UI_ICON_GRID; ++y) {
-        uint32_t row = bitmap[y];
-        int x = 0;
+        const uint32_t row = bitmap[y];
 
-        while (x < UI_ICON_GRID) {
-            while (x < UI_ICON_GRID &&
-                   ((row & (0x800000u >> x)) == 0u)) {
-                ++x;
+        for (int x = 0; x < UI_ICON_GRID; ++x) {
+            if ((row & (0x800000u >> x)) == 0u) {
+                continue;
             }
 
-            if (x >= UI_ICON_GRID) {
-                break;
-            }
-
-            const int start = x;
-
-            while (x < UI_ICON_GRID &&
-                   (row & (0x800000u >> x)) != 0u) {
-                ++x;
-            }
-
-            const int run = x - start;
-            lv_obj_t *bar = lv_obj_create(pixel_layer);
-            lv_obj_remove_style_all(bar);
-            lv_obj_set_pos(bar,
-                           start * UI_MENU_ICON_SCALE,
-                           y * UI_MENU_ICON_SCALE);
-            lv_obj_set_size(bar,
-                            run * UI_MENU_ICON_SCALE,
-                            UI_MENU_ICON_SCALE);
-            lv_obj_set_style_bg_color(bar, UI_COLOR_FG, 0);
-            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-            lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_t *dot = lv_obj_create(pixel_layer);
+            lv_obj_remove_style_all(dot);
+            lv_obj_set_pos(dot,
+                           x * UI_MENU_CELL_SIZE,
+                           y * UI_MENU_CELL_SIZE);
+            lv_obj_set_size(dot,
+                            UI_MENU_DOT_SIZE,
+                            UI_MENU_DOT_SIZE);
+            lv_obj_set_style_bg_color(dot, UI_COLOR_FG, 0);
+            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(dot, 0, 0);
+            lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
         }
     }
 }
