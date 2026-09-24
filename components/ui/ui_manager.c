@@ -12,7 +12,7 @@
 static lv_obj_t *s_home,*s_apps,*s_settings,*s_light,*s_remote,*s_music,*s_devices;
 static lv_obj_t *return_screen,*light_title,*light_switch,*light_bri,*light_temp;
 static lv_obj_t *music_play_label,*music_progress,*volume_slider,*brightness_slider;
-static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen; static bool swipe_consumed;
+static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen;
 static const char *lights[]={"Living room","Desk lamp","Bedroom"};
 
 __attribute__((weak)) void ui_action_volume(int v){(void)v;}
@@ -32,11 +32,10 @@ static lv_obj_t *label(lv_obj_t*p,const char*t,int x,int y,int z){lv_obj_t*o=lv_
 static lv_obj_t *card(lv_obj_t*p,int x,int y,int w,int h){lv_obj_t*o=lv_obj_create(p);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);lv_obj_set_style_radius(o,18,0);lv_obj_set_style_bg_color(o,lv_color_hex(CARD),0);lv_obj_set_style_bg_grad_color(o,lv_color_hex(CARD2),0);lv_obj_set_style_bg_grad_dir(o,LV_GRAD_DIR_HOR,0);lv_obj_set_style_bg_opa(o,LV_OPA_COVER,0);lv_obj_set_style_border_width(o,1,0);lv_obj_set_style_border_color(o,lv_color_hex(LINE),0);lv_obj_set_style_pad_all(o,10,0);return o;}
 static void load(lv_obj_t*s){lv_screen_load_anim(s,LV_SCR_LOAD_ANIM_FADE_IN,120,0,false);}
 static void landscape(void){ui_action_orientation(false);}
-static bool click_blocked(lv_event_t*e){lv_indev_t*i=lv_indev_active();if(swipe_consumed)return true;if(i){lv_point_t p;lv_indev_get_point(i,&p);int dx=p.x-press_start.x,dy=p.y-press_start.y;if(dx*dx+dy*dy>=18*18)return true;}return false;}
-static void go_apps(lv_event_t*e){if(click_blocked(e))return;load(s_apps);} static void go_light(lv_event_t*e){if(click_blocked(e))return;load(s_light);} static void go_music(lv_event_t*e){if(click_blocked(e))return;load(s_music);} static void go_devices(lv_event_t*e){if(click_blocked(e))return;load(s_devices);}
-static void go_remote(lv_event_t*e){if(click_blocked(e))return;load(s_remote);}
+static void go_apps(lv_event_t*e){(void)e;load(s_apps);} static void go_light(lv_event_t*e){(void)e;load(s_light);} static void go_music(lv_event_t*e){(void)e;load(s_music);} static void go_devices(lv_event_t*e){(void)e;load(s_devices);}
+static void go_remote(lv_event_t*e){(void)e;load(s_remote);}
 
-static void pressed(lv_event_t*e){lv_indev_t*i=lv_indev_active();press_screen=lv_event_get_target(e);swipe_consumed=false;if(i)lv_indev_get_point(i,&press_start);}
+static void pressed(lv_event_t*e){lv_indev_t*i=lv_indev_active();press_screen=lv_event_get_target(e);if(i)lv_indev_get_point(i,&press_start);}
 static void released(lv_event_t*e){
  lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i||s!=press_screen)return;
  lv_point_t end;lv_indev_get_point(i,&end);int dx=end.x-press_start.x,dy=end.y-press_start.y;
@@ -80,7 +79,7 @@ static void home_create(void){
  lv_obj_t*w=card(s_home,12,10,188,152);label(w,"WEATHER",12,8,14);lv_obj_t*wi=label(w,LV_SYMBOL_EYE_OPEN,130,7,20);lv_obj_set_style_text_color(wi,lv_color_hex(BLUE),0);label(w,"26 C",12,38,28);label(w,"Cloudy",12,76,16);lv_obj_t*m=label(w,"68% humidity  |  AQI 32",12,112,14);lv_obj_set_style_text_color(m,lv_color_hex(MUTED),0);
  label(s_home,"THURSDAY  ·  SEP 24",236,25,16);label(s_home,"12:53",232,58,28);lv_obj_t*sub=label(s_home,"Kunming  ·  Home",236,101,14);lv_obj_set_style_text_color(sub,lv_color_hex(MUTED),0);lv_obj_t*hint=label(s_home,"Swipe  >  Functions",430,140,14);lv_obj_set_style_text_color(hint,lv_color_hex(0x66758A),0);
 }
-static void app_btn(lv_obj_t*p,const char*i,const char*t,int x,lv_event_cb_t cb){lv_obj_t*b=card(p,x,40,142,116);lv_obj_add_flag(b,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(b,cb,LV_EVENT_CLICKED,NULL);lv_obj_t*ic=label(b,i,52,18,28);lv_obj_set_style_text_color(ic,lv_color_hex(BLUE),0);lv_obj_t*tx=label(b,t,0,72,16);lv_obj_align(tx,LV_ALIGN_TOP_MID,0,72);}
+static void app_btn(lv_obj_t*p,const char*i,const char*t,int x,lv_event_cb_t cb){lv_obj_t*b=card(p,x,40,142,116);lv_obj_add_flag(b,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_flag(b,LV_OBJ_FLAG_GESTURE_BUBBLE);lv_obj_add_event_cb(b,cb,LV_EVENT_CLICKED,NULL);lv_obj_t*ic=label(b,i,52,18,28);lv_obj_set_style_text_color(ic,lv_color_hex(BLUE),0);lv_obj_t*tx=label(b,t,0,72,16);lv_obj_align(tx,LV_ALIGN_TOP_MID,0,72);}
 static void apps_create(void){s_apps=lv_obj_create(NULL);base(s_apps);gestures(s_apps);label(s_apps,"HOME",16,12,14);label(s_apps,"CONTROL CENTER",250,12,16);app_btn(s_apps,LV_SYMBOL_LIST,"Remote",16,go_remote);app_btn(s_apps,LV_SYMBOL_AUDIO,"Music",171,go_music);app_btn(s_apps,LV_SYMBOL_EYE_OPEN,"Lights",326,go_light);app_btn(s_apps,LV_SYMBOL_HOME,"Devices",481,go_devices);}
 static void settings_create(void){s_settings=lv_obj_create(NULL);base(s_settings);gestures(s_settings);label(s_settings,"SYSTEM",24,14,14);label(s_settings,"Quick settings",96,12,20);volume_slider=slider_row(s_settings,"Volume",65,60);brightness_slider=slider_row(s_settings,"Brightness",108,80);lv_obj_t*h=label(s_settings,"Swipe up to close",255,148,14);lv_obj_set_style_text_color(h,lv_color_hex(MUTED),0);}
 static void light_create(void){s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);label(s_light,"‹",18,9,28);light_title=label(s_light,lights[0],54,13,20);lv_obj_t*hint=label(s_light,"Swipe lights  ·  edge swipe to back",220,17,14);lv_obj_set_style_text_color(hint,lv_color_hex(MUTED),0);light_switch=lv_switch_create(s_light);lv_obj_set_pos(light_switch,560,12);lv_obj_add_state(light_switch,LV_STATE_CHECKED);lv_obj_add_event_cb(light_switch,light_power_cb,LV_EVENT_VALUE_CHANGED,NULL);light_bri=slider_row(s_light,"Brightness",63,72);light_temp=slider_row(s_light,"Warm / Cool",102,58);const char*p[]={"Relax","Read","Movie","Night"};for(int n=0;n<4;n++)button(s_light,20+n*155,130,135,34,p[n],preset_cb,n);}
