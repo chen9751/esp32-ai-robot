@@ -220,7 +220,58 @@ static void remote_create(void){
  remote_key(vol,8,7,104,54,0x26364E,0x152238,"+",UI_REMOTE_VOL_UP);
  remote_key(vol,140,7,104,54,0x26364E,0x152238,"|",UI_REMOTE_VOL_DOWN);
 }
-static void music_create(void){s_music=lv_obj_create(NULL);base(s_music);gestures(s_music);lv_obj_t*c=card(s_music,16,16,136,136);lv_obj_t*ic=label(c,LV_SYMBOL_AUDIO,50,40,28);lv_obj_set_style_text_color(ic,lv_color_hex(BLUE),0);label(s_music,"Time Traveler",184,22,20);lv_obj_t*a=label(s_music,"Zhou Shen  ·  Local library",184,52,14);lv_obj_set_style_text_color(a,lv_color_hex(MUTED),0);music_progress=lv_slider_create(s_music);lv_obj_set_pos(music_progress,184,84);lv_obj_set_size(music_progress,420,8);lv_slider_set_value(music_progress,36,LV_ANIM_OFF);lv_obj_add_event_cb(music_progress,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);button(s_music,316,112,54,46,LV_SYMBOL_PREV,music_cb,UI_MUSIC_PREV);lv_obj_t*b=button(s_music,382,108,62,54,"",music_cb,UI_MUSIC_PLAY_PAUSE);music_play_label=label(b,LV_SYMBOL_PAUSE,0,0,20);lv_obj_center(music_play_label);button(s_music,456,112,54,46,LV_SYMBOL_NEXT,music_cb,UI_MUSIC_NEXT);}
+static lv_obj_t *music_wave[24];static lv_timer_t *music_wave_timer;static bool music_anim_playing=true;static uint8_t music_phase;
+static void music_wave_tick(lv_timer_t*t){
+ if(!music_anim_playing)return;
+ for(int n=0;n<24;n++){int d=n<12?11-n:n-12;int pulse=(music_phase+n*3)%11;int h=5+(11-d)*2+(pulse<5?pulse*2:(10-pulse)*2);if(h>38)h=38;
+  lv_obj_set_height(music_wave[n],h);lv_obj_align(music_wave[n],LV_ALIGN_CENTER,(n-12)*10+5,18);}
+ music_phase=(music_phase+1)%11;
+}
+static void music_center_cb(lv_event_t*e){
+ music_anim_playing=!music_anim_playing;ui_action_music(UI_MUSIC_PLAY_PAUSE);
+ for(int n=0;n<24;n++)lv_obj_set_style_bg_opa(music_wave[n],music_anim_playing?LV_OPA_80:LV_OPA_20,0);
+}
+static void music_icon_press(lv_event_t*e){lv_obj_set_style_transform_scale(lv_event_get_target(e),230,0);}
+static void music_icon_release(lv_event_t*e){lv_obj_set_style_transform_scale(lv_event_get_target(e),256,0);}
+static lv_obj_t *music_nav(lv_obj_t*p,const char*icon,int x,ui_music_action_t action){
+ lv_obj_t*o=home_text(p,icon,x,61,&lv_font_montserrat_28,LV_OPA_COVER);lv_obj_set_size(o,56,56);
+ lv_obj_set_style_text_align(o,LV_TEXT_ALIGN_CENTER,0);lv_obj_add_flag(o,LV_OBJ_FLAG_CLICKABLE);
+ lv_obj_add_event_cb(o,music_cb,LV_EVENT_CLICKED,(void*)(intptr_t)action);
+ lv_obj_add_event_cb(o,music_icon_press,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(o,music_icon_release,LV_EVENT_RELEASED,NULL);return o;
+}
+static void music_create(void){
+ s_music=lv_obj_create(NULL);base(s_music);gestures(s_music);
+ lv_obj_set_style_bg_color(s_music,lv_color_hex(0x07101E),0);lv_obj_set_style_bg_grad_color(s_music,lv_color_hex(0x172650),0);
+ lv_obj_set_style_bg_grad_dir(s_music,LV_GRAD_DIR_HOR,0);
+
+ /* generous left edge remains free for the global back gesture */
+ music_nav(s_music,LV_SYMBOL_PREV,82,UI_MUSIC_PREV);music_nav(s_music,LV_SYMBOL_NEXT,502,UI_MUSIC_NEXT);
+
+ /* metadata is optically centered, independent of navigation icons */
+ lv_obj_t*title=home_text(s_music,"Midnight Drive",0,12,&lv_font_montserrat_20,LV_OPA_COVER);lv_obj_align(title,LV_ALIGN_TOP_MID,0,12);
+ lv_obj_t*artist=home_text(s_music,"The Paper Kites",0,39,&lv_font_montserrat_16,LV_OPA_80);lv_obj_align(artist,LV_ALIGN_TOP_MID,0,39);
+ lv_obj_t*album=home_text(s_music,"Twelvefour",0,61,&lv_font_montserrat_14,LV_OPA_60);lv_obj_align(album,LV_ALIGN_TOP_MID,0,61);
+
+ /* decorative pseudo-spectrum: LVGL objects, no bitmap required */
+ for(int n=0;n<24;n++){music_wave[n]=lv_obj_create(s_music);lv_obj_set_size(music_wave[n],4,10);
+  lv_obj_set_style_radius(music_wave[n],2,0);lv_obj_set_style_border_width(music_wave[n],0,0);
+  lv_obj_set_style_bg_color(music_wave[n],lv_color_hex(n%3==0?0xB15CFF:0x477CFF),0);
+  lv_obj_set_style_bg_opa(music_wave[n],LV_OPA_80,0);lv_obj_align(music_wave[n],LV_ALIGN_CENTER,(n-12)*10+5,18);}
+ music_wave_timer=lv_timer_create(music_wave_tick,90,NULL);
+
+ /* entire central field toggles play/pause; spectrum itself is only a status cue */
+ lv_obj_t*tap=lv_obj_create(s_music);lv_obj_set_pos(tap,150,78);lv_obj_set_size(tap,340,46);
+ lv_obj_set_style_bg_opa(tap,LV_OPA_TRANSP,0);lv_obj_set_style_border_width(tap,0,0);
+ lv_obj_add_flag(tap,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_event_cb(tap,music_center_cb,LV_EVENT_CLICKED,NULL);
+
+ /* display-only progress bar */
+ lv_obj_t*track=lv_obj_create(s_music);lv_obj_set_pos(track,126,143);lv_obj_set_size(track,388,6);
+ lv_obj_set_style_radius(track,3,0);lv_obj_set_style_border_width(track,0,0);lv_obj_set_style_bg_color(track,lv_color_hex(0x58617A),0);lv_obj_set_style_bg_opa(track,LV_OPA_60,0);
+ lv_obj_t*fill=lv_obj_create(track);lv_obj_set_pos(fill,0,0);lv_obj_set_size(fill,126,6);lv_obj_set_style_radius(fill,3,0);lv_obj_set_style_border_width(fill,0,0);lv_obj_set_style_bg_color(fill,lv_color_hex(0x6E7DFF),0);
+ lv_obj_t*dot=lv_obj_create(track);lv_obj_set_pos(dot,119,-4);lv_obj_set_size(dot,14,14);lv_obj_set_style_radius(dot,LV_RADIUS_CIRCLE,0);lv_obj_set_style_border_width(dot,0,0);lv_obj_set_style_bg_color(dot,lv_color_hex(0xFFFFFF),0);
+ lv_obj_t*l=home_text(s_music,"01:28",78,137,&lv_font_montserrat_14,LV_OPA_70);(void)l;
+ home_text(s_music,"04:32",528,137,&lv_font_montserrat_14,LV_OPA_70);
+}
 static void devices_create(void){s_devices=lv_obj_create(NULL);base(s_devices);gestures(s_devices);label(s_devices,"DEVICES",24,14,14);lv_obj_t*c=card(s_devices,176,36,288,112);lv_obj_t*i=label(c,LV_SYMBOL_HOME,120,10,28);lv_obj_set_style_text_color(i,lv_color_hex(BLUE),0);label(c,"No devices yet",82,48,16);lv_obj_t*t=label(c,"Reserved for HA / robot devices",32,76,14);lv_obj_set_style_text_color(t,lv_color_hex(MUTED),0);}
 
 void ui_init(void){home_create();apps_create();settings_create();light_create();remote_create();music_create();devices_create();return_screen=s_home;lv_screen_load(s_home);}
