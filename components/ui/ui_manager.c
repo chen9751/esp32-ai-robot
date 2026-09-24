@@ -8,6 +8,10 @@
 #define TEXT 0xF7F9FC
 #define MUTED 0x8996A8
 #define LINE 0x263244
+#define HOME_SKY_TOP 0x0878C9
+#define HOME_SKY_BOTTOM 0x2E8FD1
+#define HOME_SUN 0xFFD34E
+#define HOME_GLASS 0x082F57
 
 static lv_obj_t *s_home,*s_apps,*s_settings,*s_light,*s_remote,*s_music,*s_devices;
 static lv_obj_t *return_screen,*light_title,*light_switch,*light_bri,*light_temp;
@@ -72,10 +76,70 @@ static void music_cb(lv_event_t*e){ui_music_action_t a=(ui_music_action_t)(intpt
 static void remote_cb(lv_event_t*e){ui_action_remote((ui_remote_action_t)(intptr_t)lv_event_get_user_data(e));}
 static lv_obj_t *button(lv_obj_t*p,int x,int y,int w,int h,const char*t,lv_event_cb_t cb,intptr_t data){lv_obj_t*b=card(p,x,y,w,h);lv_obj_set_style_bg_color(b,lv_color_hex(0x1A2433),0);lv_obj_set_style_bg_color(b,lv_color_hex(0x24334A),LV_STATE_PRESSED);lv_obj_add_flag(b,LV_OBJ_FLAG_CLICKABLE);lv_obj_t*l=label(b,t,0,0,14);lv_obj_center(l);lv_obj_add_event_cb(b,cb,LV_EVENT_CLICKED,(void*)data);return b;}
 
+static lv_obj_t *home_text(lv_obj_t *p,const char *t,int x,int y,const lv_font_t *font,lv_opa_t opa){
+ lv_obj_t *o=lv_label_create(p);lv_label_set_text(o,t);lv_obj_set_pos(o,x,y);
+ lv_obj_set_style_text_color(o,lv_color_hex(TEXT),0);lv_obj_set_style_text_opa(o,opa,0);
+ lv_obj_set_style_text_font(o,font,0);return o;
+}
+static lv_obj_t *home_metric(lv_obj_t *p,const char *icon,const char *name,const char *value,int x){
+ lv_obj_t *ic=home_text(p,icon,x,126,&lv_font_montserrat_20,LV_OPA_90);
+ lv_obj_set_style_text_color(ic,lv_color_hex(0xBFE4FF),0);
+ home_text(p,name,x+26,126,&lv_font_montserrat_14,LV_OPA_80);
+ return home_text(p,value,x+26,145,&lv_font_montserrat_16,LV_OPA_COVER);
+}
 static void home_create(void){
  s_home=lv_obj_create(NULL);base(s_home);gestures(s_home);
- lv_obj_t*w=card(s_home,12,10,188,152);label(w,"WEATHER",12,8,14);lv_obj_t*wi=label(w,LV_SYMBOL_EYE_OPEN,130,7,20);lv_obj_set_style_text_color(wi,lv_color_hex(BLUE),0);label(w,"26 C",12,38,28);label(w,"Cloudy",12,76,16);lv_obj_t*m=label(w,"68% humidity  |  AQI 32",12,112,14);lv_obj_set_style_text_color(m,lv_color_hex(MUTED),0);
- label(s_home,"THURSDAY  ·  SEP 24",236,25,16);label(s_home,"12:53",232,58,28);lv_obj_t*sub=label(s_home,"Kunming  ·  Home",236,101,14);lv_obj_set_style_text_color(sub,lv_color_hex(MUTED),0);lv_obj_t*hint=label(s_home,"Swipe  >  Functions",430,140,14);lv_obj_set_style_text_color(hint,lv_color_hex(0x66758A),0);
+
+ /* Full-screen weather scene.  The photographic asset layer will later map
+    to the same resource id on Web Preview and /sdcard on ESP32. */
+ lv_obj_set_style_bg_color(s_home,lv_color_hex(HOME_SKY_TOP),0);
+ lv_obj_set_style_bg_grad_color(s_home,lv_color_hex(HOME_SKY_BOTTOM),0);
+ lv_obj_set_style_bg_grad_dir(s_home,LV_GRAD_DIR_VER,0);
+
+ /* warm horizon glow */
+ lv_obj_t *glow=lv_obj_create(s_home);lv_obj_set_pos(glow,0,112);lv_obj_set_size(glow,640,60);
+ lv_obj_set_style_border_width(glow,0,0);lv_obj_set_style_radius(glow,0,0);
+ lv_obj_set_style_bg_color(glow,lv_color_hex(0x1E669B),0);
+ lv_obj_set_style_bg_grad_color(glow,lv_color_hex(0xF0B35D),0);
+ lv_obj_set_style_bg_grad_dir(glow,LV_GRAD_DIR_HOR,0);lv_obj_set_style_bg_opa(glow,LV_OPA_70,0);
+
+ /* subtle glass shade behind weather information */
+ lv_obj_t *shade=lv_obj_create(s_home);lv_obj_set_pos(shade,0,0);lv_obj_set_size(shade,250,172);
+ lv_obj_set_style_border_width(shade,0,0);lv_obj_set_style_radius(shade,0,0);
+ lv_obj_set_style_bg_color(shade,lv_color_hex(HOME_GLASS),0);lv_obj_set_style_bg_opa(shade,LV_OPA_40,0);
+
+ /* left weather block */
+ home_text(s_home,"WUHUA",18,12,&lv_font_montserrat_16,LV_OPA_COVER);
+ lv_obj_t *sun=lv_obj_create(s_home);lv_obj_set_pos(sun,24,47);lv_obj_set_size(sun,38,38);
+ lv_obj_set_style_radius(sun,LV_RADIUS_CIRCLE,0);lv_obj_set_style_border_width(sun,0,0);
+ lv_obj_set_style_bg_color(sun,lv_color_hex(HOME_SUN),0);lv_obj_set_style_shadow_width(sun,14,0);
+ lv_obj_set_style_shadow_color(sun,lv_color_hex(HOME_SUN),0);lv_obj_set_style_shadow_opa(sun,LV_OPA_50,0);
+ lv_obj_t *cloud=lv_obj_create(s_home);lv_obj_set_pos(cloud,43,68);lv_obj_set_size(cloud,52,24);
+ lv_obj_set_style_radius(cloud,14,0);lv_obj_set_style_border_width(cloud,0,0);
+ lv_obj_set_style_bg_color(cloud,lv_color_hex(0xF3F7FA),0);lv_obj_set_style_bg_opa(cloud,LV_OPA_90,0);
+
+ home_text(s_home,"26°",112,42,&lv_font_montserrat_28,LV_OPA_COVER);
+ home_text(s_home,"CLEAR",112,75,&lv_font_montserrat_14,LV_OPA_COVER);
+ home_text(s_home,"H 28°   L 16°",112,98,&lv_font_montserrat_14,LV_OPA_80);
+
+ lv_obj_t *rule=lv_obj_create(s_home);lv_obj_set_pos(rule,18,119);lv_obj_set_size(rule,214,1);
+ lv_obj_set_style_border_width(rule,0,0);lv_obj_set_style_bg_color(rule,lv_color_hex(TEXT),0);
+ lv_obj_set_style_bg_opa(rule,LV_OPA_20,0);
+
+ home_metric(s_home,LV_SYMBOL_DOWN,"RAIN","10%",18);
+ home_metric(s_home,LV_SYMBOL_REFRESH,"HUM","55%",92);
+ home_metric(s_home,LV_SYMBOL_RIGHT,"WIND","2",166);
+
+ /* divider */
+ lv_obj_t *div=lv_obj_create(s_home);lv_obj_set_pos(div,249,16);lv_obj_set_size(div,1,140);
+ lv_obj_set_style_border_width(div,0,0);lv_obj_set_style_bg_color(div,lv_color_hex(TEXT),0);
+ lv_obj_set_style_bg_opa(div,LV_OPA_25,0);
+
+ /* right date + dominant 12-hour clock */
+ home_text(s_home,"SEP 24   WEDNESDAY",284,13,&lv_font_montserrat_20,LV_OPA_90);
+ lv_obj_t *clock=home_text(s_home,"10:24",270,43,&lv_font_montserrat_48,LV_OPA_COVER);
+ lv_obj_set_style_text_letter_space(clock,-2,0);
+ home_text(s_home,"AM",535,91,&lv_font_montserrat_20,LV_OPA_90);
 }
 static void app_btn(lv_obj_t*p,const char*i,const char*t,int x,lv_event_cb_t cb){lv_obj_t*b=card(p,x,40,142,116);lv_obj_add_flag(b,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_flag(b,LV_OBJ_FLAG_GESTURE_BUBBLE);lv_obj_add_event_cb(b,cb,LV_EVENT_CLICKED,NULL);lv_obj_t*ic=label(b,i,52,18,28);lv_obj_set_style_text_color(ic,lv_color_hex(BLUE),0);lv_obj_t*tx=label(b,t,0,72,16);lv_obj_align(tx,LV_ALIGN_TOP_MID,0,72);}
 static void apps_create(void){s_apps=lv_obj_create(NULL);base(s_apps);gestures(s_apps);label(s_apps,"HOME",16,12,14);label(s_apps,"CONTROL CENTER",250,12,16);app_btn(s_apps,LV_SYMBOL_LIST,"Remote",16,go_remote);app_btn(s_apps,LV_SYMBOL_AUDIO,"Music",171,go_music);app_btn(s_apps,LV_SYMBOL_EYE_OPEN,"Lights",326,go_light);app_btn(s_apps,LV_SYMBOL_HOME,"Devices",481,go_devices);}
