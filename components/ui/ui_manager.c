@@ -45,7 +45,7 @@ static void released(lv_event_t*e){
  lv_point_t end;lv_indev_get_point(i,&end);int dx=end.x-press_start.x,dy=end.y-press_start.y;
  if(dx*dx+dy*dy<32*32)return;
 lv_dir_t d=(dx<0?LV_DIR_LEFT:LV_DIR_RIGHT);if(dy*dy>dx*dx)d=(dy<0?LV_DIR_TOP:LV_DIR_BOTTOM);
- if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;load(s_settings);return;}
+ if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s==s_home){return_screen=s_home;load(s_settings);return;}
  if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
  if(s==s_remote&&d==LV_DIR_RIGHT&&press_start.x<=36){load(s_apps);return;}
  if(s==s_home&&(d==LV_DIR_LEFT||d==LV_DIR_RIGHT)){load(s_apps);return;}
@@ -55,7 +55,7 @@ lv_dir_t d=(dx<0?LV_DIR_LEFT:LV_DIR_RIGHT);if(dy*dy>dx*dx)d=(dy<0?LV_DIR_TOP:LV_
 }
 static void gesture(lv_event_t*e){
 lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i)return;lv_dir_t d=lv_indev_get_gesture_dir(i);
- if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;load(s_settings);return;}
+ if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s==s_home){return_screen=s_home;load(s_settings);return;}
  if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
  if(s==s_remote&&d==LV_DIR_RIGHT&&press_start.x<=36){load(s_apps);return;}
  if(s==s_home&&(d==LV_DIR_LEFT||d==LV_DIR_RIGHT)){load(s_apps);return;}
@@ -164,7 +164,38 @@ static void apps_create(void){
  app_tile(s_apps,328,0xFFD72D,0xFFAA00,LV_SYMBOL_EYE_OPEN,"LIGHTS",go_light);
  app_tile(s_apps,483,0xFFFFFF,0xE9EBEE,LV_SYMBOL_HOME,"DEVICES",go_devices);
 }
-static void settings_create(void){s_settings=lv_obj_create(NULL);base(s_settings);gestures(s_settings);label(s_settings,"SYSTEM",24,14,14);label(s_settings,"Quick settings",96,12,20);volume_slider=slider_row(s_settings,"Volume",65,60);brightness_slider=slider_row(s_settings,"Brightness",108,80);lv_obj_t*h=label(s_settings,"Swipe up to close",255,148,14);lv_obj_set_style_text_color(h,lv_color_hex(MUTED),0);}
+static void quick_toggle_cb(lv_event_t*e){lv_obj_t*o=lv_event_get_target(e);bool on=lv_obj_has_state(o,LV_STATE_CHECKED);
+ lv_obj_set_style_bg_color(o,lv_color_hex(on?0x244BC8:0x172236),0);lv_obj_set_style_shadow_opa(o,on?LV_OPA_35:LV_OPA_10,0);}
+static lv_obj_t *quick_toggle(lv_obj_t*p,int x,int y,const char*icon,bool on){
+ lv_obj_t*o=lv_obj_create(p);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,62,62);lv_obj_set_style_radius(o,18,0);
+ lv_obj_set_style_border_width(o,1,0);lv_obj_set_style_border_color(o,lv_color_hex(0x344A70),0);
+ lv_obj_set_style_bg_color(o,lv_color_hex(on?0x244BC8:0x172236),0);lv_obj_set_style_shadow_width(o,10,0);
+ lv_obj_set_style_shadow_color(o,lv_color_hex(0x5A5CFF),0);lv_obj_set_style_shadow_opa(o,on?LV_OPA_35:LV_OPA_10,0);
+ lv_obj_add_flag(o,LV_OBJ_FLAG_CHECKABLE);if(on)lv_obj_add_state(o,LV_STATE_CHECKED);
+ lv_obj_add_event_cb(o,quick_toggle_cb,LV_EVENT_VALUE_CHANGED,NULL);
+ lv_obj_t*i=home_text(o,icon,0,0,&lv_font_montserrat_28,LV_OPA_COVER);lv_obj_center(i);return o;
+}
+static lv_obj_t *control_slider(lv_obj_t*p,int y,const char*icon,int value,bool warm){
+ lv_obj_t*wrap=lv_obj_create(p);lv_obj_set_pos(wrap,28,y);lv_obj_set_size(wrap,372,58);
+ lv_obj_set_style_radius(wrap,29,0);lv_obj_set_style_border_width(wrap,0,0);lv_obj_set_style_bg_color(wrap,lv_color_hex(0x111D30),0);lv_obj_set_style_bg_opa(wrap,LV_OPA_90,0);
+ lv_obj_t*i=home_text(wrap,icon,16,14,&lv_font_montserrat_28,LV_OPA_COVER);(void)i;
+ lv_obj_t*s=lv_slider_create(wrap);lv_obj_set_pos(s,66,24);lv_obj_set_size(s,282,10);lv_slider_set_range(s,0,100);lv_slider_set_value(s,value,LV_ANIM_OFF);
+ lv_obj_set_style_radius(s,5,LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(0x4A5570),LV_PART_MAIN);
+ lv_obj_set_style_bg_color(s,lv_color_hex(warm?0xFFE0A0:0x6A72FF),LV_PART_INDICATOR);lv_obj_set_style_bg_color(s,lv_color_hex(0xFFFFFF),LV_PART_KNOB);
+ lv_obj_add_event_cb(s,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);return s;
+}
+static void settings_create(void){
+ s_settings=lv_obj_create(NULL);base(s_settings);gestures(s_settings);
+ /* Control Center is reachable only from Home. It visually behaves as a top overlay. */
+ lv_obj_set_style_bg_color(s_settings,lv_color_hex(0x07111F),0);lv_obj_set_style_bg_grad_color(s_settings,lv_color_hex(0x14264A),0);lv_obj_set_style_bg_grad_dir(s_settings,LV_GRAD_DIR_HOR,0);
+ lv_obj_t*handle=lv_obj_create(s_settings);lv_obj_set_pos(handle,292,5);lv_obj_set_size(handle,56,5);lv_obj_set_style_radius(handle,3,0);lv_obj_set_style_border_width(handle,0,0);lv_obj_set_style_bg_color(handle,lv_color_hex(0xAEB8D0),0);
+ brightness_slider=control_slider(s_settings,18,LV_SYMBOL_EYE_OPEN,72,true);
+ volume_slider=control_slider(s_settings,92,LV_SYMBOL_VOLUME_MAX,60,false);
+ quick_toggle(s_settings,424,18,LV_SYMBOL_WIFI,true);
+ quick_toggle(s_settings,498,18,LV_SYMBOL_MUTE,false);
+ quick_toggle(s_settings,424,92,"C",false);
+ quick_toggle(s_settings,498,92,"A",true);
+}
 static const char *room_names[]={"LIVING","STUDY","BEDROOM","SMALL BED"};
 static const char *room_scene[]={"LIGHT  +  SOFA","LIGHT  +  COMPUTER","LIGHT  +  BED","LIGHT  +  BUNK BED"};
 static void room_scene_style(lv_obj_t *o,int room){
@@ -323,4 +354,4 @@ static void music_create(void){
 static void devices_create(void){s_devices=lv_obj_create(NULL);base(s_devices);gestures(s_devices);label(s_devices,"DEVICES",24,14,14);lv_obj_t*c=card(s_devices,176,36,288,112);lv_obj_t*i=label(c,LV_SYMBOL_HOME,120,10,28);lv_obj_set_style_text_color(i,lv_color_hex(BLUE),0);label(c,"No devices yet",82,48,16);lv_obj_t*t=label(c,"Reserved for HA / robot devices",32,76,14);lv_obj_set_style_text_color(t,lv_color_hex(MUTED),0);}
 
 void ui_init(void){home_create();apps_create();settings_create();light_create();remote_create();music_create();devices_create();return_screen=s_home;lv_screen_load(s_home);}
-void ui_show_home(void){load(s_home);}void ui_show_functions(void){load(s_apps);}void ui_show_settings(void){return_screen=lv_screen_active();load(s_settings);}
+void ui_show_home(void){load(s_home);}void ui_show_functions(void){load(s_apps);}void ui_show_settings(void){if(lv_screen_active()!=s_home)return;return_screen=s_home;load(s_settings);}
