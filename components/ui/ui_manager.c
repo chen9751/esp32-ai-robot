@@ -278,7 +278,7 @@ static void room_furniture_glyph(lv_obj_t*p,int room){
 static void room_scene_click_cb(lv_event_t*e){
  int room=(int)(intptr_t)lv_event_get_user_data(e);room_power[room]=!room_power[room];
  lv_obj_t*scene=lv_event_get_target(e);
- lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_35,0);
+ lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_30,0);
  if(room==light_index)ui_action_light_power(room_power[room]);
 }
 static void sun_icon(lv_obj_t*p,int x,int y){
@@ -312,7 +312,7 @@ static lv_obj_t *room_card(lv_obj_t*p,int room,int x){
  /* Left status / power card is square; tap it to toggle the room. */
  lv_obj_t*scene=lv_obj_create(card);lv_obj_remove_flag(scene,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scrollbar_mode(scene,LV_SCROLLBAR_MODE_OFF);
  lv_obj_set_pos(scene,8,9);lv_obj_set_size(scene,128,128);lv_obj_set_style_radius(scene,20,0);lv_obj_set_style_border_width(scene,0,0);
- room_scene_style(scene,room);lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_35,0);
+ room_scene_style(scene,room);lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_30,0);
  lv_obj_add_flag(scene,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_flag(scene,LV_OBJ_FLAG_EVENT_BUBBLE);lv_obj_add_flag(scene,LV_OBJ_FLAG_GESTURE_BUBBLE);
  lv_obj_add_event_cb(scene,room_scene_click_cb,LV_EVENT_CLICKED,(void*)(intptr_t)room);
  lv_obj_t*title=home_text(scene,room_names[room],10,10,&lv_font_montserrat_14,LV_OPA_COVER);
