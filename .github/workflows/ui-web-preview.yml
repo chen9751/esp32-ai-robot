@@ -3,9 +3,6 @@ on:
   push:
     branches: [main, "ui/**"]
     paths: ["components/ui/**","web_preview/**",".github/workflows/ui-web-preview.yml"]
-  pull_request:
-    branches: [main]
-    paths: ["components/ui/**","web_preview/**",".github/workflows/ui-web-preview.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,7 +13,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -41,7 +37,6 @@ jobs:
         with:
           path: web_preview/dist
   deploy:
-    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
