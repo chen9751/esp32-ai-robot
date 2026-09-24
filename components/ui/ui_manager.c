@@ -33,7 +33,23 @@ __attribute__((weak)) void ui_action_orientation(bool portrait){(void)portrait;}
 static void base(lv_obj_t*s){lv_obj_set_scrollbar_mode(s,LV_SCROLLBAR_MODE_OFF);lv_obj_set_style_bg_color(s,lv_color_hex(BG),0);lv_obj_set_style_bg_opa(s,LV_OPA_COVER,0);lv_obj_set_style_text_color(s,lv_color_hex(TEXT),0);lv_obj_set_style_border_width(s,0,0);lv_obj_set_style_pad_all(s,0,0);}
 static lv_obj_t *label(lv_obj_t*p,const char*t,int x,int y,int z){lv_obj_t*o=lv_label_create(p);lv_label_set_text(o,t);lv_obj_set_pos(o,x,y);lv_obj_set_style_text_color(o,lv_color_hex(TEXT),0);lv_obj_set_style_text_font(o,z>=28?&lv_font_montserrat_28:z>=20?&lv_font_montserrat_20:z>=16?&lv_font_montserrat_16:&lv_font_montserrat_14,0);return o;}
 static lv_obj_t *card(lv_obj_t*p,int x,int y,int w,int h){lv_obj_t*o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);lv_obj_set_style_radius(o,18,0);lv_obj_set_style_bg_color(o,lv_color_hex(CARD),0);lv_obj_set_style_bg_grad_color(o,lv_color_hex(CARD2),0);lv_obj_set_style_bg_grad_dir(o,LV_GRAD_DIR_HOR,0);lv_obj_set_style_bg_opa(o,LV_OPA_COVER,0);lv_obj_set_style_border_width(o,1,0);lv_obj_set_style_border_color(o,lv_color_hex(LINE),0);lv_obj_set_style_pad_all(o,10,0);return o;}
-static void load(lv_obj_t*s){if(!s||lv_screen_active()==s)return;lv_screen_load(s);}
+static lv_obj_t *pending_screen;
+static bool screen_load_pending;
+static void load_async_cb(void *unused){
+ (void)unused;
+ lv_obj_t *s=pending_screen;
+ pending_screen=NULL;
+ screen_load_pending=false;
+ if(s&&lv_screen_active()!=s)lv_screen_load(s);
+}
+static void load(lv_obj_t*s){
+ if(!s||lv_screen_active()==s)return;
+ pending_screen=s;
+ if(!screen_load_pending){
+  screen_load_pending=true;
+  lv_async_call(load_async_cb,NULL);
+ }
+}
 static void landscape(void){ui_action_orientation(false);}
 static void go_apps(lv_event_t*e){(void)e;load(s_apps);} static void go_light(lv_event_t*e){(void)e;load(s_light);} static void go_music(lv_event_t*e){(void)e;load(s_music);} static void go_devices(lv_event_t*e){(void)e;load(s_devices);}
 static void go_remote(lv_event_t*e){(void)e;load(s_remote);}
@@ -338,7 +354,12 @@ static void light_render(void){
   room_card(s_light,room,x);x+=LIGHT_CARD_W+LIGHT_CARD_GAP;
  }
 }
-static void light_render_async(void*unused){(void)unused;if(lv_screen_active()==s_light)light_render();}
+static bool light_render_pending;
+static void light_render_async(void*unused){
+ (void)unused;
+ light_render_pending=false;
+ if(lv_screen_active()==s_light)light_render();
+}
 static void light_carousel_gesture_cb(lv_event_t*e){
  (void)e;
  if(lv_screen_active()!=s_light)return;
@@ -349,7 +370,10 @@ static void light_carousel_gesture_cb(lv_event_t*e){
  else if(d==LV_DIR_RIGHT&&light_index>0)light_index--;
  else return;
  ui_action_light_select(light_index);
- lv_async_call(light_render_async,NULL);
+ if(!light_render_pending){
+  light_render_pending=true;
+  lv_async_call(light_render_async,NULL);
+ }
 }
 static void light_create(void){
  s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);
