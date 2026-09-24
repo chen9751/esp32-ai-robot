@@ -157,7 +157,7 @@ static void home_create(void){
  home_text(s_home,"AM",535,91,&lv_font_montserrat_20,LV_OPA_90);
 }
 static lv_obj_t *app_tile(lv_obj_t*p,int x,uint32_t c1,uint32_t c2,const char *symbol,const char *name,lv_event_cb_t cb){
- lv_obj_t*b=lv_obj_create(p);lv_obj_set_scrollbar_mode(b,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(b,x,14);lv_obj_set_size(b,108,108);lv_obj_set_scrollbar_mode(b,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_t*b=lv_obj_create(p);lv_obj_set_scrollbar_mode(b,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(b,x,14);lv_obj_set_size(b,108,108);
  lv_obj_set_style_radius(b,24,0);lv_obj_set_style_border_width(b,0,0);
  lv_obj_set_style_bg_color(b,lv_color_hex(c1),0);lv_obj_set_style_bg_grad_color(b,lv_color_hex(c2),0);
  lv_obj_set_style_bg_grad_dir(b,LV_GRAD_DIR_VER,0);lv_obj_set_style_shadow_width(b,12,0);
@@ -182,7 +182,7 @@ static void apps_create(void){
 static void quick_toggle_cb(lv_event_t*e){lv_obj_t*o=lv_event_get_target(e);bool on=lv_obj_has_state(o,LV_STATE_CHECKED);
  lv_obj_set_style_bg_color(o,lv_color_hex(on?0x244BC8:0x172236),0);lv_obj_set_style_shadow_opa(o,on?LV_OPA_30:LV_OPA_10,0);}
 static lv_obj_t *quick_toggle(lv_obj_t*p,int x,int y,const char*icon,bool on){
- lv_obj_t*o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,62,62);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_style_radius(o,18,0);
+ lv_obj_t*o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,62,62);lv_obj_set_style_radius(o,18,0);
  lv_obj_set_style_border_width(o,1,0);lv_obj_set_style_border_color(o,lv_color_hex(0x344A70),0);
  lv_obj_set_style_bg_color(o,lv_color_hex(on?0x244BC8:0x172236),0);lv_obj_set_style_shadow_width(o,10,0);
  lv_obj_set_style_shadow_color(o,lv_color_hex(0x5A5CFF),0);lv_obj_set_style_shadow_opa(o,on?LV_OPA_30:LV_OPA_10,0);
@@ -238,10 +238,10 @@ static lv_obj_t *room_slider(lv_obj_t*p,int y,bool temperature){
  lv_obj_add_flag(ic,LV_OBJ_FLAG_EVENT_BUBBLE);return s;
 }
 static lv_obj_t *room_card(lv_obj_t*p,int room,int x){
- lv_obj_t*card=lv_obj_create(p);lv_obj_set_scrollbar_mode(card,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(card,x,10);lv_obj_set_size(card,360,152);lv_obj_set_scrollbar_mode(card,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_t*card=lv_obj_create(p);lv_obj_set_scrollbar_mode(card,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(card,x,10);lv_obj_set_size(card,360,152);
  lv_obj_set_style_radius(card,24,0);lv_obj_set_style_border_width(card,1,0);lv_obj_set_style_border_color(card,lv_color_hex(0x40597C),0);
  lv_obj_set_style_bg_color(card,lv_color_hex(0x0D1A2D),0);lv_obj_set_style_bg_opa(card,LV_OPA_90,0);
- lv_obj_t*scene=lv_obj_create(card);lv_obj_set_scrollbar_mode(scene,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(scene,0,0);lv_obj_set_size(scene,132,152);lv_obj_set_scrollbar_mode(scene,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_t*scene=lv_obj_create(card);lv_obj_set_scrollbar_mode(scene,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(scene,0,0);lv_obj_set_size(scene,132,152);
  lv_obj_set_style_radius(scene,24,0);lv_obj_set_style_border_width(scene,0,0);room_scene_style(scene,room);
  lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_40,0);lv_obj_add_flag(scene,LV_OBJ_FLAG_CLICKABLE);
  lv_obj_add_event_cb(scene,room_scene_click_cb,LV_EVENT_CLICKED,(void*)(intptr_t)room);
@@ -268,7 +268,7 @@ static void light_create(void){
  lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
 }
 static lv_obj_t *remote_key(lv_obj_t*p,int x,int y,int w,int h,uint32_t top,uint32_t bottom,const char *icon,ui_remote_action_t action){
- lv_obj_t *o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_t *o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);
  lv_obj_set_style_radius(o,(w<h?w:h)/3,0);lv_obj_set_style_border_width(o,1,0);
  lv_obj_set_style_border_color(o,lv_color_hex(0x4E6382),0);
  lv_obj_set_style_bg_color(o,lv_color_hex(top),0);lv_obj_set_style_bg_grad_color(o,lv_color_hex(bottom),0);
@@ -310,7 +310,7 @@ static void remote_create(void){
  remote_key(s_remote,450,12,64,68,0x26364E,0x152238,"▯",UI_REMOTE_DISPLAY);
 
  /* horizontal volume pill: plus on left, minus on right */
- lv_obj_t *vol=lv_obj_create(s_remote);lv_obj_set_scrollbar_mode(vol,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(vol,374,92);lv_obj_set_size(vol,252,68);lv_obj_set_scrollbar_mode(vol,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_t *vol=lv_obj_create(s_remote);lv_obj_set_scrollbar_mode(vol,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(vol,374,92);lv_obj_set_size(vol,252,68);
  lv_obj_set_style_radius(vol,26,0);lv_obj_set_style_border_width(vol,1,0);lv_obj_set_style_border_color(vol,lv_color_hex(0x4E6382),0);
  lv_obj_set_style_bg_color(vol,lv_color_hex(0x26364E),0);lv_obj_set_style_bg_grad_color(vol,lv_color_hex(0x152238),0);
  lv_obj_set_style_bg_grad_dir(vol,LV_GRAD_DIR_VER,0);
