@@ -254,7 +254,7 @@ static lv_obj_t *glyph_box(lv_obj_t*p,int x,int y,int w,int h,int r,lv_opa_t opa
  lv_obj_t*o=lv_obj_create(p);lv_obj_remove_flag(o,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);
  lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);lv_obj_set_style_radius(o,r,0);lv_obj_set_style_border_width(o,0,0);
  lv_obj_set_style_bg_color(o,lv_color_hex(0xFFFFFF),0);lv_obj_set_style_bg_opa(o,opa,0);
- lv_obj_add_flag(o,LV_OBJ_FLAG_EVENT_BUBBLE);lv_obj_add_flag(o,LV_OBJ_FLAG_GESTURE_BUBBLE);return o;
+ lv_obj_add_flag(o,LV_OBJ_FLAG_EVENT_BUBBLE);return o;
 }
 static void room_furniture_glyph(lv_obj_t*p,int room){
  /* common floor lamp */
@@ -316,7 +316,7 @@ static lv_obj_t *room_card(lv_obj_t*p,int room,int x){
  lv_obj_add_flag(scene,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_flag(scene,LV_OBJ_FLAG_EVENT_BUBBLE);lv_obj_add_flag(scene,LV_OBJ_FLAG_GESTURE_BUBBLE);
  lv_obj_add_event_cb(scene,room_scene_click_cb,LV_EVENT_CLICKED,(void*)(intptr_t)room);
  lv_obj_t*title=home_text(scene,room_names[room],10,10,&lv_font_montserrat_14,LV_OPA_COVER);
- lv_obj_add_flag(title,LV_OBJ_FLAG_EVENT_BUBBLE);lv_obj_add_flag(title,LV_OBJ_FLAG_GESTURE_BUBBLE);
+ lv_obj_add_flag(title,LV_OBJ_FLAG_EVENT_BUBBLE);
  room_furniture_glyph(scene,room);
 
  /* Brightness and color-temperature remain horizontal controls to the right. */
