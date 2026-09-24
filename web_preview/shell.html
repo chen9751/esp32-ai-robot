@@ -1,1 +1,28 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>ESP32 AI Robot · LVGL Preview</title><style>html,body{margin:0;min-height:100%;background:#05070b;color:#eef3fb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{display:flex;justify-content:center}.page{width:min(100%,900px);padding:18px 14px 32px;box-sizing:border-box}h1{font-size:18px;margin:0 0 4px}.sub{font-size:12px;color:#8390a3;margin-bottom:16px}.stage{display:flex;justify-content:center;align-items:flex-start;min-height:360px}.device{background:#111722;border:1px solid #293548;border-radius:22px;padding:10px;box-shadow:0 20px 60px #0008;max-width:100%;overflow:auto}canvas{display:block;background:#06080d;border-radius:12px;touch-action:none;max-width:none}.help{margin-top:14px;color:#8390a3;font-size:12px;line-height:1.6}</style></head><body><main class="page"><h1>ESP32 AI Robot · LVGL Web Preview</h1><div class="sub">Same LVGL UI source · 640×172 / Remote 172×640</div><div class="stage"><div class="device"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div></div><div class="help">Touch or drag directly on the screen. Top-edge swipe down opens Quick Settings; left-edge swipe right goes back. Remote switches to portrait automatically.</div></main><script>var Module={canvas:document.getElementById('canvas')};window.robotPreviewResize=function(w,h){const c=Module.canvas;c.width=w;c.height=h;fit(w,h)};function fit(w,h){const c=Module.canvas,max=Math.min(window.innerWidth-50,860),scale=Math.min(2,max/w);c.style.width=(w*scale)+'px';c.style.height=(h*scale)+'px'}window.addEventListener('resize',()=>fit(Module.canvas.width||640,Module.canvas.height||172));fit(640,172);</script>{{{ SCRIPT }}}</body></html>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>ESP32 AI Robot · LVGL Preview</title><style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070b;color:#eef3fb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{position:fixed;inset:0}.page{position:absolute;inset:0}.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.device{background:#111722;border:1px solid #293548;border-radius:22px;padding:10px;box-shadow:0 20px 60px #0008;box-sizing:border-box}
+canvas{display:block;background:#06080d;border-radius:12px;touch-action:none;max-width:none}
+.badge{position:absolute;left:max(10px,env(safe-area-inset-left));top:max(10px,env(safe-area-inset-top));z-index:5;padding:6px 9px;border-radius:10px;background:#111722cc;border:1px solid #293548;color:#8390a3;font-size:11px;pointer-events:none}
+</style></head><body><main class="page"><div class="badge" id="badge">LVGL · 640×172</div><div class="stage"><div class="device"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div></div></main>
+<script>
+var Module={canvas:document.getElementById('canvas')};
+const device=document.querySelector('.device'),badge=document.getElementById('badge');
+let logicalW=640,logicalH=172;
+function fit(w,h){
+ logicalW=w;logicalH=h;badge.textContent='LVGL · '+w+'×'+h;
+ const vw=window.innerWidth,vh=window.innerHeight;
+ const portrait=vh>vw;
+ const rotate=portrait;
+ const availW=(rotate?vh:vw)-28,availH=(rotate?vw:vh)-28;
+ const scale=Math.min(2.4,availW/w,availH/h);
+ const sw=w*scale,sh=h*scale;
+ const c=Module.canvas;c.style.width=sw+'px';c.style.height=sh+'px';
+ device.style.width=(sw+22)+'px';device.style.height=(sh+22)+'px';
+ device.style.transform=rotate?'rotate(90deg)':'none';
+}
+window.robotPreviewResize=function(w,h){const c=Module.canvas;c.width=w;c.height=h;fit(w,h)};
+window.addEventListener('resize',()=>fit(logicalW,logicalH));
+window.addEventListener('orientationchange',()=>setTimeout(()=>fit(logicalW,logicalH),120));
+fit(640,172);
+</script>{{{ SCRIPT }}}</body></html>
