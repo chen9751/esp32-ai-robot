@@ -21,30 +21,30 @@ function fit(w,h){
  device.style.width=(sw+22)+'px';device.style.height=(sh+22)+'px';
  device.style.transform=rotate?'rotate(90deg)':'none';
  c.dataset.rotated=rotate?'1':'0';
+ if(Module._web_set_rotated)Module._web_set_rotated(rotate?1:0);
 }
 window.robotPreviewResize=function(w,h){const c=Module.canvas;c.width=w;c.height=h;fit(w,h)};
 window.addEventListener('resize',()=>fit(logicalW,logicalH));
 window.addEventListener('orientationchange',()=>setTimeout(()=>fit(logicalW,logicalH),120));
-function mapPointer(e){
- if(device.dataset.rotated!=='1') return;
- const c=Module.canvas, rect=c.getBoundingClientRect();
- const touch=e.touches&&e.touches[0]?e.touches[0]:e.changedTouches&&e.changedTouches[0]?e.changedTouches[0]:e;
- if(touch.clientX==null)return;
- // Canvas is visually rotated 90deg clockwise. Convert viewport point back
- // into the canvas' unrotated coordinate system before SDL receives it.
- const x=(touch.clientY-rect.top)/rect.height*c.width;
- const y=(rect.right-touch.clientX)/rect.width*c.height;
- const cx=Math.max(0,Math.min(c.width-1,x));
- const cy=Math.max(0,Math.min(c.height-1,y));
- const ev=new PointerEvent(e.type==='touchend'?'pointerup':e.type==='touchstart'?'pointerdown':'pointermove',{
-   clientX:rect.left+(cx/c.width)*rect.width,
-   clientY:rect.top+(cy/c.height)*rect.height,
-   bubbles:true,pointerType:'touch',isPrimary:true
- });
- c.dispatchEvent(ev);
+function sendPointer(e,pressed){
+ if(device.dataset.rotated!=='1'||!Module._web_pointer)return;
+ const c=Module.canvas,rect=c.getBoundingClientRect();
+ const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e;
+ if(t.clientX==null)return;
+ // getBoundingClientRect is the ROTATED visual box: width = canvas height,
+ // height = canvas width. Undo rotate(90deg) exactly once.
+ const x=(t.clientY-rect.top)/rect.height*c.width;
+ const y=(rect.right-t.clientX)/rect.width*c.height;
+ Module._web_pointer(
+   Math.max(0,Math.min(c.width-1,Math.round(x))),
+   Math.max(0,Math.min(c.height-1,Math.round(y))),
+   pressed?1:0
+ );
 }
-['touchstart','touchmove','touchend'].forEach(t=>document.querySelector('.stage').addEventListener(t,e=>{
- if(device.dataset.rotated==='1'){e.preventDefault();mapPointer(e);}
+['touchstart','touchmove','touchend','touchcancel'].forEach(type=>document.querySelector('.stage').addEventListener(type,e=>{
+ if(device.dataset.rotated!=='1')return;
+ e.preventDefault();
+ sendPointer(e,type==='touchstart'||type==='touchmove');
 },{passive:false}));
 fit(640,172);
 </script>{{{ SCRIPT }}}</body></html>
