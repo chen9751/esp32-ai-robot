@@ -5,12 +5,12 @@
 
 #define UI_SCREEN_W          640
 #define UI_SCREEN_H          172
-#define UI_MENU_ITEM_W       128
-#define UI_MENU_ITEM_H       132
-#define UI_MENU_ICON_SCALE   4
+#define UI_MENU_ITEM_W       144
+#define UI_MENU_ITEM_H       140
+#define UI_MENU_ICON_SCALE   5
 #define UI_MENU_ICON_SIZE    (16 * UI_MENU_ICON_SCALE)
-#define UI_MENU_GAP          24
-#define UI_MENU_SIDE_PAD     24
+#define UI_MENU_GAP          28
+#define UI_MENU_SIDE_PAD     28
 
 /* Mint/cyan green chosen to sit close to the Waveshare blue-green enclosure. */
 #define UI_COLOR_BG          lv_color_hex(0x050909)
@@ -54,10 +54,10 @@ static const uint16_t ICON_LIGHT[16] = {
 };
 
 static const uint16_t ICON_DEVICE[16] = {
-    0x0000, 0x0000, 0x0FF0, 0x1818,
-    0x1008, 0x1008, 0x1008, 0x1008,
-    0x1008, 0x1008, 0x1818, 0x0FF0,
-    0x0180, 0x07E0, 0x0000, 0x0000
+    0x0000, 0x0180, 0x03C0, 0x07E0,
+    0x0FF0, 0x1FF8, 0x3FFC, 0x6186,
+    0x4182, 0x4182, 0x41E2, 0x41E2,
+    0x4182, 0x7FFE, 0x0000, 0x0000
 };
 
 static const uint16_t ICON_ALARM[16] = {
@@ -75,12 +75,12 @@ static const uint16_t ICON_SETTINGS[16] = {
 };
 
 static const ui_menu_item_t MENU_ITEMS[] = {
-    { "遥控器", UI_MENU_REMOTE,   ICON_REMOTE   },
-    { "音乐",   UI_MENU_MUSIC,    ICON_MUSIC    },
-    { "灯光",   UI_MENU_LIGHTS,   ICON_LIGHT    },
-    { "设备",   UI_MENU_DEVICES,  ICON_DEVICE   },
-    { "闹钟",   UI_MENU_ALARM,    ICON_ALARM    },
-    { "设置",   UI_MENU_SETTINGS, ICON_SETTINGS },
+    { "REMOTE",  UI_MENU_REMOTE,   ICON_REMOTE   },
+    { "MUSIC",   UI_MENU_MUSIC,    ICON_MUSIC    },
+    { "LIGHTS",  UI_MENU_LIGHTS,   ICON_LIGHT    },
+    { "DEVICES", UI_MENU_DEVICES,  ICON_DEVICE   },
+    { "ALARM",   UI_MENU_ALARM,    ICON_ALARM    },
+    { "SETTINGS",UI_MENU_SETTINGS, ICON_SETTINGS },
 };
 
 static void menu_item_clicked(lv_event_t *e)
@@ -143,7 +143,7 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(tile, 12, 0);
+    lv_obj_set_style_pad_row(tile, 10, 0);
     lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -191,8 +191,8 @@ void ui_show_main_menu(void)
     lv_obj_set_style_bg_opa(scroller, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_left(scroller, UI_MENU_SIDE_PAD, 0);
     lv_obj_set_style_pad_right(scroller, UI_MENU_SIDE_PAD, 0);
-    lv_obj_set_style_pad_top(scroller, 20, 0);
-    lv_obj_set_style_pad_bottom(scroller, 20, 0);
+    lv_obj_set_style_pad_top(scroller, 16, 0);
+    lv_obj_set_style_pad_bottom(scroller, 16, 0);
     lv_obj_set_style_pad_column(scroller, UI_MENU_GAP, 0);
     lv_obj_set_flex_flow(scroller, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(scroller,
