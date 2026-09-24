@@ -88,7 +88,7 @@ static lv_obj_t *home_metric(lv_obj_t *p,const char *icon,const char *name,const
  return home_text(p,value,x+26,145,&lv_font_montserrat_16,LV_OPA_COVER);
 }
 static void home_create(void){
- s_home=lv_obj_create(NULL);base(s_home);lv_obj_remove_flag(s_home,LV_OBJ_FLAG_SCROLLABLE);gestures(s_home);
+ s_home=lv_obj_create(NULL);base(s_home);gestures(s_home);
 
  /* Full-screen weather scene.  The photographic asset layer will later map
     to the same resource id on Web Preview and /sdcard on ESP32. */
@@ -187,7 +187,7 @@ static lv_obj_t *control_slider(lv_obj_t*p,int y,const char*icon,int value,bool 
  lv_obj_add_event_cb(s,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);return s;
 }
 static void settings_create(void){
- s_settings=lv_obj_create(NULL);base(s_settings);lv_obj_remove_flag(s_settings,LV_OBJ_FLAG_SCROLLABLE);gestures(s_settings);
+ s_settings=lv_obj_create(NULL);base(s_settings);gestures(s_settings);
  /* Control Center is reachable only from Home. It visually behaves as a top overlay. */
  lv_obj_set_style_bg_color(s_settings,lv_color_hex(0x07111F),0);lv_obj_set_style_bg_grad_color(s_settings,lv_color_hex(0x14264A),0);lv_obj_set_style_bg_grad_dir(s_settings,LV_GRAD_DIR_HOR,0);
  lv_obj_t*handle=lv_obj_create(s_settings);lv_obj_remove_flag(handle,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_pos(handle,292,5);lv_obj_set_size(handle,56,5);lv_obj_set_style_radius(handle,3,0);lv_obj_set_style_border_width(handle,0,0);lv_obj_set_style_bg_color(handle,lv_color_hex(0xAEB8D0),0);
@@ -246,7 +246,7 @@ static void light_carousel_cb(lv_event_t*e){
  lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
 }
 static void light_create(void){
- s_light=lv_obj_create(NULL);base(s_light);lv_obj_remove_flag(s_light,LV_OBJ_FLAG_SCROLLABLE);gestures(s_light);
+ s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);
  lv_obj_set_style_bg_color(s_light,lv_color_hex(0x07111F),0);lv_obj_set_style_bg_grad_color(s_light,lv_color_hex(0x122A51),0);
  lv_obj_set_style_bg_grad_dir(s_light,LV_GRAD_DIR_HOR,0);
  room_card(s_light,0,16);room_card(s_light,1,392);
@@ -273,7 +273,7 @@ static void remote_touch_cb(lv_event_t*e){
  else ui_action_remote(dy>0?UI_REMOTE_DOWN:UI_REMOTE_UP);
 }
 static void remote_create(void){
- s_remote=lv_obj_create(NULL);base(s_remote);lv_obj_remove_flag(s_remote,LV_OBJ_FLAG_SCROLLABLE);gestures(s_remote);
+ s_remote=lv_obj_create(NULL);base(s_remote);gestures(s_remote);
  lv_obj_set_style_bg_color(s_remote,lv_color_hex(0x07111F),0);
  lv_obj_set_style_bg_grad_color(s_remote,lv_color_hex(0x102C52),0);lv_obj_set_style_bg_grad_dir(s_remote,LV_GRAD_DIR_HOR,0);
 
