@@ -28,29 +28,27 @@ window.addEventListener('resize',()=>fit(logicalW,logicalH));
 window.addEventListener('orientationchange',()=>setTimeout(()=>fit(logicalW,logicalH),120));
 function sendPointer(e,pressed){
  if(device.dataset.rotated!=='1'||!Module._web_pointer)return;
- const c=Module.canvas;
- const t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e;
+ const c=Module.canvas,t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0])||e;
  if(t.clientX==null)return;
- // Invert the actual CSS transform, rather than deriving coordinates from
- // the rotated bounding box. This also accounts for transform-origin:center.
- const m=new DOMMatrixReadOnly(getComputedStyle(device).transform);
- const inv=m.inverse();
- const dr=device.getBoundingClientRect();
- const cx=dr.left+dr.width/2, cy=dr.top+dr.height/2;
- const local=inv.transformPoint(new DOMPoint(t.clientX-cx,t.clientY-cy));
- const unrotX=local.x+device.offsetWidth/2;
- const unrotY=local.y+device.offsetHeight/2;
- const style=getComputedStyle(device);
- const borderL=parseFloat(style.borderLeftWidth)||0,borderT=parseFloat(style.borderTopWidth)||0;
- const padL=parseFloat(style.paddingLeft)||0,padT=parseFloat(style.paddingTop)||0;
- const px=unrotX-borderL-padL, py=unrotY-borderT-padT;
- const cssW=c.getBoundingClientRect().height; // rotated 90deg: visual height == unrotated CSS width
- const cssH=c.getBoundingClientRect().width;  // rotated 90deg: visual width  == unrotated CSS height
- const x=px/cssW*c.width, y=py/cssH*c.height;
- Module._web_pointer(Math.max(0,Math.min(c.width-1,Math.round(x))),Math.max(0,Math.min(c.height-1,Math.round(y))),pressed?1:0);
+ // Canvas itself is a child of a 90deg clockwise rotated device.
+ // Use the rotated canvas rectangle directly. For clockwise rotation:
+ // logical X grows with screen Y; logical Y grows from screen right to left.
+ const r=c.getBoundingClientRect();
+ const nx=(t.clientY-r.top)/r.height;
+ const ny=(r.right-t.clientX)/r.width;
+ Module._web_pointer(
+   Math.max(0,Math.min(c.width-1,Math.round(nx*(c.width-1)))),
+   Math.max(0,Math.min(c.height-1,Math.round(ny*(c.height-1)))),
+   pressed?1:0
+ );
 }
-['touchstart','touchmove','touchend','touchcancel'].forEach(type=>document.querySelector('.stage').addEventListener(type,e=>{
- if(device.dataset.rotated!=='1')return;e.preventDefault();sendPointer(e,type==='touchstart'||type==='touchmove');
-},{passive:false}));
+function rotatedTouch(e){
+ if(device.dataset.rotated!=='1')return;
+ e.preventDefault();e.stopPropagation();
+ const pressed=e.type==='pointerdown'||e.type==='pointermove';
+ if(e.type==='pointerdown'&&e.target.setPointerCapture)e.target.setPointerCapture(e.pointerId);
+ sendPointer(e,pressed);
+}
+['pointerdown','pointermove','pointerup','pointercancel'].forEach(type=>Module.canvas.addEventListener(type,rotatedTouch,{passive:false}));
 fit(640,172);
 </script>{{{ SCRIPT }}}</body></html>
