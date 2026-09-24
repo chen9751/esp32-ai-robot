@@ -165,7 +165,55 @@ static void apps_create(void){
  app_tile(s_apps,483,0xFFFFFF,0xE9EBEE,LV_SYMBOL_HOME,"DEVICES",go_devices);
 }
 static void settings_create(void){s_settings=lv_obj_create(NULL);base(s_settings);gestures(s_settings);label(s_settings,"SYSTEM",24,14,14);label(s_settings,"Quick settings",96,12,20);volume_slider=slider_row(s_settings,"Volume",65,60);brightness_slider=slider_row(s_settings,"Brightness",108,80);lv_obj_t*h=label(s_settings,"Swipe up to close",255,148,14);lv_obj_set_style_text_color(h,lv_color_hex(MUTED),0);}
-static void light_create(void){s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);label(s_light,"‹",18,9,28);light_title=label(s_light,lights[0],54,13,20);lv_obj_t*hint=label(s_light,"Swipe lights  ·  edge swipe to back",220,17,14);lv_obj_set_style_text_color(hint,lv_color_hex(MUTED),0);light_switch=lv_switch_create(s_light);lv_obj_set_pos(light_switch,560,12);lv_obj_add_state(light_switch,LV_STATE_CHECKED);lv_obj_add_event_cb(light_switch,light_power_cb,LV_EVENT_VALUE_CHANGED,NULL);light_bri=slider_row(s_light,"Brightness",63,72);light_temp=slider_row(s_light,"Warm / Cool",102,58);const char*p[]={"Relax","Read","Movie","Night"};for(int n=0;n<4;n++)button(s_light,20+n*155,130,135,34,p[n],preset_cb,n);}
+static const char *room_names[]={"LIVING","STUDY","BEDROOM","SMALL BED"};
+static const char *room_scene[]={"LIGHT  +  SOFA","LIGHT  +  COMPUTER","LIGHT  +  BED","LIGHT  +  BUNK BED"};
+static void room_scene_style(lv_obj_t *o,int room){
+ static const uint32_t warm[]={0x9B542C,0x745038,0x87513A,0x6B4C3B};
+ lv_obj_set_style_bg_color(o,lv_color_hex(warm[room]),0);lv_obj_set_style_bg_grad_color(o,lv_color_hex(0x17243A),0);
+ lv_obj_set_style_bg_grad_dir(o,LV_GRAD_DIR_HOR,0);
+}
+static lv_obj_t *room_slider(lv_obj_t*p,int y,bool temperature){
+ lv_obj_t *wrap=lv_obj_create(p);lv_obj_set_pos(wrap,278,y);lv_obj_set_size(wrap,282,44);
+ lv_obj_set_style_radius(wrap,22,0);lv_obj_set_style_border_width(wrap,0,0);
+ lv_obj_set_style_bg_color(wrap,lv_color_hex(0x111D30),0);lv_obj_set_style_bg_opa(wrap,LV_OPA_85,0);
+ lv_obj_t *ic=home_text(wrap,temperature?LV_SYMBOL_CHARGE:LV_SYMBOL_EYE_OPEN,12,9,&lv_font_montserrat_20,LV_OPA_90);
+ (void)ic;lv_obj_t *s=lv_slider_create(wrap);lv_obj_set_pos(s,48,17);lv_obj_set_size(s,218,10);
+ lv_slider_set_range(s,0,100);lv_slider_set_value(s,temperature?58:72,LV_ANIM_OFF);
+ lv_obj_set_style_radius(s,5,LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(temperature?0x6AA9FF:0x53617A),LV_PART_MAIN);
+ lv_obj_set_style_bg_color(s,lv_color_hex(temperature?0xFFB24C:0xFFE09A),LV_PART_INDICATOR);
+ lv_obj_set_style_bg_color(s,lv_color_hex(0xFFFFFF),LV_PART_KNOB);
+ return s;
+}
+static lv_obj_t *room_card(lv_obj_t*p,int room,int x){
+ lv_obj_t *card=lv_obj_create(p);lv_obj_set_pos(card,x,10);lv_obj_set_size(card,574,152);
+ lv_obj_set_style_radius(card,24,0);lv_obj_set_style_border_width(card,1,0);
+ lv_obj_set_style_border_color(card,lv_color_hex(0x40597C),0);lv_obj_set_style_bg_color(card,lv_color_hex(0x0D1A2D),0);
+ lv_obj_set_style_bg_opa(card,LV_OPA_95,0);lv_obj_set_style_shadow_width(card,12,0);lv_obj_set_style_shadow_opa(card,LV_OPA_25,0);
+ lv_obj_t *scene=lv_obj_create(card);lv_obj_set_pos(scene,0,0);lv_obj_set_size(scene,252,152);lv_obj_set_style_radius(scene,24,0);
+ lv_obj_set_style_border_width(scene,0,0);room_scene_style(scene,room);
+ home_text(scene,room_names[room],18,14,&lv_font_montserrat_20,LV_OPA_COVER);
+ lv_obj_t *desc=home_text(scene,room_scene[room],18,105,&lv_font_montserrat_14,LV_OPA_70);(void)desc;
+ lv_obj_t *sw=lv_switch_create(scene);lv_obj_set_pos(sw,172,13);lv_obj_set_size(sw,58,30);lv_obj_add_state(sw,LV_STATE_CHECKED);
+ if(room==light_index){light_switch=sw;lv_obj_add_event_cb(sw,light_power_cb,LV_EVENT_VALUE_CHANGED,NULL);}
+ lv_obj_t *bri=room_slider(card,27,false);lv_obj_t *temp=room_slider(card,82,true);
+ if(room==light_index){light_bri=bri;light_temp=temp;lv_obj_add_event_cb(bri,slider_cb,LV_EVENT_VALUE_CHANGED,(void*)2);lv_obj_add_event_cb(temp,slider_cb,LV_EVENT_VALUE_CHANGED,(void*)3);}
+ return card;
+}
+static void light_carousel_cb(lv_event_t*e){
+ static lv_point_t p0;lv_indev_t*i=lv_indev_active();if(!i)return;
+ if(lv_event_get_code(e)==LV_EVENT_PRESSED){lv_indev_get_point(i,&p0);return;}
+ lv_point_t p1;lv_indev_get_point(i,&p1);int dx=p1.x-p0.x;if(dx<-45&&light_index<3){light_index++;ui_action_light_select(light_index);}
+ else if(dx>45&&light_index>0){light_index--;ui_action_light_select(light_index);}else return;
+ lv_obj_clean(s_light);room_card(s_light,light_index,16);if(light_index<3)room_card(s_light,light_index+1,606);
+ lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
+}
+static void light_create(void){
+ s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);
+ lv_obj_set_style_bg_color(s_light,lv_color_hex(0x07111F),0);lv_obj_set_style_bg_grad_color(s_light,lv_color_hex(0x122A51),0);
+ lv_obj_set_style_bg_grad_dir(s_light,LV_GRAD_DIR_HOR,0);
+ room_card(s_light,0,16);room_card(s_light,1,606);
+ lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
+}
 static lv_obj_t *remote_key(lv_obj_t*p,int x,int y,int w,int h,uint32_t top,uint32_t bottom,const char *icon,ui_remote_action_t action){
  lv_obj_t *o=lv_obj_create(p);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);
  lv_obj_set_style_radius(o,(w<h?w:h)/3,0);lv_obj_set_style_border_width(o,1,0);
