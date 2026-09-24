@@ -12,7 +12,7 @@
 static lv_obj_t *s_home,*s_apps,*s_settings,*s_light,*s_remote,*s_music,*s_devices;
 static lv_obj_t *return_screen,*light_title,*light_switch,*light_bri,*light_temp;
 static lv_obj_t *music_play_label,*music_progress,*volume_slider,*brightness_slider;
-static int light_index; static bool music_playing=true; static lv_point_t press_start;
+static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen;
 static const char *lights[]={"Living room","Desk lamp","Bedroom"};
 
 __attribute__((weak)) void ui_action_volume(int v){(void)v;}
@@ -35,7 +35,20 @@ static void landscape(void){ui_action_orientation(false);}
 static void go_apps(lv_event_t*e){(void)e;landscape();load(s_apps);} static void go_light(lv_event_t*e){(void)e;load(s_light);} static void go_music(lv_event_t*e){(void)e;load(s_music);} static void go_devices(lv_event_t*e){(void)e;load(s_devices);}
 static void go_remote(lv_event_t*e){(void)e;ui_action_orientation(true);load(s_remote);}
 
-static void pressed(lv_event_t*e){(void)e;lv_indev_t*i=lv_indev_active();if(i)lv_indev_get_point(i,&press_start);}
+static void pressed(lv_event_t*e){lv_indev_t*i=lv_indev_active();press_screen=lv_event_get_target(e);if(i)lv_indev_get_point(i,&press_start);}
+static void released(lv_event_t*e){
+ lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i||s!=press_screen)return;
+ lv_point_t end;lv_indev_get_point(i,&end);int dx=end.x-press_start.x,dy=end.y-press_start.y;
+ if(dx*dx+dy*dy<32*32)return;
+ lv_dir_t d=(dx<0?LV_DIR_LEFT:LV_DIR_RIGHT);if(dy*dy>dx*dx)d=(dy<0?LV_DIR_TOP:LV_DIR_BOTTOM);
+ if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;landscape();load(s_settings);return;}
+ if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
+ if(s==s_remote&&d==LV_DIR_RIGHT&&press_start.x<=36){landscape();load(s_apps);return;}
+ if(s==s_home&&(d==LV_DIR_LEFT||d==LV_DIR_RIGHT)){load(s_apps);return;}
+ if(s==s_apps&&d==LV_DIR_RIGHT&&press_start.x<=48){load(s_home);return;}
+ if(s==s_light){if(d==LV_DIR_RIGHT&&press_start.x<=48){load(s_apps);return;}if(d==LV_DIR_LEFT||d==LV_DIR_RIGHT){light_index=(light_index+(d==LV_DIR_LEFT?1:2))%3;lv_label_set_text(light_title,lights[light_index]);ui_action_light_select(light_index);return;}}
+ if(s!=s_home&&s!=s_apps&&s!=s_settings&&d==LV_DIR_RIGHT&&press_start.x<=48)load(s_apps);
+}
 static void gesture(lv_event_t*e){
  lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i)return;lv_dir_t d=lv_indev_get_gesture_dir(i);
  if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;landscape();load(s_settings);return;}
@@ -49,7 +62,7 @@ static void gesture(lv_event_t*e){
  }
  if(s!=s_home&&s!=s_apps&&s!=s_settings&&d==LV_DIR_RIGHT&&press_start.x<=48)load(s_apps);
 }
-static void gestures(lv_obj_t*s){lv_obj_add_event_cb(s,pressed,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s,gesture,LV_EVENT_GESTURE,NULL);}
+static void gestures(lv_obj_t*s){lv_obj_add_event_cb(s,pressed,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s,gesture,LV_EVENT_GESTURE,NULL);lv_obj_add_event_cb(s,released,LV_EVENT_RELEASED,NULL);}
 
 static void slider_cb(lv_event_t*e){lv_obj_t*o=lv_event_get_target(e);int v=lv_slider_get_value(o);if(o==volume_slider)ui_action_volume(v);else if(o==brightness_slider)ui_action_brightness(v);else if(o==light_bri)ui_action_light_brightness(v);else if(o==light_temp)ui_action_light_temperature(v);else if(o==music_progress)ui_action_music_seek(v);}
 static lv_obj_t *slider_row(lv_obj_t*p,const char*n,int y,int v){label(p,n,26,y-3,14);lv_obj_t*s=lv_slider_create(p);lv_obj_set_pos(s,150,y);lv_obj_set_size(s,450,10);lv_slider_set_value(s,v,LV_ANIM_OFF);lv_obj_set_style_bg_color(s,lv_color_hex(0x202A38),LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(BLUE),LV_PART_INDICATOR);lv_obj_set_style_bg_color(s,lv_color_hex(TEXT),LV_PART_KNOB);lv_obj_add_event_cb(s,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);return s;}
