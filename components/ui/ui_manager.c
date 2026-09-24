@@ -14,10 +14,9 @@
 #define HOME_GLASS 0x082F57
 
 static lv_obj_t *s_home,*s_apps,*s_settings,*s_light,*s_remote,*s_music,*s_devices;
-static lv_obj_t *return_screen,*light_title,*light_switch,*light_bri,*light_temp;
+static lv_obj_t *return_screen,*light_switch,*light_bri,*light_temp;
 static lv_obj_t *music_play_label,*music_progress,*volume_slider,*brightness_slider;
 static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen;
-static const char *lights[]={"Living room","Desk lamp","Bedroom"};
 
 __attribute__((weak)) void ui_action_volume(int v){(void)v;}
 __attribute__((weak)) void ui_action_brightness(int v){(void)v;}
@@ -157,27 +156,30 @@ static void home_create(void){
  home_text(s_home,"AM",535,91,&lv_font_montserrat_20,LV_OPA_90);
 }
 static lv_obj_t *app_tile(lv_obj_t*p,int x,uint32_t c1,uint32_t c2,const char *symbol,const char *name,lv_event_cb_t cb){
- lv_obj_t*b=lv_obj_create(p);lv_obj_set_scrollbar_mode(b,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(b,x,14);lv_obj_set_size(b,108,108);
- lv_obj_set_style_radius(b,24,0);lv_obj_set_style_border_width(b,0,0);
+ lv_obj_t*b=lv_obj_create(p);lv_obj_set_scrollbar_mode(b,LV_SCROLLBAR_MODE_OFF);lv_obj_remove_flag(b,LV_OBJ_FLAG_SCROLLABLE);
+ lv_obj_set_pos(b,x,20);lv_obj_set_size(b,132,132);
+ lv_obj_set_style_radius(b,28,0);lv_obj_set_style_border_width(b,1,0);
+ lv_obj_set_style_border_color(b,lv_color_hex(0x31405A),0);
  lv_obj_set_style_bg_color(b,lv_color_hex(c1),0);lv_obj_set_style_bg_grad_color(b,lv_color_hex(c2),0);
  lv_obj_set_style_bg_grad_dir(b,LV_GRAD_DIR_VER,0);lv_obj_set_style_shadow_width(b,12,0);
  lv_obj_set_style_shadow_opa(b,LV_OPA_20,0);lv_obj_set_style_shadow_ofs_y(b,4,0);
  lv_obj_add_flag(b,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_flag(b,LV_OBJ_FLAG_GESTURE_BUBBLE);
  lv_obj_add_event_cb(b,cb,LV_EVENT_CLICKED,NULL);
  lv_obj_t*ic=home_text(b,symbol,0,0,&lv_font_montserrat_48,LV_OPA_COVER);
- lv_obj_set_style_text_color(ic,lv_color_hex(0xFFFFFF),0);lv_obj_center(ic);
- lv_obj_t*tx=home_text(p,name,0,146,&lv_font_montserrat_16,LV_OPA_COVER);
- lv_obj_align(tx,LV_ALIGN_TOP_LEFT,x+(126-lv_obj_get_width(tx))/2,146);
+ lv_obj_set_style_text_color(ic,lv_color_hex(0xFFFFFF),0);lv_obj_align(ic,LV_ALIGN_TOP_MID,0,23);
+ lv_obj_add_flag(ic,LV_OBJ_FLAG_EVENT_BUBBLE);
+ lv_obj_t*tx=home_text(b,name,0,0,&lv_font_montserrat_16,LV_OPA_COVER);
+ lv_obj_set_style_text_align(tx,LV_TEXT_ALIGN_CENTER,0);lv_obj_set_width(tx,118);lv_obj_align(tx,LV_ALIGN_BOTTOM_MID,0,-12);
+ lv_obj_add_flag(tx,LV_OBJ_FLAG_EVENT_BUBBLE);
  return b;
 }
 static void apps_create(void){
  s_apps=lv_obj_create(NULL);base(s_apps);gestures(s_apps);
- /* Four large Apple-inspired launcher tiles. Labels deliberately sit outside
-    the tiles so the 640x172 composition stays visually light. */
- app_tile(s_apps,18, 0xA9A9AE,0x62636A,LV_SYMBOL_LIST,"REMOTE",go_remote);
- app_tile(s_apps,173,0xFF315E,0xEF003F,LV_SYMBOL_AUDIO,"MUSIC",go_music);
+ /* 4 x 132 px tiles + 16 px gaps = 576 px, centered in 640 px. */
+ app_tile(s_apps,32, 0xA9A9AE,0x62636A,LV_SYMBOL_LIST,"REMOTE",go_remote);
+ app_tile(s_apps,180,0xFF315E,0xEF003F,LV_SYMBOL_AUDIO,"MUSIC",go_music);
  app_tile(s_apps,328,0xFFD72D,0xFFAA00,LV_SYMBOL_EYE_OPEN,"LIGHTS",go_light);
- app_tile(s_apps,483,0xFFFFFF,0xE9EBEE,LV_SYMBOL_HOME,"DEVICES",go_devices);
+ app_tile(s_apps,476,0xFFFFFF,0xE9EBEE,LV_SYMBOL_HOME,"DEVICES",go_devices);
 }
 static void quick_toggle_cb(lv_event_t*e){lv_obj_t*o=lv_event_get_target(e);bool on=lv_obj_has_state(o,LV_STATE_CHECKED);
  lv_obj_set_style_bg_color(o,lv_color_hex(on?0x244BC8:0x172236),0);lv_obj_set_style_shadow_opa(o,on?LV_OPA_30:LV_OPA_10,0);}
@@ -213,59 +215,129 @@ static void settings_create(void){
  quick_toggle(s_settings,424,92,"C",false);
  quick_toggle(s_settings,498,92,"A",true);
 }
-static const char *room_names[]={"LIVING","STUDY","BEDROOM","SMALL BED"};
-static const char *room_scene[]={"LIGHT  +  SOFA","LIGHT  +  COMPUTER","LIGHT  +  BED","LIGHT  +  BUNK BED"};
+#define LIGHT_ROOM_COUNT 4
+#define LIGHT_CARD_SIZE 154
+#define LIGHT_CARD_GAP 14
+static const char *room_names[LIGHT_ROOM_COUNT]={"LIVING","STUDY","BEDROOM","SMALL BED"};
+static bool room_power[LIGHT_ROOM_COUNT]={true,true,true,true};
+
 static void room_scene_style(lv_obj_t *o,int room){
- static const uint32_t warm[]={0x9B542C,0x745038,0x87513A,0x6B4C3B};
- lv_obj_set_style_bg_color(o,lv_color_hex(warm[room]),0);lv_obj_set_style_bg_grad_color(o,lv_color_hex(0x17243A),0);
+ static const uint32_t warm[LIGHT_ROOM_COUNT]={0x9B542C,0x745038,0x87513A,0x6B4C3B};
+ lv_obj_set_style_bg_color(o,lv_color_hex(warm[room]),0);
+ lv_obj_set_style_bg_grad_color(o,lv_color_hex(0x17243A),0);
  lv_obj_set_style_bg_grad_dir(o,LV_GRAD_DIR_HOR,0);
 }
-static bool room_power[4]={true,true,true,true};
+
+/* Small furniture glyphs are drawn with LVGL primitives so Web/ESP32 match
+   without external bitmap assets. */
+static lv_obj_t *glyph_box(lv_obj_t*p,int x,int y,int w,int h,int r,lv_opa_t opa){
+ lv_obj_t*o=lv_obj_create(p);lv_obj_remove_flag(o,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);lv_obj_set_style_radius(o,r,0);lv_obj_set_style_border_width(o,0,0);
+ lv_obj_set_style_bg_color(o,lv_color_hex(0xFFFFFF),0);lv_obj_set_style_bg_opa(o,opa,0);
+ lv_obj_add_flag(o,LV_OBJ_FLAG_EVENT_BUBBLE);return o;
+}
+static void room_furniture_glyph(lv_obj_t*p,int room){
+ /* common lamp */
+ glyph_box(p,14,49,4,24,2,LV_OPA_80);
+ glyph_box(p,7,43,18,9,5,LV_OPA_80);
+ glyph_box(p,10,72,12,3,1,LV_OPA_80);
+
+ if(room==0){ /* sofa */
+  glyph_box(p,39,57,42,17,6,LV_OPA_80);
+  glyph_box(p,35,63,6,14,3,LV_OPA_80);
+  glyph_box(p,79,63,6,14,3,LV_OPA_80);
+  glyph_box(p,44,52,15,10,4,LV_OPA_60);
+  glyph_box(p,61,52,15,10,4,LV_OPA_60);
+ }else if(room==1){ /* computer */
+  glyph_box(p,40,48,42,25,4,LV_OPA_80);
+  lv_obj_t*screen=glyph_box(p,44,52,34,17,2,LV_OPA_20);(void)screen;
+  glyph_box(p,59,73,4,8,1,LV_OPA_80);
+  glyph_box(p,51,79,20,3,1,LV_OPA_80);
+ }else if(room==2){ /* bed */
+  glyph_box(p,38,60,48,15,4,LV_OPA_80);
+  glyph_box(p,42,55,16,9,4,LV_OPA_60);
+  glyph_box(p,35,55,4,24,1,LV_OPA_80);
+  glyph_box(p,83,70,4,9,1,LV_OPA_80);
+ }else{ /* bunk bed */
+  glyph_box(p,40,49,43,10,3,LV_OPA_80);
+  glyph_box(p,40,68,43,10,3,LV_OPA_80);
+  glyph_box(p,36,45,4,37,1,LV_OPA_80);
+  glyph_box(p,83,45,4,37,1,LV_OPA_80);
+  glyph_box(p,51,58,3,10,1,LV_OPA_60);
+ }
+}
 static void room_scene_click_cb(lv_event_t*e){
- int room=(int)(intptr_t)lv_event_get_user_data(e);room_power[room]=!room_power[room];
+ int room=(int)(intptr_t)lv_event_get_user_data(e);
+ room_power[room]=!room_power[room];
  lv_obj_t*scene=lv_event_get_target(e);
  lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_40,0);
  if(room==light_index)ui_action_light_power(room_power[room]);
 }
 static lv_obj_t *room_slider(lv_obj_t*p,int y,bool temperature){
- lv_obj_t*s=lv_slider_create(p);lv_obj_set_pos(s,148,y);lv_obj_set_size(s,196,42);
+ lv_obj_t*s=lv_slider_create(p);lv_obj_set_pos(s,10,y);lv_obj_set_size(s,134,25);
  lv_slider_set_range(s,0,100);lv_slider_set_value(s,temperature?58:72,LV_ANIM_OFF);
- lv_obj_set_style_radius(s,21,LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(0x17263A),LV_PART_MAIN);
- lv_obj_set_style_bg_opa(s,LV_OPA_COVER,LV_PART_MAIN);lv_obj_set_style_radius(s,21,LV_PART_INDICATOR);
+ lv_obj_set_style_radius(s,13,LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(0x17263A),LV_PART_MAIN);
+ lv_obj_set_style_bg_opa(s,LV_OPA_COVER,LV_PART_MAIN);lv_obj_set_style_radius(s,13,LV_PART_INDICATOR);
  lv_obj_set_style_bg_color(s,lv_color_hex(temperature?0xFFB24C:0xFFE09A),LV_PART_INDICATOR);
- lv_obj_set_style_bg_opa(s,LV_OPA_COVER,LV_PART_INDICATOR);lv_obj_set_style_bg_opa(s,LV_OPA_TRANSP,LV_PART_KNOB);
- lv_obj_t*ic=home_text(p,temperature?LV_SYMBOL_CHARGE:LV_SYMBOL_EYE_OPEN,158,y+8,&lv_font_montserrat_20,LV_OPA_90);
- lv_obj_add_flag(ic,LV_OBJ_FLAG_EVENT_BUBBLE);return s;
+ lv_obj_set_style_bg_opa(s,LV_OPA_COVER,LV_PART_INDICATOR);
+ lv_obj_set_style_bg_opa(s,LV_OPA_TRANSP,LV_PART_KNOB);
+ lv_obj_add_flag(s,LV_OBJ_FLAG_GESTURE_BUBBLE);
+ lv_obj_t*ic=home_text(p,temperature?LV_SYMBOL_CHARGE:LV_SYMBOL_EYE_OPEN,17,y+2,&lv_font_montserrat_20,LV_OPA_90);
+ lv_obj_add_flag(ic,LV_OBJ_FLAG_EVENT_BUBBLE);
+ return s;
 }
 static lv_obj_t *room_card(lv_obj_t*p,int room,int x){
- lv_obj_t*card=lv_obj_create(p);lv_obj_set_scrollbar_mode(card,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(card,x,10);lv_obj_set_size(card,360,152);
- lv_obj_set_style_radius(card,24,0);lv_obj_set_style_border_width(card,1,0);lv_obj_set_style_border_color(card,lv_color_hex(0x40597C),0);
+ lv_obj_t*card=lv_obj_create(p);lv_obj_remove_flag(card,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scrollbar_mode(card,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_set_pos(card,x,9);lv_obj_set_size(card,LIGHT_CARD_SIZE,LIGHT_CARD_SIZE);
+ lv_obj_set_style_radius(card,24,0);lv_obj_set_style_border_width(card,1,0);
+ lv_obj_set_style_border_color(card,lv_color_hex(0x40597C),0);
  lv_obj_set_style_bg_color(card,lv_color_hex(0x0D1A2D),0);lv_obj_set_style_bg_opa(card,LV_OPA_90,0);
- lv_obj_t*scene=lv_obj_create(card);lv_obj_set_scrollbar_mode(scene,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(scene,0,0);lv_obj_set_size(scene,132,152);
- lv_obj_set_style_radius(scene,24,0);lv_obj_set_style_border_width(scene,0,0);room_scene_style(scene,room);
- lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_40,0);lv_obj_add_flag(scene,LV_OBJ_FLAG_CLICKABLE);
+ lv_obj_set_style_pad_all(card,0,0);lv_obj_add_flag(card,LV_OBJ_FLAG_EVENT_BUBBLE);lv_obj_add_flag(card,LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+ lv_obj_t*scene=lv_obj_create(card);lv_obj_remove_flag(scene,LV_OBJ_FLAG_SCROLLABLE);lv_obj_set_scrollbar_mode(scene,LV_SCROLLBAR_MODE_OFF);
+ lv_obj_set_pos(scene,7,7);lv_obj_set_size(scene,140,85);lv_obj_set_style_radius(scene,18,0);
+ lv_obj_set_style_border_width(scene,0,0);room_scene_style(scene,room);
+ lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_40,0);
+ lv_obj_add_flag(scene,LV_OBJ_FLAG_CLICKABLE);lv_obj_add_flag(scene,LV_OBJ_FLAG_EVENT_BUBBLE);lv_obj_add_flag(scene,LV_OBJ_FLAG_GESTURE_BUBBLE);
  lv_obj_add_event_cb(scene,room_scene_click_cb,LV_EVENT_CLICKED,(void*)(intptr_t)room);
- home_text(scene,room_names[room],12,18,&lv_font_montserrat_16,LV_OPA_COVER);
- home_text(scene,room_scene[room],12,112,&lv_font_montserrat_14,LV_OPA_70);
- lv_obj_t*bri=room_slider(card,27,false);lv_obj_t*temp=room_slider(card,83,true);
- if(room==light_index){light_bri=bri;light_temp=temp;lv_obj_add_event_cb(bri,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);lv_obj_add_event_cb(temp,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);}
+ lv_obj_t*title=home_text(scene,room_names[room],10,8,&lv_font_montserrat_14,LV_OPA_COVER);lv_obj_add_flag(title,LV_OBJ_FLAG_EVENT_BUBBLE);
+ room_furniture_glyph(scene,room);
+
+ lv_obj_t*bri=room_slider(card,98,false);
+ lv_obj_t*temp=room_slider(card,126,true);
+ if(room==light_index){
+  light_bri=bri;light_temp=temp;
+  lv_obj_add_event_cb(bri,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);
+  lv_obj_add_event_cb(temp,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);
+ }
  return card;
+}
+static void light_render(void){
+ lv_obj_clean(s_light);
+ int x=12;
+ for(int room=light_index;room<LIGHT_ROOM_COUNT;room++){
+  room_card(s_light,room,x);
+  x+=LIGHT_CARD_SIZE+LIGHT_CARD_GAP;
+ }
 }
 static void light_carousel_cb(lv_event_t*e){
  static lv_point_t p0;lv_indev_t*i=lv_indev_active();if(!i)return;
  if(lv_event_get_code(e)==LV_EVENT_PRESSED){lv_indev_get_point(i,&p0);return;}
  lv_point_t p1;lv_indev_get_point(i,&p1);int dx=p1.x-p0.x;
- if(dx<-45&&light_index<3)light_index++;else if(dx>45&&light_index>0)light_index--;else return;
- ui_action_light_select(light_index);lv_obj_clean(s_light);
- room_card(s_light,light_index,16);if(light_index<3)room_card(s_light,light_index+1,392);
- lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
+ if(dx<-38&&light_index<LIGHT_ROOM_COUNT-1)light_index++;
+ else if(dx>38&&light_index>0)light_index--;
+ else return;
+ ui_action_light_select(light_index);
+ light_render();
 }
 static void light_create(void){
  s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);
- lv_obj_set_style_bg_color(s_light,lv_color_hex(0x07111F),0);lv_obj_set_style_bg_grad_color(s_light,lv_color_hex(0x122A51),0);
+ lv_obj_set_style_bg_color(s_light,lv_color_hex(0x07111F),0);
+ lv_obj_set_style_bg_grad_color(s_light,lv_color_hex(0x122A51),0);
  lv_obj_set_style_bg_grad_dir(s_light,LV_GRAD_DIR_HOR,0);
- room_card(s_light,0,16);room_card(s_light,1,392);
- lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
+ light_render();
+ lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);
+ lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
 }
 static lv_obj_t *remote_key(lv_obj_t*p,int x,int y,int w,int h,uint32_t top,uint32_t bottom,const char *icon,ui_remote_action_t action){
  lv_obj_t *o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);
