@@ -21,6 +21,7 @@ void ui_action_light_preset(int preset);
 void ui_action_music(ui_music_action_t action);
 void ui_action_music_seek(int percent);
 void ui_action_remote(ui_remote_action_t action);
+void ui_action_orientation(bool portrait);
 #ifdef __cplusplus
 }
 #endif
