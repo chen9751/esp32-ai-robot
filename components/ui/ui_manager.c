@@ -40,8 +40,7 @@ static void released(lv_event_t*e){
  lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i||s!=press_screen)return;
  lv_point_t end;lv_indev_get_point(i,&end);int dx=end.x-press_start.x,dy=end.y-press_start.y;
  if(dx*dx+dy*dy<32*32)return;
- swipe_consumed=true;
- lv_dir_t d=(dx<0?LV_DIR_LEFT:LV_DIR_RIGHT);if(dy*dy>dx*dx)d=(dy<0?LV_DIR_TOP:LV_DIR_BOTTOM);
+lv_dir_t d=(dx<0?LV_DIR_LEFT:LV_DIR_RIGHT);if(dy*dy>dx*dx)d=(dy<0?LV_DIR_TOP:LV_DIR_BOTTOM);
  if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;load(s_settings);return;}
  if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
  if(s==s_remote&&d==LV_DIR_RIGHT&&press_start.x<=36){load(s_apps);return;}
@@ -51,8 +50,7 @@ static void released(lv_event_t*e){
  if(s!=s_home&&s!=s_apps&&s!=s_settings&&d==LV_DIR_RIGHT&&press_start.x<=48)load(s_apps);
 }
 static void gesture(lv_event_t*e){
- swipe_consumed=true;
- lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i)return;lv_dir_t d=lv_indev_get_gesture_dir(i);
+lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i)return;lv_dir_t d=lv_indev_get_gesture_dir(i);
  if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;load(s_settings);return;}
  if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
  if(s==s_remote&&d==LV_DIR_RIGHT&&press_start.x<=36){load(s_apps);return;}
