@@ -110,19 +110,30 @@ static void menu_item_clicked(lv_event_t *e)
     }
 }
 
-static void draw_pixel_bitmap(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GRID])
+static void pixel_icon_draw_cb(lv_event_t *e)
 {
-    lv_obj_t *pixel_layer = lv_obj_create(parent);
-    lv_obj_remove_style_all(pixel_layer);
-    lv_obj_set_size(pixel_layer, UI_MENU_ICON_SIZE, UI_MENU_ICON_SIZE);
-    lv_obj_set_style_bg_opa(pixel_layer, LV_OPA_TRANSP, 0);
-    lv_obj_clear_flag(pixel_layer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(pixel_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *obj = lv_event_get_current_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    const uint32_t *bitmap =
+        (const uint32_t *)lv_event_get_user_data(e);
+
+    if (bitmap == NULL || layer == NULL) {
+        return;
+    }
+
+    lv_area_t obj_coords;
+    lv_obj_get_coords(obj, &obj_coords);
+
+    lv_draw_rect_dsc_t dot_dsc;
+    lv_draw_rect_dsc_init(&dot_dsc);
+    dot_dsc.bg_color = UI_COLOR_FG;
+    dot_dsc.bg_opa = LV_OPA_COVER;
+    dot_dsc.radius = 0;
 
     /*
-     * Dot-matrix rendering:
-     * each logical pixel owns a 3x3 cell, but only a 2x2 square is lit.
-     * The remaining 1 px gap stays black, creating the separated LCD-dot look.
+     * Each logical source pixel occupies a 3x3 cell.
+     * Only a 2x2 square is lit, leaving a 1 px black gap.
+     * This preserves the separated retro dot-matrix appearance.
      */
     for (int y = 0; y < UI_ICON_GRID; ++y) {
         const uint32_t row = bitmap[y];
@@ -132,21 +143,38 @@ static void draw_pixel_bitmap(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GR
                 continue;
             }
 
-            lv_obj_t *dot = lv_obj_create(pixel_layer);
-            lv_obj_remove_style_all(dot);
-            lv_obj_set_pos(dot,
-                           x * UI_MENU_CELL_SIZE,
-                           y * UI_MENU_CELL_SIZE);
-            lv_obj_set_size(dot,
-                            UI_MENU_DOT_SIZE,
-                            UI_MENU_DOT_SIZE);
-            lv_obj_set_style_bg_color(dot, UI_COLOR_FG, 0);
-            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-            lv_obj_set_style_radius(dot, 0, 0);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+            lv_area_t dot_area = {
+                .x1 = obj_coords.x1 + x * UI_MENU_CELL_SIZE,
+                .y1 = obj_coords.y1 + y * UI_MENU_CELL_SIZE,
+                .x2 = obj_coords.x1 + x * UI_MENU_CELL_SIZE
+                    + UI_MENU_DOT_SIZE - 1,
+                .y2 = obj_coords.y1 + y * UI_MENU_CELL_SIZE
+                    + UI_MENU_DOT_SIZE - 1,
+            };
+
+            lv_draw_rect(layer, &dot_dsc, &dot_area);
         }
     }
+}
+
+static void draw_pixel_bitmap(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GRID])
+{
+    /*
+     * One LVGL object per icon.
+     * The individual dots are draw commands, not child objects.
+     * This avoids hundreds of lv_obj allocations per menu page.
+     */
+    lv_obj_t *icon = lv_obj_create(parent);
+    lv_obj_remove_style_all(icon);
+    lv_obj_set_size(icon, UI_MENU_ICON_SIZE, UI_MENU_ICON_SIZE);
+    lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_add_event_cb(icon,
+                        pixel_icon_draw_cb,
+                        LV_EVENT_DRAW_MAIN,
+                        (void *)bitmap);
 }
 
 static void style_menu_label(lv_obj_t *label)
