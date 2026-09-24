@@ -327,8 +327,8 @@ static lv_obj_t *room_card(lv_obj_t*p,int room,int x){
  room_furniture_glyph(scene,room);
 
  /* Brightness and color-temperature remain horizontal controls to the right. */
- lv_obj_t*bri=room_slider(card,24,false);lv_obj_t*temp=room_slider(card,80,true);
- if(room==light_index){light_bri=bri;light_temp=temp;lv_obj_add_event_cb(bri,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);lv_obj_add_event_cb(temp,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);}
+ room_slider(card,room,24,false);
+ room_slider(card,room,80,true);
  return card;
 }
 static void light_render(void){
