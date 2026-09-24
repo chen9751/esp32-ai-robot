@@ -14,7 +14,7 @@
 #define HOME_GLASS 0x082F57
 
 static lv_obj_t *s_home,*s_apps,*s_settings,*s_light,*s_remote,*s_music,*s_devices;
-static lv_obj_t *return_screen,*light_switch,*light_bri,*light_temp;
+static lv_obj_t *return_screen;
 static lv_obj_t *music_play_label,*music_progress,*volume_slider,*brightness_slider;
 static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen;
 
@@ -82,7 +82,7 @@ static void gestures(lv_obj_t*s){
  lv_obj_add_event_cb(s,released,LV_EVENT_RELEASED,NULL);
 }
 
-static void slider_cb(lv_event_t*e){lv_obj_t*o=lv_event_get_target(e);int v=lv_slider_get_value(o);if(o==volume_slider)ui_action_volume(v);else if(o==brightness_slider)ui_action_brightness(v);else if(o==light_bri)ui_action_light_brightness(v);else if(o==light_temp)ui_action_light_temperature(v);else if(o==music_progress)ui_action_music_seek(v);}
+static void slider_cb(lv_event_t*e){lv_obj_t*o=lv_event_get_target(e);int v=lv_slider_get_value(o);if(o==volume_slider)ui_action_volume(v);else if(o==brightness_slider)ui_action_brightness(v);else if(o==music_progress)ui_action_music_seek(v);}
 static lv_obj_t *slider_row(lv_obj_t*p,const char*n,int y,int v){label(p,n,26,y-3,14);lv_obj_t*s=lv_slider_create(p);lv_obj_set_pos(s,150,y);lv_obj_set_size(s,450,10);lv_slider_set_value(s,v,LV_ANIM_OFF);lv_obj_set_style_bg_color(s,lv_color_hex(0x202A38),LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(BLUE),LV_PART_INDICATOR);lv_obj_set_style_bg_color(s,lv_color_hex(TEXT),LV_PART_KNOB);lv_obj_add_event_cb(s,slider_cb,LV_EVENT_VALUE_CHANGED,NULL);return s;}
 static void light_power_cb(lv_event_t*e){ui_action_light_power(lv_obj_has_state(lv_event_get_target(e),LV_STATE_CHECKED));}
 static void preset_cb(lv_event_t*e){ui_action_light_preset((int)(intptr_t)lv_event_get_user_data(e));}
@@ -279,7 +279,7 @@ static void room_scene_click_cb(lv_event_t*e){
  int room=(int)(intptr_t)lv_event_get_user_data(e);room_power[room]=!room_power[room];
  lv_obj_t*scene=lv_event_get_target(e);
  lv_obj_set_style_bg_opa(scene,room_power[room]?LV_OPA_COVER:LV_OPA_30,0);
- if(room==light_index)ui_action_light_power(room_power[room]);
+ ui_action_light_select(room);ui_action_light_power(room_power[room]);
 }
 static void sun_icon(lv_obj_t*p,int x,int y){
  lv_obj_t*core=glyph_box(p,x+6,y+6,13,13,7,LV_OPA_COVER);(void)core;
@@ -291,7 +291,14 @@ static void temp_icon(lv_obj_t*p,int x,int y){
  glyph_box(p,x+6,y+14,11,11,6,LV_OPA_COVER);
  glyph_box(p,x+10,y+4,3,13,1,LV_OPA_COVER);
 }
-static lv_obj_t *room_slider(lv_obj_t*p,int y,bool temperature){
+static void light_slider_cb(lv_event_t*e){
+ int data=(int)(intptr_t)lv_event_get_user_data(e);
+ int room=data>>1;bool temperature=(data&1)!=0;
+ int value=lv_slider_get_value(lv_event_get_target(e));
+ ui_action_light_select(room);
+ if(temperature)ui_action_light_temperature(value);else ui_action_light_brightness(value);
+}
+static lv_obj_t *room_slider(lv_obj_t*p,int room,int y,bool temperature){
  lv_obj_t*s=lv_slider_create(p);lv_obj_set_pos(s,151,y);lv_obj_set_size(s,145,42);
  lv_slider_set_range(s,0,100);lv_slider_set_value(s,temperature?58:72,LV_ANIM_OFF);
  lv_obj_set_style_radius(s,21,LV_PART_MAIN);lv_obj_set_style_bg_color(s,lv_color_hex(0x17263A),LV_PART_MAIN);
@@ -331,21 +338,24 @@ static void light_render(void){
   room_card(s_light,room,x);x+=LIGHT_CARD_W+LIGHT_CARD_GAP;
  }
 }
-static void light_carousel_cb(lv_event_t*e){
- static lv_point_t p0;lv_indev_t*i=lv_indev_active();if(!i)return;
- if(lv_event_get_code(e)==LV_EVENT_PRESSED){lv_indev_get_point(i,&p0);return;}
- lv_point_t p1;lv_indev_get_point(i,&p1);int dx=p1.x-p0.x;
- if(dx<-38&&light_index<LIGHT_ROOM_COUNT-1)light_index++;
- else if(dx>38&&light_index>0)light_index--;
+static void light_render_async(void*unused){(void)unused;if(lv_screen_active()==s_light)light_render();}
+static void light_carousel_gesture_cb(lv_event_t*e){
+ (void)e;
+ if(lv_screen_active()!=s_light)return;
+ lv_indev_t*i=lv_indev_active();if(!i)return;
+ lv_dir_t d=lv_indev_get_gesture_dir(i);
+ if(d==LV_DIR_RIGHT&&press_start.x<=48)return;
+ if(d==LV_DIR_LEFT&&light_index<LIGHT_ROOM_COUNT-1)light_index++;
+ else if(d==LV_DIR_RIGHT&&light_index>0)light_index--;
  else return;
- ui_action_light_select(light_index);light_render();
+ ui_action_light_select(light_index);
+ lv_async_call(light_render_async,NULL);
 }
 static void light_create(void){
  s_light=lv_obj_create(NULL);base(s_light);gestures(s_light);
  lv_obj_set_style_bg_color(s_light,lv_color_hex(0x07111F),0);lv_obj_set_style_bg_grad_color(s_light,lv_color_hex(0x122A51),0);
  lv_obj_set_style_bg_grad_dir(s_light,LV_GRAD_DIR_HOR,0);light_render();
- lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_PRESSED,NULL);
- lv_obj_add_event_cb(s_light,light_carousel_cb,LV_EVENT_RELEASED,NULL);
+ lv_obj_add_event_cb(s_light,light_carousel_gesture_cb,LV_EVENT_GESTURE,NULL);
 }
 static lv_obj_t *remote_key(lv_obj_t*p,int x,int y,int w,int h,uint32_t top,uint32_t bottom,const char *icon,ui_remote_action_t action){
  lv_obj_t *o=lv_obj_create(p);lv_obj_set_scrollbar_mode(o,LV_SCROLLBAR_MODE_OFF);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);
