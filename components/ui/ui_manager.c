@@ -12,7 +12,7 @@
 static lv_obj_t *s_home,*s_apps,*s_settings,*s_light,*s_remote,*s_music,*s_devices;
 static lv_obj_t *return_screen,*light_title,*light_switch,*light_bri,*light_temp;
 static lv_obj_t *music_play_label,*music_progress,*volume_slider,*brightness_slider;
-static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen;
+static int light_index; static bool music_playing=true; static lv_point_t press_start; static lv_obj_t *press_screen; static bool swipe_consumed;
 static const char *lights[]={"Living room","Desk lamp","Bedroom"};
 
 __attribute__((weak)) void ui_action_volume(int v){(void)v;}
@@ -32,14 +32,16 @@ static lv_obj_t *label(lv_obj_t*p,const char*t,int x,int y,int z){lv_obj_t*o=lv_
 static lv_obj_t *card(lv_obj_t*p,int x,int y,int w,int h){lv_obj_t*o=lv_obj_create(p);lv_obj_set_pos(o,x,y);lv_obj_set_size(o,w,h);lv_obj_set_style_radius(o,18,0);lv_obj_set_style_bg_color(o,lv_color_hex(CARD),0);lv_obj_set_style_bg_grad_color(o,lv_color_hex(CARD2),0);lv_obj_set_style_bg_grad_dir(o,LV_GRAD_DIR_HOR,0);lv_obj_set_style_bg_opa(o,LV_OPA_COVER,0);lv_obj_set_style_border_width(o,1,0);lv_obj_set_style_border_color(o,lv_color_hex(LINE),0);lv_obj_set_style_pad_all(o,10,0);return o;}
 static void load(lv_obj_t*s){lv_screen_load_anim(s,LV_SCR_LOAD_ANIM_FADE_IN,120,0,false);}
 static void landscape(void){ui_action_orientation(false);}
-static void go_apps(lv_event_t*e){(void)e;load(s_apps);} static void go_light(lv_event_t*e){(void)e;load(s_light);} static void go_music(lv_event_t*e){(void)e;load(s_music);} static void go_devices(lv_event_t*e){(void)e;load(s_devices);}
-static void go_remote(lv_event_t*e){(void)e;load(s_remote);}
+static bool click_blocked(lv_event_t*e){lv_indev_t*i=lv_indev_active();if(swipe_consumed)return true;if(i){lv_point_t p;lv_indev_get_point(i,&p);int dx=p.x-press_start.x,dy=p.y-press_start.y;if(dx*dx+dy*dy>=18*18)return true;}return false;}
+static void go_apps(lv_event_t*e){if(click_blocked(e))return;load(s_apps);} static void go_light(lv_event_t*e){if(click_blocked(e))return;load(s_light);} static void go_music(lv_event_t*e){if(click_blocked(e))return;load(s_music);} static void go_devices(lv_event_t*e){if(click_blocked(e))return;load(s_devices);}
+static void go_remote(lv_event_t*e){if(click_blocked(e))return;load(s_remote);}
 
-static void pressed(lv_event_t*e){lv_indev_t*i=lv_indev_active();press_screen=lv_event_get_target(e);if(i)lv_indev_get_point(i,&press_start);}
+static void pressed(lv_event_t*e){lv_indev_t*i=lv_indev_active();press_screen=lv_event_get_target(e);swipe_consumed=false;if(i)lv_indev_get_point(i,&press_start);}
 static void released(lv_event_t*e){
  lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i||s!=press_screen)return;
  lv_point_t end;lv_indev_get_point(i,&end);int dx=end.x-press_start.x,dy=end.y-press_start.y;
  if(dx*dx+dy*dy<32*32)return;
+ swipe_consumed=true;
  lv_dir_t d=(dx<0?LV_DIR_LEFT:LV_DIR_RIGHT);if(dy*dy>dx*dx)d=(dy<0?LV_DIR_TOP:LV_DIR_BOTTOM);
  if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;load(s_settings);return;}
  if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
@@ -50,6 +52,7 @@ static void released(lv_event_t*e){
  if(s!=s_home&&s!=s_apps&&s!=s_settings&&d==LV_DIR_RIGHT&&press_start.x<=48)load(s_apps);
 }
 static void gesture(lv_event_t*e){
+ swipe_consumed=true;
  lv_obj_t*s=lv_event_get_target(e);lv_indev_t*i=lv_indev_active();if(!i)return;lv_dir_t d=lv_indev_get_gesture_dir(i);
  if(d==LV_DIR_BOTTOM&&press_start.y<=28&&s!=s_settings){return_screen=s;load(s_settings);return;}
  if(s==s_settings&&d==LV_DIR_TOP){load(return_screen?return_screen:s_home);return;}
