@@ -1,6 +1,9 @@
 name: UI Web Preview
 on:
   push:
+    branches: [main, "ui/**"]
+    paths: ["components/ui/**","web_preview/**",".github/workflows/ui-web-preview.yml"]
+  pull_request:
     branches: [main]
     paths: ["components/ui/**","web_preview/**",".github/workflows/ui-web-preview.yml"]
   workflow_dispatch:
@@ -9,7 +12,7 @@ permissions:
   pages: write
   id-token: write
 concurrency:
-  group: pages
+  group: ui-preview-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
@@ -25,18 +28,27 @@ jobs:
         run: emcmake cmake -S web_preview -B web_preview/build -DCMAKE_BUILD_TYPE=Release
       - name: Build LVGL WebAssembly preview
         run: cmake --build web_preview/build -j2
-      - name: Prepare Pages artifact
+      - name: Prepare preview artifact
         run: |
           mkdir -p web_preview/dist
           cp web_preview/build/index.html web_preview/dist/
           cp web_preview/build/index.js web_preview/dist/
           cp web_preview/build/index.wasm web_preview/dist/
           touch web_preview/dist/.nojekyll
+      - name: Upload branch/PR browser preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-web-preview-${{ github.sha }}
+          path: web_preview/dist
+          retention-days: 14
       - uses: actions/configure-pages@v5
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       - uses: actions/upload-pages-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
           path: web_preview/dist
   deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
