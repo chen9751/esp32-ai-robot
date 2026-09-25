@@ -36,6 +36,7 @@ static lv_timer_t *s_idle_timer = NULL;
 static bool s_transition_animating = false;
 static ui_transition_target_t s_transition_target = UI_TRANSITION_NONE;
 static lv_obj_t *s_transition_overlay = NULL;
+static lv_obj_t *s_transition_underlay = NULL;
 
 static int32_t iabs32(int32_t value)
 {
@@ -56,7 +57,9 @@ void ui_mark_activity(void)
 
 bool ui_navigation_transition_active(void)
 {
-    return s_transition_overlay != NULL || s_transition_animating;
+    return s_transition_overlay != NULL ||
+           s_transition_underlay != NULL ||
+           s_transition_animating;
 }
 
 static void page_activity_cb(void *user_data)
@@ -90,28 +93,49 @@ static void vertical_drag_cb(int32_t dx,
 
 static void begin_transition(ui_transition_target_t target)
 {
-    if (s_transition_overlay != NULL || s_transition_animating) {
+    if (s_transition_overlay != NULL ||
+        s_transition_underlay != NULL ||
+        s_transition_animating) {
         return;
     }
 
     s_transition_target = target;
-    s_transition_overlay = create_transition_surface();
 
     if (target == UI_TRANSITION_TO_CLOCK) {
+        /*
+         * HOME -> CLOCK: the clock comes in from above and covers HOME.
+         * This is the "cover" direction the user expects.
+         */
+        s_transition_overlay = create_transition_surface();
         lv_obj_set_pos(s_transition_overlay, 0, -UI_SCREEN_H);
         ui_page_clock_build(s_transition_overlay);
+        lv_obj_move_foreground(s_transition_overlay);
+        return;
     }
-    else {
-        lv_obj_set_pos(s_transition_overlay, 0, UI_SCREEN_H);
-        ui_page_home_build(s_transition_overlay,
+
+    /*
+     * STANDBY -> HOME is the inverse visual operation:
+     * HOME is already underneath, while the current standby page itself
+     * follows the finger upward and reveals HOME below it.
+     *
+     * Do not slide HOME upward over the clock.  That was the previous bug.
+     */
+    s_transition_overlay = ui_page_standby_get_root();
+    if (s_transition_overlay == NULL) {
+        s_transition_target = UI_TRANSITION_NONE;
+        return;
+    }
+
+    s_transition_underlay =
+        ui_page_home_build(lv_screen_active(),
                            s_action_cb,
                            s_action_user_data,
                            page_activity_cb,
                            NULL,
                            vertical_drag_cb,
                            NULL);
-    }
 
+    lv_obj_move_background(s_transition_underlay);
     lv_obj_move_foreground(s_transition_overlay);
 }
 
@@ -126,8 +150,9 @@ static void update_transition_position(int32_t dy)
         lv_obj_set_y(s_transition_overlay, -UI_SCREEN_H + progress);
     }
     else {
+        /* STANDBY exits upward, revealing the stationary HOME underneath. */
         int32_t progress = clamp_i32(-dy, 0, UI_SCREEN_H);
-        lv_obj_set_y(s_transition_overlay, UI_SCREEN_H - progress);
+        lv_obj_set_y(s_transition_overlay, -progress);
     }
 }
 
@@ -137,6 +162,7 @@ static void finish_transition_commit(lv_anim_t *anim)
 
     s_transition_animating = false;
     s_transition_overlay = NULL;
+    s_transition_underlay = NULL;
 
     if (s_transition_target == UI_TRANSITION_TO_CLOCK) {
         s_transition_target = UI_TRANSITION_NONE;
@@ -153,14 +179,29 @@ static void finish_transition_cancel(lv_anim_t *anim)
     (void)anim;
 
     if (s_transition_target == UI_TRANSITION_TO_CLOCK) {
+        /* The temporary clock overlay is discarded. */
         ui_page_clock_stop();
-    }
 
-    if (s_transition_overlay != NULL) {
-        lv_obj_delete(s_transition_overlay);
+        if (s_transition_overlay != NULL) {
+            lv_obj_delete(s_transition_overlay);
+        }
+    }
+    else if (s_transition_target == UI_TRANSITION_TO_HOME) {
+        /*
+         * The moving object is the real standby page, so keep it.
+         * Only discard the temporary HOME underlay and restore standby to y=0.
+         */
+        if (s_transition_overlay != NULL) {
+            lv_obj_set_y(s_transition_overlay, 0);
+        }
+
+        if (s_transition_underlay != NULL) {
+            lv_obj_delete(s_transition_underlay);
+        }
     }
 
     s_transition_overlay = NULL;
+    s_transition_underlay = NULL;
     s_transition_target = UI_TRANSITION_NONE;
     s_transition_animating = false;
 }
@@ -231,14 +272,18 @@ static void vertical_drag_cb(int32_t dx,
                   distance >= UI_TRANSITION_COMMIT_DISTANCE;
 
     if (commit) {
-        animate_transition_to(0, true);
+        int32_t committed_y =
+            s_transition_target == UI_TRANSITION_TO_CLOCK
+                ? 0
+                : -UI_SCREEN_H;
+        animate_transition_to(committed_y, true);
     }
     else {
-        int32_t offscreen_y =
+        int32_t cancelled_y =
             s_transition_target == UI_TRANSITION_TO_CLOCK
                 ? -UI_SCREEN_H
-                : UI_SCREEN_H;
-        animate_transition_to(offscreen_y, false);
+                : 0;
+        animate_transition_to(cancelled_y, false);
     }
 }
 
