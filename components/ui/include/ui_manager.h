@@ -23,8 +23,17 @@ void ui_set_menu_font(const lv_font_t *font);
 /* Register the page-router callback for the six touch menu entries. */
 void ui_set_menu_action_cb(ui_menu_action_cb_t cb, void *user_data);
 
-/* Build/rebuild the 640x172 horizontally scrollable main function page. */
+/*
+ * Navigation contract:
+ * - Any page returns to the standby clock after 60 seconds without input.
+ * - The standby clock never remembers the previously open page.
+ * - A short tap or upward swipe on any standby subpage always opens HOME.
+ */
 void ui_show_main_menu(void);
+void ui_show_standby_clock(void);
+
+/* Can be called by future pages after programmatic/user activity. */
+void ui_mark_activity(void);
 
 void ui_init(void);
 
