@@ -28,6 +28,10 @@ static ui_menu_action_cb_t s_action_cb = NULL;
 static void *s_action_user_data = NULL;
 static ui_page_activity_cb_t s_activity_cb = NULL;
 static void *s_activity_user_data = NULL;
+static ui_vertical_drag_cb_t s_vertical_drag_cb = NULL;
+static void *s_vertical_drag_user_data = NULL;
+static lv_point_t s_drag_press = {0, 0};
+static bool s_drag_valid = false;
 
 static const ui_menu_item_t MENU_ITEMS[] = {
     { &ui_icon_remote,   &ui_label_remote,   UI_MENU_REMOTE,   0x31B9FFu, 0x075EF0u },
@@ -125,6 +129,7 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
                           LV_FLEX_ALIGN_CENTER);
 
     lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
 
     create_icon(tile, item->icon);
@@ -133,6 +138,56 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     lv_obj_add_event_cb(tile, menu_item_pressed, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(tile, menu_item_clicked, LV_EVENT_CLICKED, (void *)item);
     return tile;
+}
+
+static void home_drag_event_cb(lv_event_t *e)
+{
+    if (s_vertical_drag_cb == NULL) {
+        return;
+    }
+
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (indev == NULL) {
+        return;
+    }
+
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_PRESSED) {
+        lv_indev_get_point(indev, &s_drag_press);
+        s_drag_valid = true;
+        note_activity();
+        return;
+    }
+
+    if ((code == LV_EVENT_PRESSING || code == LV_EVENT_RELEASED) &&
+        s_drag_valid) {
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+
+        s_vertical_drag_cb(point.x - s_drag_press.x,
+                           point.y - s_drag_press.y,
+                           code == LV_EVENT_RELEASED,
+                           false,
+                           s_vertical_drag_user_data);
+
+        if (code == LV_EVENT_RELEASED) {
+            s_drag_valid = false;
+        }
+        return;
+    }
+
+    if (code == LV_EVENT_PRESS_LOST && s_drag_valid) {
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+
+        s_vertical_drag_cb(point.x - s_drag_press.x,
+                           point.y - s_drag_press.y,
+                           true,
+                           true,
+                           s_vertical_drag_user_data);
+        s_drag_valid = false;
+    }
 }
 
 static void scroller_activity(lv_event_t *e)
@@ -145,12 +200,17 @@ lv_obj_t *ui_page_home_build(lv_obj_t *parent,
                              ui_menu_action_cb_t action_cb,
                              void *action_user_data,
                              ui_page_activity_cb_t activity_cb,
-                             void *activity_user_data)
+                             void *activity_user_data,
+                             ui_vertical_drag_cb_t vertical_drag_cb,
+                             void *vertical_drag_user_data)
 {
     s_action_cb = action_cb;
     s_action_user_data = action_user_data;
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
+    s_vertical_drag_cb = vertical_drag_cb;
+    s_vertical_drag_user_data = vertical_drag_user_data;
+    s_drag_valid = false;
 
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_remove_style_all(root);
@@ -185,8 +245,11 @@ lv_obj_t *ui_page_home_build(lv_obj_t *parent,
     lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLL_ONE);
     lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-    lv_obj_add_event_cb(scroller, scroller_activity, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(scroller, scroller_activity, LV_EVENT_SCROLL_BEGIN, NULL);
+    lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_PRESS_LOST, NULL);
 
     for (size_t i = 0; i < sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]); ++i) {
         create_menu_item(scroller, &MENU_ITEMS[i]);
@@ -198,7 +261,9 @@ lv_obj_t *ui_page_home_build(lv_obj_t *parent,
 void ui_page_home_show(ui_menu_action_cb_t action_cb,
                        void *action_user_data,
                        ui_page_activity_cb_t activity_cb,
-                       void *activity_user_data)
+                       void *activity_user_data,
+                       ui_vertical_drag_cb_t vertical_drag_cb,
+                       void *vertical_drag_user_data)
 {
     lv_obj_t *screen = lv_screen_active();
     lv_obj_clean(screen);
@@ -213,5 +278,7 @@ void ui_page_home_show(ui_menu_action_cb_t action_cb,
                        action_cb,
                        action_user_data,
                        activity_cb,
-                       activity_user_data);
+                       activity_user_data,
+                       vertical_drag_cb,
+                       vertical_drag_user_data);
 }
