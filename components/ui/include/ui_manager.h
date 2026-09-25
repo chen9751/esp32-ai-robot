@@ -29,6 +29,7 @@ typedef void (*ui_vertical_drag_cb_t)(int32_t dx,
                                       bool cancelled,
                                       void *user_data);
 
+/* Reserved for future dynamic CJK pages; current HOME labels are A8 assets. */
 void ui_set_menu_font(const lv_font_t *font);
 void ui_set_menu_action_cb(ui_menu_action_cb_t cb, void *user_data);
 
