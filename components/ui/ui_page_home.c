@@ -56,6 +56,10 @@ static void menu_item_clicked(lv_event_t *e)
     const ui_menu_item_t *item = (const ui_menu_item_t *)lv_event_get_user_data(e);
     note_activity();
 
+    if (ui_navigation_transition_active()) {
+        return;
+    }
+
     if (item != NULL && s_action_cb != NULL) {
         s_action_cb(item->action, s_action_user_data);
     }
@@ -137,26 +141,26 @@ static void scroller_activity(lv_event_t *e)
     note_activity();
 }
 
-void ui_page_home_show(ui_menu_action_cb_t action_cb,
-                       void *action_user_data,
-                       ui_page_activity_cb_t activity_cb,
-                       void *activity_user_data)
+lv_obj_t *ui_page_home_build(lv_obj_t *parent,
+                             ui_menu_action_cb_t action_cb,
+                             void *action_user_data,
+                             ui_page_activity_cb_t activity_cb,
+                             void *activity_user_data)
 {
     s_action_cb = action_cb;
     s_action_user_data = action_user_data;
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
 
-    lv_obj_t *screen = lv_screen_active();
-    lv_obj_clean(screen);
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_remove_style_all(root);
+    lv_obj_set_size(root, UI_SCREEN_W, UI_SCREEN_H);
+    lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_style_bg_color(root, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_set_size(screen, UI_SCREEN_W, UI_SCREEN_H);
-    lv_obj_set_style_bg_color(screen, UI_COLOR_BG, 0);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *scroller = lv_obj_create(screen);
+    lv_obj_t *scroller = lv_obj_create(root);
     lv_obj_remove_style_all(scroller);
     lv_obj_set_size(scroller, UI_SCREEN_W, UI_SCREEN_H);
     lv_obj_center(scroller);
@@ -187,4 +191,27 @@ void ui_page_home_show(ui_menu_action_cb_t action_cb,
     for (size_t i = 0; i < sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]); ++i) {
         create_menu_item(scroller, &MENU_ITEMS[i]);
     }
+
+    return root;
+}
+
+void ui_page_home_show(ui_menu_action_cb_t action_cb,
+                       void *action_user_data,
+                       ui_page_activity_cb_t activity_cb,
+                       void *activity_user_data)
+{
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_clean(screen);
+
+    lv_obj_set_size(screen, UI_SCREEN_W, UI_SCREEN_H);
+    lv_obj_set_style_bg_color(screen, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(screen, 0, 0);
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_page_home_build(screen,
+                       action_cb,
+                       action_user_data,
+                       activity_cb,
+                       activity_user_data);
 }
