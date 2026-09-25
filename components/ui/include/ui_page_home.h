@@ -8,9 +8,13 @@ lv_obj_t *ui_page_home_build(lv_obj_t *parent,
                              ui_menu_action_cb_t action_cb,
                              void *action_user_data,
                              ui_page_activity_cb_t activity_cb,
-                             void *activity_user_data);
+                             void *activity_user_data,
+                             ui_vertical_drag_cb_t vertical_drag_cb,
+                             void *vertical_drag_user_data);
 
 void ui_page_home_show(ui_menu_action_cb_t action_cb,
                        void *action_user_data,
                        ui_page_activity_cb_t activity_cb,
-                       void *activity_user_data);
+                       void *activity_user_data,
+                       ui_vertical_drag_cb_t vertical_drag_cb,
+                       void *vertical_drag_user_data);
