@@ -35,6 +35,9 @@ void ui_show_standby_clock(void);
 /* Can be called by future pages after programmatic/user activity. */
 void ui_mark_activity(void);
 
+/* Pages can use this to suppress click actions while a drag transition is active. */
+bool ui_navigation_transition_active(void);
+
 void ui_init(void);
 
 #ifdef __cplusplus
