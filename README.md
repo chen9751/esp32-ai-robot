@@ -41,4 +41,4 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_page_weather.c`: weather page (placeholder until designed).
 - `ui_page_calendar.c`: calendar page (placeholder until designed).
 
-Standby behavior is fixed as follows: after 60 seconds without input, any active page returns to the clock. The clock/weather/calendar pages loop horizontally. A short tap or upward swipe from any standby page always opens HOME; it never returns to the previously active page.
+Standby behavior is fixed as follows: after 60 seconds without input, any active page returns to the clock. The clock/weather/calendar pages loop horizontally. A short tap from any standby page opens HOME. Upward swiping from standby opens HOME with an interactive finger-following cover transition. From HOME, a downward swipe returns to the clock with the reverse interactive cover transition. These vertical transitions never return to a previously active function page.
