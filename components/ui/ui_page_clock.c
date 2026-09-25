@@ -150,6 +150,7 @@ void ui_page_clock_build(lv_obj_t *parent)
     ui_page_clock_stop();
 
     s_parent = parent;
+    lv_obj_null_on_delete(&s_parent);
     s_last_hour = -1;
     s_last_minute = -1;
 
