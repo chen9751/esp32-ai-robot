@@ -10,8 +10,9 @@
 #define CLOCK_HINT_OPA       LV_OPA_40
 #define CLOCK_HINT_WIDTH     2
 
-#define TAP_MAX_DISTANCE     14
-#define SWIPE_MIN_DISTANCE   36
+#define TAP_MAX_DISTANCE             14
+#define SWIPE_MIN_DISTANCE           36
+#define VERTICAL_DRAG_START_DISTANCE 12
 
 static lv_timer_t *s_hint_timer = NULL;
 static lv_obj_t *s_hint_left = NULL;
@@ -169,6 +170,10 @@ static void standby_input_cb(lv_event_t *e)
         lv_indev_get_point(indev, &s_press_point);
         s_press_valid = true;
         s_vertical_consumed = false;
+
+        /* Any real touch is activity, even if the user holds without
+         * completing a tap/swipe before the 60-second idle deadline. */
+        ui_mark_activity();
         return;
     }
 
@@ -180,8 +185,13 @@ static void standby_input_cb(lv_event_t *e)
         int32_t dy = point.y - s_press_point.y;
 
         if (s_vertical_drag_cb != NULL &&
-            dy < 0 &&
+            dy <= -VERTICAL_DRAG_START_DISTANCE &&
             iabs32(dy) > iabs32(dx)) {
+            /*
+             * Do not consume tiny upward finger jitter.  Without this
+             * threshold a normal tap that drifted by even 1 px upward was
+             * classified as a vertical gesture and the tap was lost.
+             */
             s_vertical_consumed = true;
             s_vertical_drag_cb(dx,
                                dy,
@@ -258,6 +268,7 @@ void ui_page_standby_show(ui_standby_view_t view,
 
     lv_obj_t *root = lv_obj_create(screen);
     s_root = root;
+    lv_obj_null_on_delete(&s_root);
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, UI_SCREEN_W, UI_SCREEN_H);
     lv_obj_center(root);
