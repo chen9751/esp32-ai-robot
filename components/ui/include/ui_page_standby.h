@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lvgl.h"
+#include "ui_manager.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -22,6 +22,8 @@ typedef void (*ui_standby_event_cb_t)(ui_standby_event_t event, void *user_data)
 void ui_page_standby_show(ui_standby_view_t view,
                           bool show_swipe_hint,
                           ui_standby_event_cb_t event_cb,
-                          void *event_user_data);
+                          void *event_user_data,
+                          ui_vertical_drag_cb_t vertical_drag_cb,
+                          void *vertical_drag_user_data);
 
 void ui_page_standby_stop(void);
