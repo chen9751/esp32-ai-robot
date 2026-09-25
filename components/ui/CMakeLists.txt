@@ -1,6 +1,8 @@
 idf_component_register(
     SRCS
         "ui_manager.c"
+        "ui_page_home.c"
+        "ui_page_standby.c"
         "ui_assets.c"
         "ui_asset_remote.c"
         "ui_asset_music.c"
