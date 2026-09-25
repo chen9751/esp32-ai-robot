@@ -8,7 +8,7 @@
 #define CLOCK_GREEN              lv_color_hex(0x39FF14)
 #define PIXEL_SIZE               14
 #define PIXEL_STEP               18
-#define DIGIT_W                  ((5 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
+#define DIGIT_W                  ((5 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))\n#define DIGIT_H                  ((7 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
 #define DIGIT_GAP                12
 #define COLON_GAP                22
 #define COLON_W                  PIXEL_SIZE
@@ -118,7 +118,7 @@ static void redraw_clock(void)
     const int minute_w = 2 * DIGIT_W + DIGIT_GAP;
     const int total_w = hour_w + COLON_GAP + COLON_W + COLON_GAP + minute_w;
     const int x0 = (UI_SCREEN_W - total_w) / 2;
-    const int y0 = 13;
+    const int y0 = (UI_SCREEN_H - DIGIT_H) / 2;
 
     int x = x0;
 
