@@ -1,6 +1,8 @@
 #pragma once
 
 #include "lvgl.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,25 +19,30 @@ typedef enum {
 
 typedef void (*ui_menu_action_cb_t)(ui_menu_action_t action, void *user_data);
 
-/* Optional: set a CJK-capable LVGL font before ui_init(). */
-void ui_set_menu_font(const lv_font_t *font);
+/*
+ * Continuous drag callback used by pages that participate in the vertical
+ * HOME <-> standby interactive transition.
+ */
+typedef void (*ui_vertical_drag_cb_t)(int32_t dx,
+                                      int32_t dy,
+                                      bool released,
+                                      bool cancelled,
+                                      void *user_data);
 
-/* Register the page-router callback for the six touch menu entries. */
+void ui_set_menu_font(const lv_font_t *font);
 void ui_set_menu_action_cb(ui_menu_action_cb_t cb, void *user_data);
 
 /*
  * Navigation contract:
  * - Any page returns to the standby clock after 60 seconds without input.
- * - The standby clock never remembers the previously open page.
- * - A short tap or upward swipe on any standby subpage always opens HOME.
+ * - Standby never remembers the previously open function page.
+ * - A short tap on standby opens HOME.
+ * - Upward standby drag and downward HOME drag are interactive/finger-following.
  */
 void ui_show_main_menu(void);
 void ui_show_standby_clock(void);
 
-/* Can be called by future pages after programmatic/user activity. */
 void ui_mark_activity(void);
-
-/* Pages can use this to suppress click actions while a drag transition is active. */
 bool ui_navigation_transition_active(void);
 
 void ui_init(void);
