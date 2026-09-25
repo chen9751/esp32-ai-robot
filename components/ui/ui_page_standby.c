@@ -5,17 +5,24 @@
 
 #define UI_SCREEN_W          640
 #define UI_SCREEN_H          172
-#define CLOCK_GREEN          lv_color_hex(0x39FF14)
 #define CLOCK_BG             lv_color_hex(0x000000)
 #define CLOCK_HINT           lv_color_hex(0x777777)
-#define CLOCK_DOT_OFF        lv_color_hex(0x2A2A2A)
+
+#define TAP_MAX_DISTANCE     14
+#define SWIPE_MIN_DISTANCE   36
 
 static lv_timer_t *s_hint_timer = NULL;
 static lv_obj_t *s_hint_left = NULL;
 static lv_obj_t *s_hint_right = NULL;
 static ui_standby_event_cb_t s_event_cb = NULL;
 static void *s_event_user_data = NULL;
-static bool s_gesture_seen = false;
+static lv_point_t s_press_point = {0, 0};
+static bool s_press_valid = false;
+
+static int32_t iabs32(int32_t value)
+{
+    return value < 0 ? -value : value;
+}
 
 static void delete_hint_timer(void)
 {
@@ -32,6 +39,7 @@ void ui_page_standby_stop(void)
 
     s_hint_left = NULL;
     s_hint_right = NULL;
+    s_press_valid = false;
 }
 
 static void hide_hint_timer_cb(lv_timer_t *timer)
@@ -45,29 +53,6 @@ static void hide_hint_timer_cb(lv_timer_t *timer)
 
     lv_timer_delete(timer);
     s_hint_timer = NULL;
-}
-
-static void add_page_dots(lv_obj_t *parent, ui_standby_view_t active)
-{
-    const int dot_size = 7;
-    const int gap = 12;
-    const int total = 3 * dot_size + 2 * gap;
-    const int x0 = (UI_SCREEN_W - total) / 2;
-    const int y = UI_SCREEN_H - 12;
-
-    for (int i = 0; i < 3; ++i) {
-        lv_obj_t *dot = lv_obj_create(parent);
-        lv_obj_remove_style_all(dot);
-        lv_obj_set_size(dot, dot_size, dot_size);
-        lv_obj_set_pos(dot, x0 + i * (dot_size + gap), y);
-        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(dot,
-                                  i == (int)active ? CLOCK_GREEN : CLOCK_DOT_OFF,
-                                  0);
-        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-    }
 }
 
 static void add_swipe_hint(lv_obj_t *parent, bool visible)
@@ -95,39 +80,68 @@ static void add_swipe_hint(lv_obj_t *parent, bool visible)
     s_hint_timer = lv_timer_create(hide_hint_timer_cb, 1000, NULL);
 }
 
-static void standby_input_cb(lv_event_t *e)
+static void dispatch_release_gesture(lv_point_t release_point)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-
-    if (code == LV_EVENT_PRESSED) {
-        s_gesture_seen = false;
+    if (!s_press_valid || s_event_cb == NULL) {
         return;
     }
 
-    if (code == LV_EVENT_GESTURE) {
-        s_gesture_seen = true;
-        lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
+    int32_t dx = release_point.x - s_press_point.x;
+    int32_t dy = release_point.y - s_press_point.y;
+    int32_t ax = iabs32(dx);
+    int32_t ay = iabs32(dy);
 
-        if (s_event_cb == NULL) {
-            return;
-        }
+    /*
+     * Classify the complete press/release path ourselves instead of relying
+     * on LV_EVENT_SHORT_CLICKED + LV_EVENT_GESTURE.  On a non-scrollable
+     * standby root LVGL can still emit a short-click after a drag, which made
+     * horizontal swipes accidentally open HOME.
+     */
+    if (ax <= TAP_MAX_DISTANCE && ay <= TAP_MAX_DISTANCE) {
+        s_event_cb(UI_STANDBY_EVENT_OPEN_HOME, s_event_user_data);
+        return;
+    }
 
-        if (dir == LV_DIR_TOP) {
-            s_event_cb(UI_STANDBY_EVENT_OPEN_HOME, s_event_user_data);
-        }
-        else if (dir == LV_DIR_LEFT) {
+    if (ax >= SWIPE_MIN_DISTANCE && ax > ay) {
+        if (dx < 0) {
             s_event_cb(UI_STANDBY_EVENT_NEXT, s_event_user_data);
         }
-        else if (dir == LV_DIR_RIGHT) {
+        else {
             s_event_cb(UI_STANDBY_EVENT_PREVIOUS, s_event_user_data);
         }
         return;
     }
 
-    if (code == LV_EVENT_SHORT_CLICKED &&
-        !s_gesture_seen &&
-        s_event_cb != NULL) {
+    if (ay >= SWIPE_MIN_DISTANCE && ay > ax && dy < 0) {
         s_event_cb(UI_STANDBY_EVENT_OPEN_HOME, s_event_user_data);
+    }
+}
+
+static void standby_input_cb(lv_event_t *e)
+{
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (indev == NULL) {
+        return;
+    }
+
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_PRESSED) {
+        lv_indev_get_point(indev, &s_press_point);
+        s_press_valid = true;
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED) {
+        lv_point_t release_point;
+        lv_indev_get_point(indev, &release_point);
+        dispatch_release_gesture(release_point);
+        s_press_valid = false;
+        return;
+    }
+
+    if (code == LV_EVENT_PRESS_LOST) {
+        s_press_valid = false;
     }
 }
 
@@ -159,8 +173,8 @@ void ui_page_standby_show(ui_standby_view_t view,
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_GESTURE, NULL);
-    lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_PRESS_LOST, NULL);
 
     lv_obj_t *content = lv_obj_create(root);
     lv_obj_remove_style_all(content);
@@ -179,6 +193,7 @@ void ui_page_standby_show(ui_standby_view_t view,
         ui_page_calendar_build(content);
     }
 
-    add_page_dots(root, view);
+    /* No persistent page dots. The < and > edge hints are shown only for
+     * the first second after entering standby. */
     add_swipe_hint(root, show_swipe_hint);
 }
