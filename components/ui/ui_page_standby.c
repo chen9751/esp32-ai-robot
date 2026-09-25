@@ -138,9 +138,11 @@ static void dispatch_release_gesture(lv_point_t release_point)
         return;
     }
 
-    if (ay >= SWIPE_MIN_DISTANCE && ay > ax && dy < 0) {
-        s_event_cb(UI_STANDBY_EVENT_OPEN_HOME, s_event_user_data);
-    }
+    /*
+     * Upward motion is handled by ui_manager.c as an interactive page
+     * transition so the HOME page follows the finger.  Keep this controller
+     * responsible only for taps and horizontal clock/weather/calendar paging.
+     */
 }
 
 static void standby_input_cb(lv_event_t *e)
