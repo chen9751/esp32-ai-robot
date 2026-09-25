@@ -7,33 +7,24 @@
 #define UI_SCREEN_H          172
 
 /*
- * Main menu geometry for the 640x172 display.
- * The card itself is intentionally almost full-height and remains square.
+ * 640x172 main-menu geometry.
+ * Cards remain large and square, but with more breathing room than the
+ * previous almost-edge-to-edge version.
  */
-#define UI_MENU_ITEM_W       154
-#define UI_MENU_ITEM_H       154
-#define UI_MENU_GAP          8
-#define UI_MENU_SIDE_PAD     9
-#define UI_MENU_V_PAD        9
-#define UI_MENU_RADIUS       28
-
-/*
- * 24x24 source icons rendered at 4x scale.
- * Using a solid 4x4 cell gives a clean, bold white icon instead of the
- * previous dot-matrix look.
- */
-#define UI_ICON_GRID         24
-#define UI_MENU_CELL_SIZE    4
-#define UI_MENU_DOT_SIZE     4
-#define UI_MENU_ICON_SIZE    (UI_ICON_GRID * UI_MENU_CELL_SIZE)
+#define UI_MENU_ITEM_W       146
+#define UI_MENU_ITEM_H       146
+#define UI_MENU_GAP          20
+#define UI_MENU_SIDE_PAD     18
+#define UI_MENU_V_PAD        13
+#define UI_MENU_RADIUS       24
 
 #define UI_COLOR_BG          lv_color_hex(0x000000)
 #define UI_COLOR_FG          lv_color_hex(0xFFFFFF)
 
 typedef struct {
     const char *label;
+    const char *symbol;
     ui_menu_action_t action;
-    const uint32_t *bitmap;
     uint32_t color_top;
     uint32_t color_bottom;
 } ui_menu_item_t;
@@ -43,70 +34,16 @@ static void *s_action_user_data = NULL;
 static const lv_font_t *s_menu_font = NULL;
 
 /*
- * 24x24 monochrome icons.
- * Bit 23 is the left-most pixel.
+ * Use LVGL's built-in FontAwesome symbols instead of enlarged bitmap pixels.
+ * They are anti-aliased by the font renderer and stay clean at this size.
  */
-static const uint32_t ICON_REMOTE[24] = {
-    0x000000u, 0x003C00u, 0x00FF00u, 0x01C380u,
-    0x0300C0u, 0x000000u, 0x01FF80u, 0x0300C0u,
-    0x0318C0u, 0x033CC0u, 0x0318C0u, 0x0300C0u,
-    0x0336C0u, 0x0336C0u, 0x0300C0u, 0x0336C0u,
-    0x0336C0u, 0x0300C0u, 0x0336C0u, 0x0336C0u,
-    0x0300C0u, 0x01FF80u, 0x000000u, 0x000000u,
-};
-
-static const uint32_t ICON_MUSIC[24] = {
-    0x000000u, 0x007F80u, 0x00C180u, 0x00C180u,
-    0x00C180u, 0x00C180u, 0x00C1E0u, 0x00C1E0u,
-    0x00C1B0u, 0x00C198u, 0x00C198u, 0x00C198u,
-    0x1FC198u, 0x3FC198u, 0x71C198u, 0x61C198u,
-    0x61C198u, 0x73C198u, 0x3F0098u, 0x1E0018u,
-    0x000038u, 0x000070u, 0x000000u, 0x000000u,
-};
-
-static const uint32_t ICON_LIGHT[24] = {
-    0x001800u, 0x001800u, 0x181818u, 0x0C1830u,
-    0x060060u, 0x007E00u, 0x01FF80u, 0x0381C0u,
-    0x0700E0u, 0x060060u, 0x060060u, 0x0300C0u,
-    0x018180u, 0x00C300u, 0x007E00u, 0x003C00u,
-    0x003C00u, 0x007E00u, 0x007E00u, 0x003C00u,
-    0x003C00u, 0x000000u, 0x000000u, 0x000000u,
-};
-
-static const uint32_t ICON_DEVICE[24] = {
-    0x000000u, 0x001800u, 0x003C00u, 0x007E00u,
-    0x00FF00u, 0x01FF80u, 0x03FFC0u, 0x07FFE0u,
-    0x0FFFF0u, 0x1F807Eu, 0x3E001Fu, 0x3C000Fu,
-    0x3C000Fu, 0x3C3F0Fu, 0x3C3F0Fu, 0x3C3F0Fu,
-    0x3C3F0Fu, 0x3C3F0Fu, 0x3C3F0Fu, 0x3C000Fu,
-    0x3FFFFCu, 0x3FFFFCu, 0x000000u, 0x000000u,
-};
-
-static const uint32_t ICON_ALARM[24] = {
-    0x0F003Cu, 0x1F807Eu, 0x39C0E7u, 0x000000u,
-    0x00FF00u, 0x03FFC0u, 0x0781E0u, 0x0E0070u,
-    0x1C0038u, 0x181818u, 0x38181Cu, 0x30180Cu,
-    0x301F8Cu, 0x301F8Cu, 0x38001Cu, 0x180018u,
-    0x1C0038u, 0x0E0070u, 0x0781E0u, 0x03FFC0u,
-    0x00FF00u, 0x0381C0u, 0x0700E0u, 0x000000u,
-};
-
-static const uint32_t ICON_SETTINGS[24] = {
-    0x003C00u, 0x003C00u, 0x0C3C30u, 0x1E3C78u,
-    0x1FFFF8u, 0x0FFFF0u, 0x03FF00u, 0x078780u,
-    0x3F03F0u, 0x7E01F8u, 0x780078u, 0xF07E0Fu,
-    0xF07E0Fu, 0x780078u, 0x7E01F8u, 0x3F03F0u,
-    0x078780u, 0x03FF00u, 0x0FFFF0u, 0x1FFFF8u,
-    0x1E3C78u, 0x0C3C30u, 0x003C00u, 0x003C00u,
-};
-
 static const ui_menu_item_t MENU_ITEMS[] = {
-    { "REMOTE",   UI_MENU_REMOTE,   ICON_REMOTE,   0x15B9FFu, 0x0878F5u },
-    { "MUSIC",    UI_MENU_MUSIC,    ICON_MUSIC,    0xFF657Eu, 0xC42667u },
-    { "LIGHTS",   UI_MENU_LIGHTS,   ICON_LIGHT,    0xFFD76Au, 0xFF8A3Du },
-    { "DEVICES",  UI_MENU_DEVICES,  ICON_DEVICE,   0x48DFB7u, 0x08A67Fu },
-    { "ALARM",    UI_MENU_ALARM,    ICON_ALARM,    0x9567FFu, 0x5D1CF1u },
-    { "SETTINGS", UI_MENU_SETTINGS, ICON_SETTINGS, 0xAAB7D2u, 0x536388u },
+    { "REMOTE",   LV_SYMBOL_WIFI,     UI_MENU_REMOTE,   0x19B9F6u, 0x087CF0u },
+    { "MUSIC",    LV_SYMBOL_AUDIO,    UI_MENU_MUSIC,    0xFF5F7Bu, 0xC72B69u },
+    { "LIGHTS",   LV_SYMBOL_CHARGE,   UI_MENU_LIGHTS,   0xFFD568u, 0xFF933Eu },
+    { "DEVICES",  LV_SYMBOL_HOME,     UI_MENU_DEVICES,  0x43D9B1u, 0x08A77Fu },
+    { "ALARM",    LV_SYMBOL_BELL,     UI_MENU_ALARM,    0x9165FFu, 0x5E26E9u },
+    { "SETTINGS", LV_SYMBOL_SETTINGS, UI_MENU_SETTINGS, 0xA6B3CFu, 0x556487u },
 };
 
 static void menu_item_clicked(lv_event_t *e)
@@ -119,63 +56,6 @@ static void menu_item_clicked(lv_event_t *e)
     }
 }
 
-static void icon_draw_cb(lv_event_t *e)
-{
-    lv_obj_t *obj = lv_event_get_current_target(e);
-    lv_layer_t *layer = lv_event_get_layer(e);
-    const uint32_t *bitmap =
-        (const uint32_t *)lv_event_get_user_data(e);
-
-    if (bitmap == NULL || layer == NULL) {
-        return;
-    }
-
-    lv_area_t obj_coords;
-    lv_obj_get_coords(obj, &obj_coords);
-
-    lv_draw_rect_dsc_t pixel_dsc;
-    lv_draw_rect_dsc_init(&pixel_dsc);
-    pixel_dsc.bg_color = UI_COLOR_FG;
-    pixel_dsc.bg_opa = LV_OPA_COVER;
-    pixel_dsc.radius = 1;
-
-    for (int y = 0; y < UI_ICON_GRID; ++y) {
-        const uint32_t row = bitmap[y];
-
-        for (int x = 0; x < UI_ICON_GRID; ++x) {
-            if ((row & (0x800000u >> x)) == 0u) {
-                continue;
-            }
-
-            lv_area_t area = {
-                .x1 = obj_coords.x1 + x * UI_MENU_CELL_SIZE,
-                .y1 = obj_coords.y1 + y * UI_MENU_CELL_SIZE,
-                .x2 = obj_coords.x1 + x * UI_MENU_CELL_SIZE
-                    + UI_MENU_DOT_SIZE - 1,
-                .y2 = obj_coords.y1 + y * UI_MENU_CELL_SIZE
-                    + UI_MENU_DOT_SIZE - 1,
-            };
-
-            lv_draw_rect(layer, &pixel_dsc, &area);
-        }
-    }
-}
-
-static void draw_icon(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GRID])
-{
-    lv_obj_t *icon = lv_obj_create(parent);
-    lv_obj_remove_style_all(icon);
-    lv_obj_set_size(icon, UI_MENU_ICON_SIZE, UI_MENU_ICON_SIZE);
-    lv_obj_set_style_bg_opa(icon, LV_OPA_TRANSP, 0);
-    lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_add_event_cb(icon,
-                        icon_draw_cb,
-                        LV_EVENT_DRAW_MAIN,
-                        (void *)bitmap);
-}
-
 static void style_menu_label(lv_obj_t *label)
 {
     lv_obj_set_style_text_color(label, UI_COLOR_FG, 0);
@@ -183,30 +63,38 @@ static void style_menu_label(lv_obj_t *label)
 
     if (s_menu_font != NULL) {
         lv_obj_set_style_text_font(label, s_menu_font, 0);
+    } else {
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
     }
 }
 
-/*
- * Draw the text twice with a one-pixel offset to give the default LVGL font
- * a slightly heavier weight without adding a separate font asset.
- */
-static void create_bold_label(lv_obj_t *parent, const char *text)
+static void create_icon(lv_obj_t *parent, const char *symbol)
 {
     lv_obj_t *holder = lv_obj_create(parent);
     lv_obj_remove_style_all(holder);
-    lv_obj_set_size(holder, UI_MENU_ITEM_W - 8, 22);
+    lv_obj_set_size(holder, 92, 82);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *label_a = lv_label_create(holder);
-    lv_label_set_text(label_a, text);
-    style_menu_label(label_a);
-    lv_obj_align(label_a, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t *icon = lv_label_create(holder);
+    lv_label_set_text(icon, symbol);
+    lv_obj_set_style_text_color(icon, UI_COLOR_FG, 0);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_48, 0);
+    lv_obj_align(icon, LV_ALIGN_CENTER, 0, 1);
+}
 
-    lv_obj_t *label_b = lv_label_create(holder);
-    lv_label_set_text(label_b, text);
-    style_menu_label(label_b);
-    lv_obj_align(label_b, LV_ALIGN_CENTER, 1, 0);
+static void create_menu_label(lv_obj_t *parent, const char *text)
+{
+    lv_obj_t *holder = lv_obj_create(parent);
+    lv_obj_remove_style_all(holder);
+    lv_obj_set_size(holder, UI_MENU_ITEM_W - 12, 24);
+    lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *label = lv_label_create(holder);
+    lv_label_set_text(label, text);
+    style_menu_label(label);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 }
 
 static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
@@ -216,7 +104,6 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     lv_obj_remove_style_all(tile);
     lv_obj_set_size(tile, UI_MENU_ITEM_W, UI_MENU_ITEM_H);
 
-    /* Bright rounded gradient card on a pure-black screen. */
     lv_obj_set_style_bg_color(tile, lv_color_hex(item->color_top), 0);
     lv_obj_set_style_bg_grad_color(tile, lv_color_hex(item->color_bottom), 0);
     lv_obj_set_style_bg_grad_dir(tile, LV_GRAD_DIR_VER, 0);
@@ -224,8 +111,15 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     lv_obj_set_style_radius(tile, UI_MENU_RADIUS, 0);
     lv_obj_set_style_border_width(tile, 0, 0);
 
-    lv_obj_set_style_pad_all(tile, 0, 0);
-    lv_obj_set_style_pad_row(tile, 7, 0);
+    /*
+     * Keep icon and text visually centered as one group.
+     * The larger row gap prevents the label from crowding the icon.
+     */
+    lv_obj_set_style_pad_top(tile, 12, 0);
+    lv_obj_set_style_pad_bottom(tile, 9, 0);
+    lv_obj_set_style_pad_left(tile, 0, 0);
+    lv_obj_set_style_pad_right(tile, 0, 0);
+    lv_obj_set_style_pad_row(tile, 8, 0);
     lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(tile,
                           LV_FLEX_ALIGN_CENTER,
@@ -236,8 +130,8 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     lv_obj_add_flag(tile, LV_OBJ_FLAG_SNAPPABLE);
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
 
-    draw_icon(tile, item->bitmap);
-    create_bold_label(tile, item->label);
+    create_icon(tile, item->symbol);
+    create_menu_label(tile, item->label);
 
     lv_obj_add_event_cb(tile,
                         menu_item_clicked,
@@ -287,13 +181,6 @@ void ui_show_main_menu(void)
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    /*
-     * Horizontal carousel:
-     * - finger swipe left/right
-     * - no visible scrollbar
-     * - release snaps the next card to the left edge
-     * - one-card movement per flick keeps selection predictable
-     */
     lv_obj_set_scroll_dir(scroller, LV_DIR_HOR);
     lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_START);
