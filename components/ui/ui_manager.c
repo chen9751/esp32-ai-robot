@@ -7,26 +7,35 @@
 #define UI_SCREEN_H          172
 
 /*
- * Use a denser source grid instead of simply enlarging a 16x16 icon.
- * 24x24 x 3 gives a 72x72 on-screen icon while retaining finer pixel detail.
+ * Main menu geometry for the 640x172 display.
+ * The card itself is intentionally almost full-height and remains square.
+ */
+#define UI_MENU_ITEM_W       154
+#define UI_MENU_ITEM_H       154
+#define UI_MENU_GAP          8
+#define UI_MENU_SIDE_PAD     9
+#define UI_MENU_V_PAD        9
+#define UI_MENU_RADIUS       28
+
+/*
+ * 24x24 source icons rendered at 4x scale.
+ * Using a solid 4x4 cell gives a clean, bold white icon instead of the
+ * previous dot-matrix look.
  */
 #define UI_ICON_GRID         24
-#define UI_MENU_CELL_SIZE    3
-#define UI_MENU_DOT_SIZE     2
+#define UI_MENU_CELL_SIZE    4
+#define UI_MENU_DOT_SIZE     4
 #define UI_MENU_ICON_SIZE    (UI_ICON_GRID * UI_MENU_CELL_SIZE)
 
-#define UI_MENU_ITEM_W       146
-#define UI_MENU_ITEM_H       136
-#define UI_MENU_GAP          30
-#define UI_MENU_SIDE_PAD     28
-
-#define UI_COLOR_BG          lv_color_hex(0x050909)
-#define UI_COLOR_FG          lv_color_hex(0x69D8C8)
+#define UI_COLOR_BG          lv_color_hex(0x000000)
+#define UI_COLOR_FG          lv_color_hex(0xFFFFFF)
 
 typedef struct {
     const char *label;
     ui_menu_action_t action;
     const uint32_t *bitmap;
+    uint32_t color_top;
+    uint32_t color_bottom;
 } ui_menu_item_t;
 
 static ui_menu_action_cb_t s_action_cb = NULL;
@@ -34,7 +43,7 @@ static void *s_action_user_data = NULL;
 static const lv_font_t *s_menu_font = NULL;
 
 /*
- * 24x24 monochrome pixel icons.
+ * 24x24 monochrome icons.
  * Bit 23 is the left-most pixel.
  */
 static const uint32_t ICON_REMOTE[24] = {
@@ -92,12 +101,12 @@ static const uint32_t ICON_SETTINGS[24] = {
 };
 
 static const ui_menu_item_t MENU_ITEMS[] = {
-    { "REMOTE",   UI_MENU_REMOTE,   ICON_REMOTE   },
-    { "MUSIC",    UI_MENU_MUSIC,    ICON_MUSIC    },
-    { "LIGHTS",   UI_MENU_LIGHTS,   ICON_LIGHT    },
-    { "DEVICES",  UI_MENU_DEVICES,  ICON_DEVICE   },
-    { "ALARM",    UI_MENU_ALARM,    ICON_ALARM    },
-    { "SETTINGS", UI_MENU_SETTINGS, ICON_SETTINGS },
+    { "REMOTE",   UI_MENU_REMOTE,   ICON_REMOTE,   0x15B9FFu, 0x0878F5u },
+    { "MUSIC",    UI_MENU_MUSIC,    ICON_MUSIC,    0xFF657Eu, 0xC42667u },
+    { "LIGHTS",   UI_MENU_LIGHTS,   ICON_LIGHT,    0xFFD76Au, 0xFF8A3Du },
+    { "DEVICES",  UI_MENU_DEVICES,  ICON_DEVICE,   0x48DFB7u, 0x08A67Fu },
+    { "ALARM",    UI_MENU_ALARM,    ICON_ALARM,    0x9567FFu, 0x5D1CF1u },
+    { "SETTINGS", UI_MENU_SETTINGS, ICON_SETTINGS, 0xAAB7D2u, 0x536388u },
 };
 
 static void menu_item_clicked(lv_event_t *e)
@@ -110,7 +119,7 @@ static void menu_item_clicked(lv_event_t *e)
     }
 }
 
-static void pixel_icon_draw_cb(lv_event_t *e)
+static void icon_draw_cb(lv_event_t *e)
 {
     lv_obj_t *obj = lv_event_get_current_target(e);
     lv_layer_t *layer = lv_event_get_layer(e);
@@ -124,17 +133,12 @@ static void pixel_icon_draw_cb(lv_event_t *e)
     lv_area_t obj_coords;
     lv_obj_get_coords(obj, &obj_coords);
 
-    lv_draw_rect_dsc_t dot_dsc;
-    lv_draw_rect_dsc_init(&dot_dsc);
-    dot_dsc.bg_color = UI_COLOR_FG;
-    dot_dsc.bg_opa = LV_OPA_COVER;
-    dot_dsc.radius = 0;
+    lv_draw_rect_dsc_t pixel_dsc;
+    lv_draw_rect_dsc_init(&pixel_dsc);
+    pixel_dsc.bg_color = UI_COLOR_FG;
+    pixel_dsc.bg_opa = LV_OPA_COVER;
+    pixel_dsc.radius = 1;
 
-    /*
-     * Each logical source pixel occupies a 3x3 cell.
-     * Only a 2x2 square is lit, leaving a 1 px black gap.
-     * This preserves the separated retro dot-matrix appearance.
-     */
     for (int y = 0; y < UI_ICON_GRID; ++y) {
         const uint32_t row = bitmap[y];
 
@@ -143,7 +147,7 @@ static void pixel_icon_draw_cb(lv_event_t *e)
                 continue;
             }
 
-            lv_area_t dot_area = {
+            lv_area_t area = {
                 .x1 = obj_coords.x1 + x * UI_MENU_CELL_SIZE,
                 .y1 = obj_coords.y1 + y * UI_MENU_CELL_SIZE,
                 .x2 = obj_coords.x1 + x * UI_MENU_CELL_SIZE
@@ -152,18 +156,13 @@ static void pixel_icon_draw_cb(lv_event_t *e)
                     + UI_MENU_DOT_SIZE - 1,
             };
 
-            lv_draw_rect(layer, &dot_dsc, &dot_area);
+            lv_draw_rect(layer, &pixel_dsc, &area);
         }
     }
 }
 
-static void draw_pixel_bitmap(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GRID])
+static void draw_icon(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GRID])
 {
-    /*
-     * One LVGL object per icon.
-     * The individual dots are draw commands, not child objects.
-     * This avoids hundreds of lv_obj allocations per menu page.
-     */
     lv_obj_t *icon = lv_obj_create(parent);
     lv_obj_remove_style_all(icon);
     lv_obj_set_size(icon, UI_MENU_ICON_SIZE, UI_MENU_ICON_SIZE);
@@ -172,7 +171,7 @@ static void draw_pixel_bitmap(lv_obj_t *parent, const uint32_t bitmap[UI_ICON_GR
     lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_add_event_cb(icon,
-                        pixel_icon_draw_cb,
+                        icon_draw_cb,
                         LV_EVENT_DRAW_MAIN,
                         (void *)bitmap);
 }
@@ -188,15 +187,14 @@ static void style_menu_label(lv_obj_t *label)
 }
 
 /*
- * Draw the label twice with a one-pixel horizontal offset.
- * This gives the stock LVGL font a subtle pixel-bold appearance without
- * requiring another font asset.
+ * Draw the text twice with a one-pixel offset to give the default LVGL font
+ * a slightly heavier weight without adding a separate font asset.
  */
 static void create_bold_label(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *holder = lv_obj_create(parent);
     lv_obj_remove_style_all(holder);
-    lv_obj_set_size(holder, UI_MENU_ITEM_W, 24);
+    lv_obj_set_size(holder, UI_MENU_ITEM_W - 8, 22);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
 
@@ -214,20 +212,31 @@ static void create_bold_label(lv_obj_t *parent, const char *text)
 static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
 {
     lv_obj_t *tile = lv_obj_create(parent);
+
     lv_obj_remove_style_all(tile);
     lv_obj_set_size(tile, UI_MENU_ITEM_W, UI_MENU_ITEM_H);
-    lv_obj_set_style_bg_opa(tile, LV_OPA_TRANSP, 0);
+
+    /* Bright rounded gradient card on a pure-black screen. */
+    lv_obj_set_style_bg_color(tile, lv_color_hex(item->color_top), 0);
+    lv_obj_set_style_bg_grad_color(tile, lv_color_hex(item->color_bottom), 0);
+    lv_obj_set_style_bg_grad_dir(tile, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(tile, UI_MENU_RADIUS, 0);
+    lv_obj_set_style_border_width(tile, 0, 0);
+
     lv_obj_set_style_pad_all(tile, 0, 0);
+    lv_obj_set_style_pad_row(tile, 7, 0);
     lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(tile,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(tile, 10, 0);
+
     lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_SNAPPABLE);
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
 
-    draw_pixel_bitmap(tile, item->bitmap);
+    draw_icon(tile, item->bitmap);
     create_bold_label(tile, item->label);
 
     lv_obj_add_event_cb(tile,
@@ -263,22 +272,32 @@ void ui_show_main_menu(void)
     lv_obj_remove_style_all(scroller);
     lv_obj_set_size(scroller, UI_SCREEN_W, UI_SCREEN_H);
     lv_obj_center(scroller);
+
     lv_obj_set_style_bg_color(scroller, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(scroller, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_left(scroller, UI_MENU_SIDE_PAD, 0);
     lv_obj_set_style_pad_right(scroller, UI_MENU_SIDE_PAD, 0);
-    lv_obj_set_style_pad_top(scroller, 18, 0);
-    lv_obj_set_style_pad_bottom(scroller, 18, 0);
+    lv_obj_set_style_pad_top(scroller, UI_MENU_V_PAD, 0);
+    lv_obj_set_style_pad_bottom(scroller, UI_MENU_V_PAD, 0);
     lv_obj_set_style_pad_column(scroller, UI_MENU_GAP, 0);
+
     lv_obj_set_flex_flow(scroller, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(scroller,
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
+    /*
+     * Horizontal carousel:
+     * - finger swipe left/right
+     * - no visible scrollbar
+     * - release snaps the next card to the left edge
+     * - one-card movement per flick keeps selection predictable
+     */
     lv_obj_set_scroll_dir(scroller, LV_DIR_HOR);
     lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_NONE);
+    lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_START);
+    lv_obj_add_flag(scroller, LV_OBJ_FLAG_SCROLL_ONE);
 
     for (size_t i = 0;
          i < sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]);
