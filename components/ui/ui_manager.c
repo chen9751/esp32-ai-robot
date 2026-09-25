@@ -65,9 +65,13 @@ static void create_icon(lv_obj_t *parent, const lv_image_dsc_t *src)
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *icon = create_a8_image(holder, src);
-    /* 58 px source -> about 65 px on screen. This gives the glyph an
-     * app-icon-like visual weight without storing a second bitmap size. */
-    lv_image_set_scale(icon, 288);
+    /*
+     * Keep the A8 icon at its native 58 x 58 size.
+     * Scaling a raster mask by 288/256 (~1.125x) introduced a second
+     * resampling pass and made the Remix glyph edges visibly soft.
+     * Native-size rendering preserves the SVG rasterizer's antialiasing.
+     */
+    lv_image_set_scale(icon, LV_SCALE_NONE);
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, -1);
 }
 
