@@ -16,6 +16,7 @@
 static lv_timer_t *s_hint_timer = NULL;
 static lv_obj_t *s_hint_left = NULL;
 static lv_obj_t *s_hint_right = NULL;
+static lv_obj_t *s_root = NULL;
 static ui_standby_event_cb_t s_event_cb = NULL;
 static void *s_event_user_data = NULL;
 static lv_point_t s_press_point = {0, 0};
@@ -37,6 +38,11 @@ static void delete_hint_timer(void)
     }
 }
 
+lv_obj_t *ui_page_standby_get_root(void)
+{
+    return s_root;
+}
+
 void ui_page_standby_stop(void)
 {
     delete_hint_timer();
@@ -44,6 +50,7 @@ void ui_page_standby_stop(void)
 
     s_hint_left = NULL;
     s_hint_right = NULL;
+    s_root = NULL;
     s_press_valid = false;
     s_vertical_consumed = false;
 }
@@ -250,6 +257,7 @@ void ui_page_standby_show(ui_standby_view_t view,
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *root = lv_obj_create(screen);
+    s_root = root;
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, UI_SCREEN_W, UI_SCREEN_H);
     lv_obj_center(root);
