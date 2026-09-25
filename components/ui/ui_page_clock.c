@@ -8,7 +8,8 @@
 #define CLOCK_GREEN              lv_color_hex(0x39FF14)
 #define PIXEL_SIZE               14
 #define PIXEL_STEP               18
-#define DIGIT_W                  ((5 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))\n#define DIGIT_H                  ((7 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
+#define DIGIT_W                  ((5 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
+#define DIGIT_H                  ((7 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
 #define DIGIT_GAP                12
 #define COLON_GAP                22
 #define COLON_W                  PIXEL_SIZE
