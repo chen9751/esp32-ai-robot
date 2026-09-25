@@ -20,6 +20,9 @@ static ui_standby_event_cb_t s_event_cb = NULL;
 static void *s_event_user_data = NULL;
 static lv_point_t s_press_point = {0, 0};
 static bool s_press_valid = false;
+static bool s_vertical_consumed = false;
+static ui_vertical_drag_cb_t s_vertical_drag_cb = NULL;
+static void *s_vertical_drag_user_data = NULL;
 
 static int32_t iabs32(int32_t value)
 {
@@ -42,6 +45,7 @@ void ui_page_standby_stop(void)
     s_hint_left = NULL;
     s_hint_right = NULL;
     s_press_valid = false;
+    s_vertical_consumed = false;
 }
 
 static void hide_hint_timer_cb(lv_timer_t *timer)
@@ -157,31 +161,85 @@ static void standby_input_cb(lv_event_t *e)
     if (code == LV_EVENT_PRESSED) {
         lv_indev_get_point(indev, &s_press_point);
         s_press_valid = true;
+        s_vertical_consumed = false;
+        return;
+    }
+
+    if (code == LV_EVENT_PRESSING && s_press_valid) {
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+
+        int32_t dx = point.x - s_press_point.x;
+        int32_t dy = point.y - s_press_point.y;
+
+        if (s_vertical_drag_cb != NULL &&
+            dy < 0 &&
+            iabs32(dy) > iabs32(dx)) {
+            s_vertical_consumed = true;
+            s_vertical_drag_cb(dx,
+                               dy,
+                               false,
+                               false,
+                               s_vertical_drag_user_data);
+        }
         return;
     }
 
     if (code == LV_EVENT_RELEASED) {
         lv_point_t release_point;
         lv_indev_get_point(indev, &release_point);
-        dispatch_release_gesture(release_point);
+
+        int32_t dx = release_point.x - s_press_point.x;
+        int32_t dy = release_point.y - s_press_point.y;
+
+        if (s_vertical_consumed && s_vertical_drag_cb != NULL) {
+            s_vertical_drag_cb(dx,
+                               dy,
+                               true,
+                               false,
+                               s_vertical_drag_user_data);
+        }
+        else {
+            dispatch_release_gesture(release_point);
+        }
+
         s_press_valid = false;
+        s_vertical_consumed = false;
         return;
     }
 
     if (code == LV_EVENT_PRESS_LOST) {
+        if (s_vertical_consumed &&
+            s_press_valid &&
+            s_vertical_drag_cb != NULL) {
+            lv_point_t point;
+            lv_indev_get_point(indev, &point);
+
+            s_vertical_drag_cb(point.x - s_press_point.x,
+                               point.y - s_press_point.y,
+                               true,
+                               true,
+                               s_vertical_drag_user_data);
+        }
+
         s_press_valid = false;
+        s_vertical_consumed = false;
     }
 }
 
 void ui_page_standby_show(ui_standby_view_t view,
                           bool show_swipe_hint,
                           ui_standby_event_cb_t event_cb,
-                          void *event_user_data)
+                          void *event_user_data,
+                          ui_vertical_drag_cb_t vertical_drag_cb,
+                          void *vertical_drag_user_data)
 {
     ui_page_standby_stop();
 
     s_event_cb = event_cb;
     s_event_user_data = event_user_data;
+    s_vertical_drag_cb = vertical_drag_cb;
+    s_vertical_drag_user_data = vertical_drag_user_data;
 
     lv_obj_t *screen = lv_screen_active();
     lv_obj_clean(screen);
@@ -201,6 +259,7 @@ void ui_page_standby_show(ui_standby_view_t view,
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(root, standby_input_cb, LV_EVENT_PRESS_LOST, NULL);
 
