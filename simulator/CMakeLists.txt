@@ -9,6 +9,8 @@ add_subdirectory(../managed_components/lvgl__lvgl lvgl)
 add_executable(ai_robot_ui_preview
     main.c
     ../components/ui/ui_manager.c
+    ../components/ui/ui_page_home.c
+    ../components/ui/ui_page_standby.c
     ../components/ui/ui_assets.c
     ../components/ui/ui_asset_remote.c
     ../components/ui/ui_asset_music.c
