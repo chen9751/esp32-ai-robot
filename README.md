@@ -28,3 +28,17 @@ Source assets and LVGL-generated subsets are documented under `assets/fonts/READ
 The desktop font files are **design/source assets**, not a requirement to embed the complete font files into ESP32 firmware. For firmware builds, generate LVGL font subsets containing only the glyphs/icons and sizes actually required by the UI. This keeps Flash/RAM use under control while preserving a consistent visual system.
 
 Do not replace the selected icon system with enlarged bitmap/pixel icons unless a page intentionally calls for a pixel-art style.
+
+
+## UI page architecture
+
+UI pages are intentionally split into separate modules so the project does not grow into one large UI source file.
+
+- `ui_manager.c`: page routing and the global 60-second idle timeout.
+- `ui_page_home.c`: six-function HOME carousel.
+- `ui_page_standby.c`: standby gesture/navigation controller only.
+- `ui_page_clock.c`: standby clock content.
+- `ui_page_weather.c`: weather page (placeholder until designed).
+- `ui_page_calendar.c`: calendar page (placeholder until designed).
+
+Standby behavior is fixed as follows: after 60 seconds without input, any active page returns to the clock. The clock/weather/calendar pages loop horizontally. A short tap or upward swipe from any standby page always opens HOME; it never returns to the previously active page.
