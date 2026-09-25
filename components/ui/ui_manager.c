@@ -54,18 +54,6 @@ static void bind_global_input_activity(void)
     }
 }
 
-static void show_standby_view(ui_standby_view_t view, bool show_hint)
-{
-    s_top_page = UI_TOP_STANDBY;
-    s_standby_view = view;
-    ui_mark_activity();
-
-    ui_page_standby_show(view,
-                         show_hint,
-                         NULL,
-                         NULL);
-}
-
 static void standby_event_cb(ui_standby_event_t event, void *user_data)
 {
     (void)user_data;
