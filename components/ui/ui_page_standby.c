@@ -264,7 +264,7 @@ static void standby_input_cb(lv_event_t *e)
             return;
         }
 
-        if (dir == LV_DIR_UP) {
+        if (dir == LV_DIR_TOP) {
             s_event_cb(UI_STANDBY_EVENT_OPEN_HOME, s_event_user_data);
         }
         else if (dir == LV_DIR_LEFT) {
