@@ -6,7 +6,9 @@
 #define UI_SCREEN_W          640
 #define UI_SCREEN_H          172
 #define CLOCK_BG             lv_color_hex(0x000000)
-#define CLOCK_HINT           lv_color_hex(0x777777)
+#define CLOCK_HINT           lv_color_hex(0x8A8A8A)
+#define CLOCK_HINT_OPA       LV_OPA_40
+#define CLOCK_HINT_WIDTH     2
 
 #define TAP_MAX_DISTANCE     14
 #define SWIPE_MIN_DISTANCE   36
@@ -55,21 +57,45 @@ static void hide_hint_timer_cb(lv_timer_t *timer)
     s_hint_timer = NULL;
 }
 
+static lv_obj_t *create_chevron(lv_obj_t *parent, bool points_right)
+{
+    static const lv_point_precise_t left_points[] = {
+        {14, 0},
+        {0, 22},
+        {14, 44},
+    };
+    static const lv_point_precise_t right_points[] = {
+        {0, 0},
+        {14, 22},
+        {0, 44},
+    };
+
+    lv_obj_t *line = lv_line_create(parent);
+    lv_line_set_points(line,
+                       points_right ? right_points : left_points,
+                       3);
+    lv_obj_set_size(line, 15, 45);
+    lv_obj_set_style_line_width(line, CLOCK_HINT_WIDTH, 0);
+    lv_obj_set_style_line_color(line, CLOCK_HINT, 0);
+    lv_obj_set_style_line_opa(line, CLOCK_HINT_OPA, 0);
+    lv_obj_set_style_line_rounded(line, true, 0);
+    lv_obj_clear_flag(line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(line, LV_OBJ_FLAG_SCROLLABLE);
+    return line;
+}
+
 static void add_swipe_hint(lv_obj_t *parent, bool visible)
 {
-    s_hint_left = lv_label_create(parent);
-    lv_label_set_text(s_hint_left, "<");
-    lv_obj_set_style_text_font(s_hint_left, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(s_hint_left, CLOCK_HINT, 0);
-    lv_obj_align(s_hint_left, LV_ALIGN_LEFT_MID, 10, -3);
-    lv_obj_clear_flag(s_hint_left, LV_OBJ_FLAG_CLICKABLE);
+    /*
+     * Draw the hint directly with LVGL lines instead of text glyphs.
+     * This keeps it slimmer/taller, avoids a font dependency, and is cheaper
+     * than adding another image/icon asset for two temporary chevrons.
+     */
+    s_hint_left = create_chevron(parent, false);
+    lv_obj_align(s_hint_left, LV_ALIGN_LEFT_MID, 14, 0);
 
-    s_hint_right = lv_label_create(parent);
-    lv_label_set_text(s_hint_right, ">");
-    lv_obj_set_style_text_font(s_hint_right, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(s_hint_right, CLOCK_HINT, 0);
-    lv_obj_align(s_hint_right, LV_ALIGN_RIGHT_MID, -10, -3);
-    lv_obj_clear_flag(s_hint_right, LV_OBJ_FLAG_CLICKABLE);
+    s_hint_right = create_chevron(parent, true);
+    lv_obj_align(s_hint_right, LV_ALIGN_RIGHT_MID, -14, 0);
 
     if (!visible) {
         lv_obj_add_flag(s_hint_left, LV_OBJ_FLAG_HIDDEN);
