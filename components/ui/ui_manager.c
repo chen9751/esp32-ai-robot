@@ -6,12 +6,12 @@
 
 #define UI_SCREEN_W          640
 #define UI_SCREEN_H          172
-#define UI_MENU_ITEM_W       146
-#define UI_MENU_ITEM_H       146
-#define UI_MENU_GAP          20
+#define UI_MENU_ITEM_W       136
+#define UI_MENU_ITEM_H       136
+#define UI_MENU_GAP          22
 #define UI_MENU_SIDE_PAD     18
-#define UI_MENU_V_PAD        13
-#define UI_MENU_RADIUS       24
+#define UI_MENU_V_PAD        18
+#define UI_MENU_RADIUS       30
 
 #define UI_COLOR_BG          lv_color_hex(0x000000)
 #define UI_COLOR_FG          lv_color_hex(0xFFFFFF)
@@ -60,19 +60,22 @@ static void create_icon(lv_obj_t *parent, const lv_image_dsc_t *src)
 {
     lv_obj_t *holder = lv_obj_create(parent);
     lv_obj_remove_style_all(holder);
-    lv_obj_set_size(holder, 92, 82);
+    lv_obj_set_size(holder, 96, 78);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *icon = create_a8_image(holder, src);
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, 1);
+    /* 58 px source -> about 65 px on screen. This gives the glyph an
+     * app-icon-like visual weight without storing a second bitmap size. */
+    lv_image_set_scale(icon, 288);
+    lv_obj_align(icon, LV_ALIGN_CENTER, 0, -1);
 }
 
 static void create_menu_label(lv_obj_t *parent, const lv_image_dsc_t *src)
 {
     lv_obj_t *holder = lv_obj_create(parent);
     lv_obj_remove_style_all(holder);
-    lv_obj_set_size(holder, UI_MENU_ITEM_W - 12, 26);
+    lv_obj_set_size(holder, UI_MENU_ITEM_W - 10, 24);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
 
@@ -93,11 +96,11 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     lv_obj_set_style_radius(tile, UI_MENU_RADIUS, 0);
     lv_obj_set_style_border_width(tile, 0, 0);
 
-    lv_obj_set_style_pad_top(tile, 12, 0);
-    lv_obj_set_style_pad_bottom(tile, 9, 0);
+    lv_obj_set_style_pad_top(tile, 10, 0);
+    lv_obj_set_style_pad_bottom(tile, 8, 0);
     lv_obj_set_style_pad_left(tile, 0, 0);
     lv_obj_set_style_pad_right(tile, 0, 0);
-    lv_obj_set_style_pad_row(tile, 7, 0);
+    lv_obj_set_style_pad_row(tile, 6, 0);
     lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(tile,
                           LV_FLEX_ALIGN_CENTER,
@@ -105,7 +108,6 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
                           LV_FLEX_ALIGN_CENTER);
 
     lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(tile, LV_OBJ_FLAG_SNAPPABLE);
     lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
 
     create_icon(tile, item->icon);
@@ -166,8 +168,11 @@ void ui_show_main_menu(void)
 
     lv_obj_set_scroll_dir(scroller, LV_DIR_HOR);
     lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_START);
-    lv_obj_add_flag(scroller, LV_OBJ_FLAG_SCROLL_ONE);
+    /* Hard-clamp the carousel to its real content width.  Start snapping
+     * made the last card snap to the left edge, leaving a large empty tail. */
+    lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_NONE);
+    lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLL_ONE);
+    lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
     for (size_t i = 0; i < sizeof(MENU_ITEMS) / sizeof(MENU_ITEMS[0]); ++i) {
         create_menu_item(scroller, &MENU_ITEMS[i]);
