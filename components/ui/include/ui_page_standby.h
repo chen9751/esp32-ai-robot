@@ -26,4 +26,6 @@ void ui_page_standby_show(ui_standby_view_t view,
                           ui_vertical_drag_cb_t vertical_drag_cb,
                           void *vertical_drag_user_data);
 
+lv_obj_t *ui_page_standby_get_root(void);
+
 void ui_page_standby_stop(void);
