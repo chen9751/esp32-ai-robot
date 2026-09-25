@@ -9,7 +9,6 @@
 #define UI_SCREEN_W                    640
 #define UI_SCREEN_H                    172
 #define UI_IDLE_TIMEOUT_MS             60000u
-
 #define UI_TRANSITION_LOCK_DISTANCE    12
 #define UI_TRANSITION_COMMIT_DISTANCE  56
 #define UI_TRANSITION_DURATION_MS      180
@@ -34,9 +33,6 @@ static ui_standby_view_t s_standby_view = UI_STANDBY_CLOCK;
 static uint32_t s_last_activity_tick = 0;
 static lv_timer_t *s_idle_timer = NULL;
 
-static lv_point_t s_transition_press = {0, 0};
-static bool s_transition_tracking = false;
-static bool s_transition_axis_locked = false;
 static bool s_transition_animating = false;
 static ui_transition_target_t s_transition_target = UI_TRANSITION_NONE;
 static lv_obj_t *s_transition_overlay = NULL;
@@ -86,6 +82,12 @@ static lv_obj_t *create_transition_surface(void)
     return overlay;
 }
 
+static void vertical_drag_cb(int32_t dx,
+                             int32_t dy,
+                             bool released,
+                             bool cancelled,
+                             void *user_data);
+
 static void begin_transition(ui_transition_target_t target)
 {
     if (s_transition_overlay != NULL || s_transition_animating) {
@@ -105,6 +107,8 @@ static void begin_transition(ui_transition_target_t target)
                            s_action_cb,
                            s_action_user_data,
                            page_activity_cb,
+                           NULL,
+                           vertical_drag_cb,
                            NULL);
     }
 
@@ -121,7 +125,7 @@ static void update_transition_position(int32_t dy)
         int32_t progress = clamp_i32(dy, 0, UI_SCREEN_H);
         lv_obj_set_y(s_transition_overlay, -UI_SCREEN_H + progress);
     }
-    else if (s_transition_target == UI_TRANSITION_TO_HOME) {
+    else {
         int32_t progress = clamp_i32(-dy, 0, UI_SCREEN_H);
         lv_obj_set_y(s_transition_overlay, UI_SCREEN_H - progress);
     }
@@ -130,6 +134,7 @@ static void update_transition_position(int32_t dy)
 static void finish_transition_commit(lv_anim_t *anim)
 {
     (void)anim;
+
     s_transition_animating = false;
     s_transition_overlay = NULL;
 
@@ -181,137 +186,59 @@ static void animate_transition_to(int32_t end_y, bool commit)
     lv_anim_start(&anim);
 }
 
-static void transition_input_cb(lv_event_t *e)
+static void vertical_drag_cb(int32_t dx,
+                             int32_t dy,
+                             bool released,
+                             bool cancelled,
+                             void *user_data)
 {
-    lv_indev_t *indev = (lv_indev_t *)lv_event_get_user_data(e);
-    if (indev == NULL) {
-        return;
-    }
+    (void)user_data;
+    ui_mark_activity();
 
-    lv_event_code_t code = lv_event_get_code(e);
+    int32_t ax = iabs32(dx);
+    int32_t ay = iabs32(dy);
 
-    if (code == LV_EVENT_PRESSED) {
-        if (s_transition_animating) {
+    if (s_transition_overlay == NULL && !s_transition_animating) {
+        if (ay < UI_TRANSITION_LOCK_DISTANCE || ay <= ax) {
             return;
         }
 
-        lv_indev_get_point(indev, &s_transition_press);
-        s_transition_tracking = true;
-        s_transition_axis_locked = false;
-        ui_mark_activity();
+        if (s_top_page == UI_TOP_HOME && dy > 0) {
+            begin_transition(UI_TRANSITION_TO_CLOCK);
+        }
+        else if (s_top_page == UI_TOP_STANDBY && dy < 0) {
+            begin_transition(UI_TRANSITION_TO_HOME);
+        }
+        else {
+            return;
+        }
+    }
+
+    if (s_transition_overlay == NULL || s_transition_animating) {
         return;
     }
 
-    if (code == LV_EVENT_PRESSING && s_transition_tracking) {
-        lv_point_t point;
-        lv_indev_get_point(indev, &point);
+    update_transition_position(dy);
 
-        int32_t dx = point.x - s_transition_press.x;
-        int32_t dy = point.y - s_transition_press.y;
-        int32_t ax = iabs32(dx);
-        int32_t ay = iabs32(dy);
-
-        if (!s_transition_axis_locked) {
-            if (ax < UI_TRANSITION_LOCK_DISTANCE &&
-                ay < UI_TRANSITION_LOCK_DISTANCE) {
-                return;
-            }
-
-            if (ax >= ay) {
-                s_transition_axis_locked = true;
-                return;
-            }
-
-            if (s_top_page == UI_TOP_HOME && dy > 0) {
-                begin_transition(UI_TRANSITION_TO_CLOCK);
-            }
-            else if (s_top_page == UI_TOP_STANDBY && dy < 0) {
-                begin_transition(UI_TRANSITION_TO_HOME);
-            }
-
-            s_transition_axis_locked = true;
-        }
-
-        if (s_transition_overlay != NULL) {
-            update_transition_position(dy);
-        }
+    if (!released) {
         return;
     }
 
-    if (code == LV_EVENT_RELEASED) {
-        if (s_transition_overlay != NULL) {
-            lv_point_t point;
-            lv_indev_get_point(indev, &point);
+    int32_t distance =
+        s_transition_target == UI_TRANSITION_TO_CLOCK ? dy : -dy;
 
-            int32_t dy = point.y - s_transition_press.y;
-            update_transition_position(dy);
+    bool commit = !cancelled &&
+                  distance >= UI_TRANSITION_COMMIT_DISTANCE;
 
-            int32_t distance =
-                s_transition_target == UI_TRANSITION_TO_CLOCK ? dy : -dy;
-            bool commit = distance >= UI_TRANSITION_COMMIT_DISTANCE;
-
-            if (commit) {
-                animate_transition_to(0, true);
-            }
-            else {
-                int32_t offscreen_y =
-                    s_transition_target == UI_TRANSITION_TO_CLOCK
-                        ? -UI_SCREEN_H
-                        : UI_SCREEN_H;
-                animate_transition_to(offscreen_y, false);
-            }
-        }
-
-        s_transition_tracking = false;
-        s_transition_axis_locked = false;
-        return;
+    if (commit) {
+        animate_transition_to(0, true);
     }
-
-    if (code == LV_EVENT_PRESS_LOST) {
-        if (s_transition_overlay != NULL && !s_transition_animating) {
-            int32_t offscreen_y =
-                s_transition_target == UI_TRANSITION_TO_CLOCK
-                    ? -UI_SCREEN_H
-                    : UI_SCREEN_H;
-            animate_transition_to(offscreen_y, false);
-        }
-
-        s_transition_tracking = false;
-        s_transition_axis_locked = false;
-    }
-}
-
-static void global_key_activity_cb(lv_event_t *e)
-{
-    (void)e;
-    ui_mark_activity();
-}
-
-static void bind_global_input_activity(void)
-{
-    lv_indev_t *indev = NULL;
-
-    while ((indev = lv_indev_get_next(indev)) != NULL) {
-        lv_indev_add_event_cb(indev,
-                              transition_input_cb,
-                              LV_EVENT_PRESSED,
-                              indev);
-        lv_indev_add_event_cb(indev,
-                              transition_input_cb,
-                              LV_EVENT_PRESSING,
-                              indev);
-        lv_indev_add_event_cb(indev,
-                              transition_input_cb,
-                              LV_EVENT_RELEASED,
-                              indev);
-        lv_indev_add_event_cb(indev,
-                              transition_input_cb,
-                              LV_EVENT_PRESS_LOST,
-                              indev);
-        lv_indev_add_event_cb(indev,
-                              global_key_activity_cb,
-                              LV_EVENT_KEY,
-                              indev);
+    else {
+        int32_t offscreen_y =
+            s_transition_target == UI_TRANSITION_TO_CLOCK
+                ? -UI_SCREEN_H
+                : UI_SCREEN_H;
+        animate_transition_to(offscreen_y, false);
     }
 }
 
@@ -347,6 +274,8 @@ static void standby_event_cb(ui_standby_event_t event, void *user_data)
     ui_page_standby_show(s_standby_view,
                          false,
                          standby_event_cb,
+                         NULL,
+                         vertical_drag_cb,
                          NULL);
 }
 
@@ -392,6 +321,8 @@ void ui_show_main_menu(void)
     ui_page_home_show(s_action_cb,
                       s_action_user_data,
                       page_activity_cb,
+                      NULL,
+                      vertical_drag_cb,
                       NULL);
 }
 
@@ -404,13 +335,14 @@ void ui_show_standby_clock(void)
     ui_page_standby_show(UI_STANDBY_CLOCK,
                          true,
                          standby_event_cb,
+                         NULL,
+                         vertical_drag_cb,
                          NULL);
 }
 
 void ui_init(void)
 {
     ui_assets_init();
-    bind_global_input_activity();
 
     if (s_idle_timer == NULL) {
         s_idle_timer = lv_timer_create(idle_timer_cb, 1000, NULL);
