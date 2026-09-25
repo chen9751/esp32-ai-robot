@@ -1,1 +1,1 @@
-idf_component_register(SRCS "ui_manager.c" INCLUDE_DIRS "include" REQUIRES lvgl)
+idf_component_register(SRCS "ui_manager.c" "ui_assets.c" INCLUDE_DIRS "include" REQUIRES lvgl)\n
