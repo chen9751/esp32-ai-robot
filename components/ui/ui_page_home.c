@@ -12,6 +12,10 @@
 #define UI_MENU_SIDE_PAD     18
 #define UI_MENU_V_PAD        18
 #define UI_MENU_RADIUS       30
+#define UI_MENU_SCALE_IDLE   256
+#define UI_MENU_SCALE_DOWN   246
+#define UI_MENU_PRESS_MS      55
+#define UI_MENU_RELEASE_MS    70
 
 #define UI_COLOR_BG          lv_color_hex(0x000000)
 #define UI_COLOR_FG          lv_color_hex(0xFFFFFF)
@@ -49,10 +53,42 @@ static void note_activity(void)
     }
 }
 
+static void tile_scale_set(void *obj, int32_t scale)
+{
+    lv_obj_set_style_transform_scale((lv_obj_t *)obj, scale, 0);
+}
+
+static void animate_tile_scale(lv_obj_t *tile, int32_t end_scale, uint32_t duration_ms)
+{
+    if (tile == NULL) {
+        return;
+    }
+
+    lv_anim_delete(tile, tile_scale_set);
+
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, tile);
+    lv_anim_set_values(&anim,
+                       lv_obj_get_style_transform_scale(tile, LV_PART_MAIN),
+                       end_scale);
+    lv_anim_set_duration(&anim, duration_ms);
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&anim, tile_scale_set);
+    lv_anim_start(&anim);
+}
+
 static void menu_item_pressed(lv_event_t *e)
 {
-    (void)e;
+    lv_obj_t *tile = lv_event_get_current_target(e);
     note_activity();
+    animate_tile_scale(tile, UI_MENU_SCALE_DOWN, UI_MENU_PRESS_MS);
+}
+
+static void menu_item_released(lv_event_t *e)
+{
+    lv_obj_t *tile = lv_event_get_current_target(e);
+    animate_tile_scale(tile, UI_MENU_SCALE_IDLE, UI_MENU_RELEASE_MS);
 }
 
 static void menu_item_clicked(lv_event_t *e)
@@ -116,6 +152,7 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(tile, UI_MENU_RADIUS, 0);
     lv_obj_set_style_border_width(tile, 0, 0);
+    lv_obj_set_style_transform_scale(tile, UI_MENU_SCALE_IDLE, 0);
 
     lv_obj_set_style_pad_top(tile, 10, 0);
     lv_obj_set_style_pad_bottom(tile, 8, 0);
@@ -136,6 +173,8 @@ static lv_obj_t *create_menu_item(lv_obj_t *parent, const ui_menu_item_t *item)
     create_menu_label(tile, item->label_image);
 
     lv_obj_add_event_cb(tile, menu_item_pressed, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(tile, menu_item_released, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(tile, menu_item_released, LV_EVENT_PRESS_LOST, NULL);
     lv_obj_add_event_cb(tile, menu_item_clicked, LV_EVENT_CLICKED, (void *)item);
     return tile;
 }
