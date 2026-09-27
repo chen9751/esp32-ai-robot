@@ -73,7 +73,16 @@ static void page_activity_cb(void *user_data)
 static void feature_back_cb(void *user_data)
 {
     (void)user_data;
-    ui_show_main_menu();
+
+    /*
+     * HOME is deliberately kept alive underneath every feature page.
+     * Returning must therefore only remove the feature overlay.  Rebuilding
+     * HOME here would reset its horizontal scroll position and create a
+     * visible jump after the finger-following back animation completes.
+     */
+    ui_page_feature_stop();
+    s_top_page = UI_TOP_HOME;
+    ui_mark_activity();
 }
 
 static void show_feature_page(ui_menu_action_t action)
