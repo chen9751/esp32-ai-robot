@@ -29,6 +29,7 @@ The desktop font files are **design/source assets**, not a requirement to embed 
 
 Do not replace the selected icon system with enlarged bitmap/pixel icons unless a page intentionally calls for a pixel-art style.
 
+For small monochrome UI icons, compact A8 image subsets rasterized directly from the selected Remix Icon SVG source are also acceptable. They must retain the original Remix Icon geometry and be documented with their upstream icon filenames; do not redraw equivalent icons with one-off LVGL geometry.
 
 ## UI page architecture
 
@@ -36,6 +37,9 @@ UI pages are intentionally split into separate modules so the project does not g
 
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
 - `ui_page_home.c`: six-function HOME carousel.
+- `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
+- `ui_page_settings.c`: settings page content and controls.
+- `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
 - `ui_page_standby.c`: standby gesture/navigation controller only.
 - `ui_page_clock.c`: standby clock content.
 - `ui_page_weather.c`: weather page (placeholder until designed).
