@@ -8,27 +8,27 @@
 #define UI_BACK_RAIL_W             56
 #define UI_CONTENT_X               UI_BACK_RAIL_W
 #define UI_CONTENT_W              (UI_SCREEN_W - UI_BACK_RAIL_W)
-#define UI_CONTENT_H              120
-#define UI_NAV_Y                  122
+#define UI_CONTENT_H              124
+#define UI_NAV_Y                  124
 #define UI_TAB_COUNT                6
 #define UI_TAB_W                   97
 #define UI_TAB_LAST_W              99
-#define UI_TAB_H                   64
+#define UI_TAB_H                   48
 #define UI_SLIDER_W               420
 #define UI_SLIDER_H                 8
 #define UI_SLIDER_X              (UI_CONTENT_X + 108)
-#define UI_SLIDER_Y                54
+#define UI_SLIDER_Y                58
 #define UI_CONTENT_ICON_X          86
-#define UI_CONTENT_ICON_Y          42
-#define UI_VALUE_Y                 18
+#define UI_CONTENT_ICON_Y          46
+#define UI_VALUE_Y                 22
 
 #define UI_COLOR_BG          lv_color_hex(0x000000)
 #define UI_COLOR_ACCENT      lv_color_hex(0x45D7F0)
 #define UI_COLOR_FG          lv_color_hex(0xF4F7F8)
-#define UI_COLOR_MUTED       lv_color_hex(0x6E747B)
+#define UI_COLOR_MUTED       lv_color_hex(0x6B7178)
 #define UI_COLOR_TRACK       lv_color_hex(0x2A2D31)
-#define UI_COLOR_TAB         lv_color_hex(0x0B0D10)
-#define UI_COLOR_TAB_ACTIVE  lv_color_hex(0x323B46)
+#define UI_COLOR_TAB         lv_color_hex(0x0C0E11)
+#define UI_COLOR_TAB_ACTIVE  lv_color_hex(0x20262D)
 
 typedef enum {
     UI_SETTINGS_SOUND = 0,
@@ -279,10 +279,10 @@ static void build_nav(void)
         s_tab_cards[i] = card;
         lv_obj_set_size(card, width, UI_TAB_H);
         lv_obj_set_pos(card, x, UI_NAV_Y);
-        /* The cards extend below the 172 px viewport. The clipped lower
-         * corners therefore appear square while only the top corners remain
-         * rounded. Adjacent cards touch with no horizontal gap. */
-        lv_obj_set_style_radius(card, 14, 0);
+        /* The cards touch edge-to-edge. They end exactly at the bottom of the
+         * 172 px viewport, so the bottom edge reads square while the 12 px
+         * radius keeps the upper edge soft and easy to scan. */
+        lv_obj_set_style_radius(card, 12, 0);
         lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
         lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(card,
@@ -294,7 +294,7 @@ static void build_nav(void)
                                    (ui_settings_tab_t)i,
                                    UI_COLOR_MUTED);
         s_tab_icons[i] = icon;
-        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 13);
+        lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 8);
 
         x += width;
     }
