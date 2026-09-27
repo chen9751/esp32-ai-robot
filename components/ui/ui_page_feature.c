@@ -1,4 +1,5 @@
 #include "ui_page_feature.h"
+#include "ui_page_settings.h"
 #include "ui_assets.h"
 
 #include <stdint.h>
@@ -33,6 +34,7 @@ static lv_point_t s_press = {0, 0};
 static bool s_pressed = false;
 static bool s_horizontal_drag = false;
 static bool s_animating = false;
+static ui_menu_action_t s_action = UI_MENU_REMOTE;
 static ui_feature_back_cb_t s_back_cb = NULL;
 static void *s_back_user_data = NULL;
 static ui_feature_activity_cb_t s_activity_cb = NULL;
@@ -52,27 +54,19 @@ static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
 
 static void note_activity(void)
 {
-    if (s_activity_cb != NULL) {
-        s_activity_cb(s_activity_user_data);
-    }
+    if (s_activity_cb != NULL) s_activity_cb(s_activity_user_data);
 }
 
 static ui_feature_asset_t feature_assets(ui_menu_action_t action)
 {
     switch (action) {
-        case UI_MENU_REMOTE:
-            return (ui_feature_asset_t){ &ui_icon_remote, &ui_label_remote };
-        case UI_MENU_MUSIC:
-            return (ui_feature_asset_t){ &ui_icon_music, &ui_label_music };
-        case UI_MENU_LIGHTS:
-            return (ui_feature_asset_t){ &ui_icon_light, &ui_label_light };
-        case UI_MENU_DEVICES:
-            return (ui_feature_asset_t){ &ui_icon_devices, &ui_label_devices };
-        case UI_MENU_ALARM:
-            return (ui_feature_asset_t){ &ui_icon_alarm, &ui_label_alarm };
+        case UI_MENU_REMOTE:   return (ui_feature_asset_t){ &ui_icon_remote, &ui_label_remote };
+        case UI_MENU_MUSIC:    return (ui_feature_asset_t){ &ui_icon_music, &ui_label_music };
+        case UI_MENU_LIGHTS:   return (ui_feature_asset_t){ &ui_icon_light, &ui_label_light };
+        case UI_MENU_DEVICES:  return (ui_feature_asset_t){ &ui_icon_devices, &ui_label_devices };
+        case UI_MENU_ALARM:    return (ui_feature_asset_t){ &ui_icon_alarm, &ui_label_alarm };
         case UI_MENU_SETTINGS:
-        default:
-            return (ui_feature_asset_t){ &ui_icon_settings, &ui_label_settings };
+        default:               return (ui_feature_asset_t){ &ui_icon_settings, &ui_label_settings };
     }
 }
 
@@ -88,13 +82,9 @@ static lv_obj_t *create_a8_image(lv_obj_t *parent, const lv_image_dsc_t *src)
 
 static void set_indicator_pressed(bool pressed)
 {
-    if (s_indicator == NULL) {
-        return;
-    }
-
+    if (s_indicator == NULL) return;
     lv_obj_set_style_bg_color(s_indicator,
-                              pressed ? UI_COLOR_BACK_PRESSED
-                                      : UI_COLOR_BACK_IDLE,
+                              pressed ? UI_COLOR_BACK_PRESSED : UI_COLOR_BACK_IDLE,
                               0);
 }
 
@@ -107,10 +97,7 @@ static void finish_back(lv_anim_t *anim)
 {
     (void)anim;
     s_animating = false;
-
-    if (s_back_cb != NULL) {
-        s_back_cb(s_back_user_data);
-    }
+    if (s_back_cb != NULL) s_back_cb(s_back_user_data);
 }
 
 static void finish_rest(lv_anim_t *anim)
@@ -120,13 +107,9 @@ static void finish_rest(lv_anim_t *anim)
     s_horizontal_drag = false;
 }
 
-static void animate_content_to(int32_t end_x,
-                               uint32_t duration_ms,
-                               bool commit)
+static void animate_content_to(int32_t end_x, uint32_t duration_ms, bool commit)
 {
-    if (s_content == NULL || s_animating) {
-        return;
-    }
+    if (s_content == NULL || s_animating) return;
 
     s_animating = true;
 
@@ -143,14 +126,10 @@ static void animate_content_to(int32_t end_x,
 
 static void back_rail_event_cb(lv_event_t *e)
 {
-    if (s_content == NULL || s_animating) {
-        return;
-    }
+    if (s_content == NULL || s_animating) return;
 
     lv_indev_t *indev = lv_event_get_indev(e);
-    if (indev == NULL) {
-        return;
-    }
+    if (indev == NULL) return;
 
     lv_event_code_t code = lv_event_get_code(e);
 
@@ -163,9 +142,7 @@ static void back_rail_event_cb(lv_event_t *e)
         return;
     }
 
-    if (!s_pressed) {
-        return;
-    }
+    if (!s_pressed) return;
 
     lv_point_t point;
     lv_indev_get_point(indev, &point);
@@ -176,14 +153,9 @@ static void back_rail_event_cb(lv_event_t *e)
 
     if (code == LV_EVENT_PRESSING) {
         note_activity();
-
-        if (!s_horizontal_drag &&
-            ax >= UI_BACK_LOCK_DISTANCE &&
-            dx > 0 &&
-            ax > ay) {
+        if (!s_horizontal_drag && ax >= UI_BACK_LOCK_DISTANCE && dx > 0 && ax > ay) {
             s_horizontal_drag = true;
         }
-
         if (s_horizontal_drag) {
             lv_obj_set_x(s_content, clamp_i32(dx, 0, UI_SCREEN_W));
         }
@@ -196,12 +168,8 @@ static void back_rail_event_cb(lv_event_t *e)
         note_activity();
 
         if (s_horizontal_drag) {
-            if (dx >= UI_BACK_COMMIT_DISTANCE) {
-                animate_content_to(UI_SCREEN_W, UI_BACK_ANIM_MS, true);
-            }
-            else {
-                animate_content_to(0, UI_BACK_ANIM_MS, false);
-            }
+            if (dx >= UI_BACK_COMMIT_DISTANCE) animate_content_to(UI_SCREEN_W, UI_BACK_ANIM_MS, true);
+            else animate_content_to(0, UI_BACK_ANIM_MS, false);
             return;
         }
 
@@ -214,7 +182,6 @@ static void back_rail_event_cb(lv_event_t *e)
     if (code == LV_EVENT_PRESS_LOST) {
         s_pressed = false;
         set_indicator_pressed(false);
-
         if (s_horizontal_drag || lv_obj_get_x(s_content) != 0) {
             animate_content_to(0, UI_BACK_ANIM_MS, false);
         }
@@ -222,35 +189,10 @@ static void back_rail_event_cb(lv_event_t *e)
     }
 }
 
-lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
-                                ui_menu_action_t action,
-                                ui_feature_back_cb_t back_cb,
-                                void *back_user_data,
-                                ui_feature_activity_cb_t activity_cb,
-                                void *activity_user_data)
+static void build_generic_placeholder(ui_menu_action_t action)
 {
-    s_back_cb = back_cb;
-    s_back_user_data = back_user_data;
-    s_activity_cb = activity_cb;
-    s_activity_user_data = activity_user_data;
-    s_pressed = false;
-    s_horizontal_drag = false;
-    s_animating = false;
-
     ui_feature_asset_t assets = feature_assets(action);
 
-    s_content = lv_obj_create(parent);
-    lv_obj_remove_style_all(s_content);
-    lv_obj_set_size(s_content, UI_SCREEN_W, UI_SCREEN_H);
-    lv_obj_set_pos(s_content, UI_ENTER_OFFSET_PX, 0);
-    lv_obj_set_style_bg_color(s_content, UI_COLOR_BG, 0);
-    lv_obj_set_style_bg_opa(s_content, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
-
-    /*
-     * Temporary shared content placeholder.  The shell is already final;
-     * individual feature UIs can later replace only this center content.
-     */
     lv_obj_t *content_group = lv_obj_create(s_content);
     lv_obj_remove_style_all(content_group);
     lv_obj_set_size(content_group, 150, 124);
@@ -279,12 +221,39 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     lv_obj_clear_flag(label_holder, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *label = create_a8_image(label_holder, assets.label);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+}
 
-    /*
-     * The rail is transparent and is now a CHILD of the moving feature page.
-     * There is still no visual sidebar, but both the hit area and indicator
-     * follow the page during interactive drag and the final return animation.
-     */
+lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
+                                ui_menu_action_t action,
+                                ui_feature_back_cb_t back_cb,
+                                void *back_user_data,
+                                ui_feature_activity_cb_t activity_cb,
+                                void *activity_user_data)
+{
+    s_action = action;
+    s_back_cb = back_cb;
+    s_back_user_data = back_user_data;
+    s_activity_cb = activity_cb;
+    s_activity_user_data = activity_user_data;
+    s_pressed = false;
+    s_horizontal_drag = false;
+    s_animating = false;
+
+    s_content = lv_obj_create(parent);
+    lv_obj_remove_style_all(s_content);
+    lv_obj_set_size(s_content, UI_SCREEN_W, UI_SCREEN_H);
+    lv_obj_set_pos(s_content, UI_ENTER_OFFSET_PX, 0);
+    lv_obj_set_style_bg_color(s_content, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(s_content, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
+
+    if (action == UI_MENU_SETTINGS) {
+        ui_page_settings_build(s_content, s_activity_cb, s_activity_user_data);
+    }
+    else {
+        build_generic_placeholder(action);
+    }
+
     s_rail = lv_obj_create(s_content);
     lv_obj_remove_style_all(s_rail);
     lv_obj_set_size(s_rail, UI_BACK_RAIL_W, UI_SCREEN_H);
@@ -311,23 +280,14 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     lv_obj_add_event_cb(s_rail, back_rail_event_cb, LV_EVENT_PRESS_LOST, NULL);
 
     lv_obj_move_foreground(s_rail);
-
-    /*
-     * Lightweight click feedback: one short X translation for the whole page.
-     * This avoids image scaling, opacity layers, or per-widget animation.
-     */
     animate_content_to(0, UI_ENTER_ANIM_MS, false);
-
     return s_content;
 }
 
 void ui_page_feature_stop(void)
 {
-    /*
-     * The rail is a child of s_content, so deleting the feature page removes
-     * the moving content, hit area, and indicator in one operation.  HOME
-     * underneath is untouched and therefore keeps its exact scroll offset.
-     */
+    if (s_action == UI_MENU_SETTINGS) ui_page_settings_stop();
+
     if (s_content != NULL) {
         lv_anim_delete(s_content, NULL);
         lv_obj_delete(s_content);
@@ -339,6 +299,7 @@ void ui_page_feature_stop(void)
     s_pressed = false;
     s_horizontal_drag = false;
     s_animating = false;
+    s_action = UI_MENU_REMOTE;
     s_back_cb = NULL;
     s_back_user_data = NULL;
     s_activity_cb = NULL;
