@@ -13,6 +13,8 @@
 #define UI_BACK_LOCK_DISTANCE            8
 #define UI_BACK_COMMIT_DISTANCE         90
 #define UI_BACK_ANIM_MS                180
+#define UI_ENTER_OFFSET_PX              28
+#define UI_ENTER_ANIM_MS               130
 
 #define UI_COLOR_BG             lv_color_hex(0x000000)
 #define UI_COLOR_FG             lv_color_hex(0xFFFFFF)
@@ -111,14 +113,16 @@ static void finish_back(lv_anim_t *anim)
     }
 }
 
-static void finish_cancel(lv_anim_t *anim)
+static void finish_rest(lv_anim_t *anim)
 {
     (void)anim;
     s_animating = false;
     s_horizontal_drag = false;
 }
 
-static void animate_content_to(int32_t end_x, bool commit)
+static void animate_content_to(int32_t end_x,
+                               uint32_t duration_ms,
+                               bool commit)
 {
     if (s_content == NULL || s_animating) {
         return;
@@ -130,10 +134,10 @@ static void animate_content_to(int32_t end_x, bool commit)
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, s_content);
     lv_anim_set_values(&anim, lv_obj_get_x(s_content), end_x);
-    lv_anim_set_duration(&anim, UI_BACK_ANIM_MS);
+    lv_anim_set_duration(&anim, duration_ms);
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
     lv_anim_set_exec_cb(&anim, content_set_x);
-    lv_anim_set_completed_cb(&anim, commit ? finish_back : finish_cancel);
+    lv_anim_set_completed_cb(&anim, commit ? finish_back : finish_rest);
     lv_anim_start(&anim);
 }
 
@@ -193,16 +197,16 @@ static void back_rail_event_cb(lv_event_t *e)
 
         if (s_horizontal_drag) {
             if (dx >= UI_BACK_COMMIT_DISTANCE) {
-                animate_content_to(UI_SCREEN_W, true);
+                animate_content_to(UI_SCREEN_W, UI_BACK_ANIM_MS, true);
             }
             else {
-                animate_content_to(0, false);
+                animate_content_to(0, UI_BACK_ANIM_MS, false);
             }
             return;
         }
 
         if (ax <= UI_BACK_TAP_SLOP && ay <= UI_BACK_TAP_SLOP) {
-            animate_content_to(UI_SCREEN_W, true);
+            animate_content_to(UI_SCREEN_W, UI_BACK_ANIM_MS, true);
         }
         return;
     }
@@ -212,7 +216,7 @@ static void back_rail_event_cb(lv_event_t *e)
         set_indicator_pressed(false);
 
         if (s_horizontal_drag || lv_obj_get_x(s_content) != 0) {
-            animate_content_to(0, false);
+            animate_content_to(0, UI_BACK_ANIM_MS, false);
         }
         s_horizontal_drag = false;
     }
@@ -238,7 +242,7 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     s_content = lv_obj_create(parent);
     lv_obj_remove_style_all(s_content);
     lv_obj_set_size(s_content, UI_SCREEN_W, UI_SCREEN_H);
-    lv_obj_set_pos(s_content, 0, 0);
+    lv_obj_set_pos(s_content, UI_ENTER_OFFSET_PX, 0);
     lv_obj_set_style_bg_color(s_content, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(s_content, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
@@ -277,10 +281,11 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 
     /*
-     * Fixed overlay rail.  Its background is fully transparent, so it does
-     * not divide the page visually.  Only the vertical indicator is visible.
+     * The rail is transparent and is now a CHILD of the moving feature page.
+     * There is still no visual sidebar, but both the hit area and indicator
+     * follow the page during interactive drag and the final return animation.
      */
-    s_rail = lv_obj_create(parent);
+    s_rail = lv_obj_create(s_content);
     lv_obj_remove_style_all(s_rail);
     lv_obj_set_size(s_rail, UI_BACK_RAIL_W, UI_SCREEN_H);
     lv_obj_set_pos(s_rail, 0, 0);
@@ -306,24 +311,26 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     lv_obj_add_event_cb(s_rail, back_rail_event_cb, LV_EVENT_PRESS_LOST, NULL);
 
     lv_obj_move_foreground(s_rail);
+
+    /*
+     * Lightweight click feedback: one short X translation for the whole page.
+     * This avoids image scaling, opacity layers, or per-widget animation.
+     */
+    animate_content_to(0, UI_ENTER_ANIM_MS, false);
+
     return s_content;
 }
 
 void ui_page_feature_stop(void)
 {
     /*
-     * Feature content and the fixed rail are siblings layered above HOME.
-     * Remove only these two objects so the HOME scroller underneath keeps its
-     * exact scroll offset.  This is what makes the interactive reveal and the
-     * final resting frame identical, with no post-return jump.
+     * The rail is a child of s_content, so deleting the feature page removes
+     * the moving content, hit area, and indicator in one operation.  HOME
+     * underneath is untouched and therefore keeps its exact scroll offset.
      */
     if (s_content != NULL) {
         lv_anim_delete(s_content, NULL);
         lv_obj_delete(s_content);
-    }
-
-    if (s_rail != NULL) {
-        lv_obj_delete(s_rail);
     }
 
     s_content = NULL;
