@@ -5,6 +5,7 @@ idf_component_register(
         "ui_page_feature.c"
         "ui_page_settings.c"
         "ui_system_icons.c"
+        "ui_icon_robot2.c"
         "ui_page_standby.c"
         "ui_page_clock.c"
         "ui_page_weather.c"
