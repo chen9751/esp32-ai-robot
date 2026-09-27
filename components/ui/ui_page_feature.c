@@ -311,8 +311,19 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
 
 void ui_page_feature_stop(void)
 {
+    /*
+     * Feature content and the fixed rail are siblings layered above HOME.
+     * Remove only these two objects so the HOME scroller underneath keeps its
+     * exact scroll offset.  This is what makes the interactive reveal and the
+     * final resting frame identical, with no post-return jump.
+     */
     if (s_content != NULL) {
         lv_anim_delete(s_content, NULL);
+        lv_obj_delete(s_content);
+    }
+
+    if (s_rail != NULL) {
+        lv_obj_delete(s_rail);
     }
 
     s_content = NULL;
