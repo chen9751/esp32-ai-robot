@@ -9,6 +9,7 @@ add_executable(index
     main.c
     ../components/ui/ui_manager.c
     ../components/ui/ui_page_home.c
+    ../components/ui/ui_page_feature.c
     ../components/ui/ui_page_standby.c
     ../components/ui/ui_page_clock.c
     ../components/ui/ui_page_weather.c

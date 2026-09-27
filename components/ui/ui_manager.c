@@ -2,6 +2,7 @@
 #include "ui_page_home.h"
 #include "ui_page_standby.h"
 #include "ui_page_clock.h"
+#include "ui_page_feature.h"
 #include "ui_assets.h"
 
 #include <stdint.h>
@@ -16,6 +17,7 @@
 typedef enum {
     UI_TOP_STANDBY = 0,
     UI_TOP_HOME,
+    UI_TOP_FEATURE,
 } ui_top_page_t;
 
 typedef enum {
@@ -68,6 +70,45 @@ static void page_activity_cb(void *user_data)
     ui_mark_activity();
 }
 
+static void feature_back_cb(void *user_data)
+{
+    (void)user_data;
+    ui_show_main_menu();
+}
+
+static void show_feature_page(ui_menu_action_t action)
+{
+    if (ui_navigation_transition_active() || ui_page_feature_active()) {
+        return;
+    }
+
+    /*
+     * Keep the existing HOME page alive underneath the function page.
+     * The shared function shell is layered above it.  During a right-drag
+     * return, only the function content moves, naturally revealing HOME.
+     */
+    s_top_page = UI_TOP_FEATURE;
+    ui_mark_activity();
+
+    ui_page_feature_build(lv_screen_active(),
+                          action,
+                          feature_back_cb,
+                          NULL,
+                          page_activity_cb,
+                          NULL);
+
+    /* Optional business hook: navigation no longer depends on this callback. */
+    if (s_action_cb != NULL) {
+        s_action_cb(action, s_action_user_data);
+    }
+}
+
+static void home_menu_action_cb(ui_menu_action_t action, void *user_data)
+{
+    (void)user_data;
+    show_feature_page(action);
+}
+
 static void transition_overlay_set_y(void *obj, int32_t y)
 {
     lv_obj_set_y((lv_obj_t *)obj, y);
@@ -95,7 +136,8 @@ static void begin_transition(ui_transition_target_t target)
 {
     if (s_transition_overlay != NULL ||
         s_transition_underlay != NULL ||
-        s_transition_animating) {
+        s_transition_animating ||
+        s_top_page == UI_TOP_FEATURE) {
         return;
     }
 
@@ -128,8 +170,8 @@ static void begin_transition(ui_transition_target_t target)
 
     s_transition_underlay =
         ui_page_home_build(lv_screen_active(),
-                           s_action_cb,
-                           s_action_user_data,
+                           home_menu_action_cb,
+                           NULL,
                            page_activity_cb,
                            NULL,
                            vertical_drag_cb,
@@ -235,6 +277,10 @@ static void vertical_drag_cb(int32_t dx,
 {
     (void)user_data;
     ui_mark_activity();
+
+    if (s_top_page == UI_TOP_FEATURE) {
+        return;
+    }
 
     int32_t ax = iabs32(dx);
     int32_t ay = iabs32(dy);
@@ -359,12 +405,13 @@ void ui_set_menu_font(const lv_font_t *font)
 
 void ui_show_main_menu(void)
 {
+    ui_page_feature_stop();
     ui_page_standby_stop();
     s_top_page = UI_TOP_HOME;
     ui_mark_activity();
 
-    ui_page_home_show(s_action_cb,
-                      s_action_user_data,
+    ui_page_home_show(home_menu_action_cb,
+                      NULL,
                       page_activity_cb,
                       NULL,
                       vertical_drag_cb,
@@ -373,6 +420,7 @@ void ui_show_main_menu(void)
 
 void ui_show_standby_clock(void)
 {
+    ui_page_feature_stop();
     s_top_page = UI_TOP_STANDBY;
     s_standby_view = UI_STANDBY_CLOCK;
     ui_mark_activity();

@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "ui_manager.c"
         "ui_page_home.c"
+        "ui_page_feature.c"
         "ui_page_standby.c"
         "ui_page_clock.c"
         "ui_page_weather.c"

@@ -10,6 +10,7 @@ add_executable(ai_robot_ui_preview
     main.c
     ../components/ui/ui_manager.c
     ../components/ui/ui_page_home.c
+    ../components/ui/ui_page_feature.c
     ../components/ui/ui_page_standby.c
     ../components/ui/ui_page_clock.c
     ../components/ui/ui_page_weather.c
