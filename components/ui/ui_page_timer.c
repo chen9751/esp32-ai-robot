@@ -1,0 +1,495 @@
+#include "ui_page_timer.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#define TIMER_SCREEN_W              640
+#define TIMER_SCREEN_H              172
+#define TIMER_BACK_RAIL_W            56
+#define TIMER_CONTENT_X              60
+#define TIMER_CONTENT_W             (TIMER_SCREEN_W - TIMER_CONTENT_X)
+#define TIMER_SECTION_W             142
+#define TIMER_DRAG_STEP_PX           18
+#define TIMER_MAX_SECONDS         43200u
+#define TIMER_TICK_PERIOD_MS         100u
+
+#define TIMER_BG                    lv_color_hex(0x000000)
+#define TIMER_FG                    lv_color_hex(0xFFFFFF)
+#define TIMER_DIM                   lv_color_hex(0x313136)
+#define TIMER_DIVIDER               lv_color_hex(0x202024)
+#define TIMER_ACCENT                lv_color_hex(0x5B8CFF)
+#define TIMER_STOP                  lv_color_hex(0xFF4D5E)
+#define TIMER_BUTTON_BG             lv_color_hex(0x17171B)
+
+typedef enum {
+    TIMER_STATE_SETTING = 0,
+    TIMER_STATE_RUNNING,
+    TIMER_STATE_PAUSED,
+    TIMER_STATE_FINISHED,
+} timer_state_t;
+
+typedef struct {
+    lv_obj_t *seg[7];
+} seven_digit_t;
+
+typedef struct {
+    lv_obj_t *zone;
+    seven_digit_t digits[2];
+    uint8_t kind; /* 0 hour, 1 minute, 2 second */
+    int16_t press_y;
+    uint8_t start_value;
+    bool pressed;
+} timer_column_t;
+
+static timer_state_t s_state = TIMER_STATE_SETTING;
+static uint32_t s_config_seconds = 0;
+static uint32_t s_remaining_seconds = 0;
+static uint32_t s_deadline_tick = 0;
+static lv_timer_t *s_tick_timer = NULL;
+
+static lv_obj_t *s_root = NULL;
+static lv_obj_t *s_action_area = NULL;
+static lv_obj_t *s_primary_button = NULL;
+static lv_obj_t *s_secondary_button = NULL;
+static timer_column_t s_columns[3];
+
+static ui_timer_activity_cb_t s_activity_cb = NULL;
+static void *s_activity_user_data = NULL;
+
+static const uint8_t DIGIT_MASKS[10] = {
+    0x3F, /* 0: a b c d e f */
+    0x06, /* 1: b c */
+    0x5B, /* 2: a b d e g */
+    0x4F, /* 3: a b c d g */
+    0x66, /* 4: b c f g */
+    0x6D, /* 5: a c d f g */
+    0x7D, /* 6: a c d e f g */
+    0x07, /* 7: a b c */
+    0x7F, /* 8 */
+    0x6F, /* 9 */
+};
+
+static void note_activity(void)
+{
+    if (s_activity_cb != NULL) {
+        s_activity_cb(s_activity_user_data);
+    }
+}
+
+static uint8_t clamp_u8(int value, int lo, int hi)
+{
+    if (value < lo) return (uint8_t)lo;
+    if (value > hi) return (uint8_t)hi;
+    return (uint8_t)value;
+}
+
+static void split_seconds(uint32_t total, uint8_t *hours, uint8_t *minutes, uint8_t *seconds)
+{
+    if (total > TIMER_MAX_SECONDS) total = TIMER_MAX_SECONDS;
+    *hours = (uint8_t)(total / 3600u);
+    total %= 3600u;
+    *minutes = (uint8_t)(total / 60u);
+    *seconds = (uint8_t)(total % 60u);
+}
+
+static uint32_t combine_seconds(uint8_t hours, uint8_t minutes, uint8_t seconds)
+{
+    uint32_t total = (uint32_t)hours * 3600u + (uint32_t)minutes * 60u + seconds;
+    return total > TIMER_MAX_SECONDS ? TIMER_MAX_SECONDS : total;
+}
+
+static void set_segment(lv_obj_t *obj, bool on)
+{
+    if (obj == NULL) return;
+    lv_obj_set_style_bg_color(obj, on ? TIMER_FG : TIMER_DIM, 0);
+    lv_obj_set_style_bg_opa(obj, on ? LV_OPA_COVER : LV_OPA_60, 0);
+}
+
+static lv_obj_t *make_segment(lv_obj_t *parent, int x, int y, int w, int h)
+{
+    lv_obj_t *seg = lv_obj_create(parent);
+    lv_obj_remove_style_all(seg);
+    lv_obj_set_pos(seg, x, y);
+    lv_obj_set_size(seg, w, h);
+    lv_obj_set_style_radius(seg, 2, 0);
+    lv_obj_set_style_bg_opa(seg, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(seg, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
+    return seg;
+}
+
+static void build_digit(lv_obj_t *parent, seven_digit_t *digit, int x)
+{
+    lv_obj_t *holder = lv_obj_create(parent);
+    lv_obj_remove_style_all(holder);
+    lv_obj_set_pos(holder, x, 0);
+    lv_obj_set_size(holder, 34, 62);
+    lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
+
+    digit->seg[0] = make_segment(holder, 7,  2, 20, 4);  /* a */
+    digit->seg[1] = make_segment(holder, 27, 7,  4, 22); /* b */
+    digit->seg[2] = make_segment(holder, 27, 33, 4, 22); /* c */
+    digit->seg[3] = make_segment(holder, 7, 56, 20, 4);  /* d */
+    digit->seg[4] = make_segment(holder, 3, 33, 4, 22);  /* e */
+    digit->seg[5] = make_segment(holder, 3,  7, 4, 22);  /* f */
+    digit->seg[6] = make_segment(holder, 7, 29, 20, 4);  /* g */
+}
+
+static void digit_set(seven_digit_t *digit, uint8_t value)
+{
+    uint8_t mask = value < 10 ? DIGIT_MASKS[value] : 0;
+    for (int i = 0; i < 7; ++i) {
+        set_segment(digit->seg[i], (mask & (1u << i)) != 0);
+    }
+}
+
+static void column_set_value(timer_column_t *column, uint8_t value)
+{
+    digit_set(&column->digits[0], (uint8_t)(value / 10));
+    digit_set(&column->digits[1], (uint8_t)(value % 10));
+}
+
+static uint8_t column_value(uint8_t kind)
+{
+    uint8_t h, m, s;
+    uint32_t total = s_state == TIMER_STATE_SETTING ? s_config_seconds : s_remaining_seconds;
+    split_seconds(total, &h, &m, &s);
+    if (kind == 0) return h;
+    if (kind == 1) return m;
+    return s;
+}
+
+static void refresh_columns(void)
+{
+    for (int i = 0; i < 3; ++i) {
+        column_set_value(&s_columns[i], column_value((uint8_t)i));
+    }
+}
+
+static void set_columns_enabled(bool enabled)
+{
+    for (int i = 0; i < 3; ++i) {
+        if (s_columns[i].zone == NULL) continue;
+        if (enabled) lv_obj_add_flag(s_columns[i].zone, LV_OBJ_FLAG_CLICKABLE);
+        else lv_obj_clear_flag(s_columns[i].zone, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
+static lv_obj_t *make_button(lv_obj_t *parent, int w, int h, lv_color_t bg, const char *symbol)
+{
+    lv_obj_t *button = lv_obj_create(parent);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_size(button, w, h);
+    lv_obj_set_style_bg_color(button, bg, 0);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(button, h / 2, 0);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *label = lv_label_create(button);
+    lv_label_set_text(label, symbol);
+    lv_obj_set_style_text_color(label, TIMER_FG, 0);
+    lv_obj_center(label);
+    return button;
+}
+
+static void action_primary_cb(lv_event_t *e);
+static void action_secondary_cb(lv_event_t *e);
+
+static void rebuild_action_area(void)
+{
+    if (s_action_area == NULL) return;
+
+    lv_obj_clean(s_action_area);
+    s_primary_button = NULL;
+    s_secondary_button = NULL;
+
+    if (s_state == TIMER_STATE_SETTING) {
+        s_primary_button = make_button(s_action_area, 92, 92, TIMER_ACCENT, LV_SYMBOL_PLAY);
+        lv_obj_center(s_primary_button);
+        lv_obj_add_event_cb(s_primary_button, action_primary_cb, LV_EVENT_CLICKED, NULL);
+        set_columns_enabled(true);
+        return;
+    }
+
+    const char *primary_symbol = s_state == TIMER_STATE_RUNNING ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY;
+    s_primary_button = make_button(s_action_area, 82, 60, TIMER_BUTTON_BG, primary_symbol);
+    lv_obj_align(s_primary_button, LV_ALIGN_TOP_MID, 0, 19);
+    lv_obj_add_event_cb(s_primary_button, action_primary_cb, LV_EVENT_CLICKED, NULL);
+
+    s_secondary_button = make_button(s_action_area, 82, 60, TIMER_STOP, LV_SYMBOL_STOP);
+    lv_obj_align(s_secondary_button, LV_ALIGN_BOTTOM_MID, 0, -19);
+    lv_obj_add_event_cb(s_secondary_button, action_secondary_cb, LV_EVENT_CLICKED, NULL);
+    set_columns_enabled(false);
+}
+
+static void stop_tick_timer(void)
+{
+    if (s_tick_timer != NULL) {
+        lv_timer_delete(s_tick_timer);
+        s_tick_timer = NULL;
+    }
+}
+
+static void finish_countdown(void)
+{
+    stop_tick_timer();
+    s_remaining_seconds = 0;
+    s_state = TIMER_STATE_FINISHED;
+    refresh_columns();
+    rebuild_action_area();
+    /* Future audio/notification hook belongs here; UI timing state is complete. */
+}
+
+static void timer_tick_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (s_state != TIMER_STATE_RUNNING) return;
+
+    uint32_t now = lv_tick_get();
+    int32_t ms_left = (int32_t)(s_deadline_tick - now);
+    if (ms_left <= 0) {
+        finish_countdown();
+        return;
+    }
+
+    uint32_t seconds_left = ((uint32_t)ms_left + 999u) / 1000u;
+    if (seconds_left != s_remaining_seconds) {
+        s_remaining_seconds = seconds_left;
+        refresh_columns();
+    }
+}
+
+static void begin_running(uint32_t seconds)
+{
+    if (seconds == 0 || seconds > TIMER_MAX_SECONDS) return;
+
+    stop_tick_timer();
+    s_remaining_seconds = seconds;
+    s_deadline_tick = lv_tick_get() + seconds * 1000u;
+    s_state = TIMER_STATE_RUNNING;
+    s_tick_timer = lv_timer_create(timer_tick_cb, TIMER_TICK_PERIOD_MS, NULL);
+    refresh_columns();
+    rebuild_action_area();
+}
+
+static void pause_running(void)
+{
+    if (s_state != TIMER_STATE_RUNNING) return;
+
+    uint32_t now = lv_tick_get();
+    int32_t ms_left = (int32_t)(s_deadline_tick - now);
+    s_remaining_seconds = ms_left > 0 ? ((uint32_t)ms_left + 999u) / 1000u : 0;
+    stop_tick_timer();
+
+    if (s_remaining_seconds == 0) {
+        s_state = TIMER_STATE_FINISHED;
+    } else {
+        s_state = TIMER_STATE_PAUSED;
+    }
+    refresh_columns();
+    rebuild_action_area();
+}
+
+static void restore_setting(void)
+{
+    stop_tick_timer();
+    s_state = TIMER_STATE_SETTING;
+    s_remaining_seconds = s_config_seconds;
+    refresh_columns();
+    rebuild_action_area();
+}
+
+static void action_primary_cb(lv_event_t *e)
+{
+    (void)e;
+    note_activity();
+
+    if (s_state == TIMER_STATE_SETTING) {
+        begin_running(s_config_seconds);
+    }
+    else if (s_state == TIMER_STATE_RUNNING) {
+        pause_running();
+    }
+    else if (s_state == TIMER_STATE_PAUSED) {
+        begin_running(s_remaining_seconds);
+    }
+    else if (s_state == TIMER_STATE_FINISHED) {
+        begin_running(s_config_seconds);
+    }
+}
+
+static void action_secondary_cb(lv_event_t *e)
+{
+    (void)e;
+    note_activity();
+    restore_setting();
+}
+
+static void update_setting_from_column(timer_column_t *column, int value)
+{
+    if (s_state != TIMER_STATE_SETTING || column == NULL) return;
+
+    uint8_t h, m, s;
+    split_seconds(s_config_seconds, &h, &m, &s);
+
+    if (column->kind == 0) h = clamp_u8(value, 0, 12);
+    else if (column->kind == 1) m = clamp_u8(value, 0, 59);
+    else s = clamp_u8(value, 0, 59);
+
+    /* 12:00:00 is the hard ceiling. Reaching 12 hours clears lower units. */
+    if (h >= 12) {
+        h = 12;
+        m = 0;
+        s = 0;
+    }
+
+    s_config_seconds = combine_seconds(h, m, s);
+    s_remaining_seconds = s_config_seconds;
+    refresh_columns();
+}
+
+static void column_event_cb(lv_event_t *e)
+{
+    timer_column_t *column = (timer_column_t *)lv_event_get_user_data(e);
+    if (column == NULL || s_state != TIMER_STATE_SETTING) return;
+
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (indev == NULL) return;
+
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+
+    if (code == LV_EVENT_PRESSED) {
+        column->pressed = true;
+        column->press_y = (int16_t)point.y;
+        column->start_value = column_value(column->kind);
+        note_activity();
+        return;
+    }
+
+    if (!column->pressed) return;
+
+    if (code == LV_EVENT_PRESSING) {
+        int delta = column->press_y - point.y;
+        int steps = delta / TIMER_DRAG_STEP_PX;
+        int max_value = column->kind == 0 ? 12 : 59;
+        update_setting_from_column(column,
+                                   clamp_u8((int)column->start_value + steps, 0, max_value));
+        note_activity();
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        column->pressed = false;
+        note_activity();
+    }
+}
+
+static lv_obj_t *create_unit_label(lv_obj_t *parent, const char *text)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x8A8A90), 0);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -14);
+    return label;
+}
+
+static void build_column(lv_obj_t *parent, timer_column_t *column, uint8_t kind, int x, const char *unit)
+{
+    column->kind = kind;
+    column->pressed = false;
+
+    column->zone = lv_obj_create(parent);
+    lv_obj_remove_style_all(column->zone);
+    lv_obj_set_pos(column->zone, x, 0);
+    lv_obj_set_size(column->zone, TIMER_SECTION_W, TIMER_SCREEN_H);
+    lv_obj_add_flag(column->zone, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(column->zone, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *digits = lv_obj_create(column->zone);
+    lv_obj_remove_style_all(digits);
+    lv_obj_set_size(digits, 76, 62);
+    lv_obj_align(digits, LV_ALIGN_CENTER, 0, -9);
+    lv_obj_clear_flag(digits, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(digits, LV_OBJ_FLAG_SCROLLABLE);
+
+    build_digit(digits, &column->digits[0], 1);
+    build_digit(digits, &column->digits[1], 41);
+    create_unit_label(column->zone, unit);
+
+    lv_obj_add_event_cb(column->zone, column_event_cb, LV_EVENT_PRESSED, column);
+    lv_obj_add_event_cb(column->zone, column_event_cb, LV_EVENT_PRESSING, column);
+    lv_obj_add_event_cb(column->zone, column_event_cb, LV_EVENT_RELEASED, column);
+    lv_obj_add_event_cb(column->zone, column_event_cb, LV_EVENT_PRESS_LOST, column);
+}
+
+static void build_divider(lv_obj_t *parent, int x)
+{
+    lv_obj_t *line = lv_obj_create(parent);
+    lv_obj_remove_style_all(line);
+    lv_obj_set_pos(line, x, 28);
+    lv_obj_set_size(line, 1, TIMER_SCREEN_H - 56);
+    lv_obj_set_style_bg_color(line, TIMER_DIVIDER, 0);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(line, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void ui_page_timer_build(lv_obj_t *parent,
+                         ui_timer_activity_cb_t activity_cb,
+                         void *activity_user_data)
+{
+    s_activity_cb = activity_cb;
+    s_activity_user_data = activity_user_data;
+
+    s_root = lv_obj_create(parent);
+    lv_obj_remove_style_all(s_root);
+    lv_obj_set_pos(s_root, TIMER_CONTENT_X, 0);
+    lv_obj_set_size(s_root, TIMER_CONTENT_W, TIMER_SCREEN_H);
+    lv_obj_set_style_bg_color(s_root, TIMER_BG, 0);
+    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
+
+    build_column(s_root, &s_columns[0], 0, 0, "HOUR");
+    build_column(s_root, &s_columns[1], 1, TIMER_SECTION_W, "MIN");
+    build_column(s_root, &s_columns[2], 2, TIMER_SECTION_W * 2, "SEC");
+
+    build_divider(s_root, TIMER_SECTION_W);
+    build_divider(s_root, TIMER_SECTION_W * 2);
+    build_divider(s_root, TIMER_SECTION_W * 3);
+
+    s_action_area = lv_obj_create(s_root);
+    lv_obj_remove_style_all(s_action_area);
+    lv_obj_set_pos(s_action_area, TIMER_SECTION_W * 3, 0);
+    lv_obj_set_size(s_action_area, TIMER_CONTENT_W - TIMER_SECTION_W * 3, TIMER_SCREEN_H);
+    lv_obj_clear_flag(s_action_area, LV_OBJ_FLAG_SCROLLABLE);
+
+    if (s_state == TIMER_STATE_SETTING) {
+        s_remaining_seconds = s_config_seconds;
+    }
+
+    refresh_columns();
+    rebuild_action_area();
+}
+
+void ui_page_timer_stop(void)
+{
+    s_root = NULL;
+    s_action_area = NULL;
+    s_primary_button = NULL;
+    s_secondary_button = NULL;
+    for (int i = 0; i < 3; ++i) {
+        s_columns[i].zone = NULL;
+        s_columns[i].pressed = false;
+        for (int d = 0; d < 2; ++d) {
+            for (int seg = 0; seg < 7; ++seg) {
+                s_columns[i].digits[d].seg[seg] = NULL;
+            }
+        }
+    }
+    s_activity_cb = NULL;
+    s_activity_user_data = NULL;
+}
