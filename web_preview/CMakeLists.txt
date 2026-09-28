@@ -23,6 +23,7 @@ add_executable(index
     ../components/ui/ui_page_feature.c
     ../components/ui/ui_page_lights.c
     ../components/ui/ui_lights_icons.c
+    ../components/ui/ui_lights_extra_icons.c
     ../components/ui/ui_page_timer.c
     ../components/ui/ui_page_settings.c
     ../components/ui/ui_page_alarm.c
