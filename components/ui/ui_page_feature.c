@@ -2,6 +2,7 @@
 #include "ui_page_alarm.h"
 #include "ui_page_timer.h"
 #include "ui_page_settings.h"
+#include "ui_page_lights.h"
 #include "ui_assets.h"
 
 #include <stdint.h>
@@ -289,6 +290,9 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     else if (action == UI_MENU_TIMER) {
         ui_page_timer_build(s_content, s_activity_cb, s_activity_user_data);
     }
+    else if (action == UI_MENU_LIGHTS) {
+        ui_page_lights_build(s_content, s_activity_cb, s_activity_user_data);
+    }
     else {
         build_generic_placeholder(action);
     }
@@ -328,6 +332,7 @@ void ui_page_feature_stop(void)
     if (s_action == UI_MENU_SETTINGS) ui_page_settings_stop();
     if (s_action == UI_MENU_ALARM) ui_page_alarm_stop();
     if (s_action == UI_MENU_TIMER) ui_page_timer_stop();
+    if (s_action == UI_MENU_LIGHTS) ui_page_lights_stop();
 
     if (s_content != NULL) {
         lv_anim_delete(s_content, NULL);
