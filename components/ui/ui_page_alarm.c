@@ -12,7 +12,7 @@
 #define UI_ADD_CARD_W             97
 #define UI_ADD_CARD_H             48
 #define UI_ALARM_MAX              16
-#define UI_ALARM_ROW_H            50
+#define UI_ALARM_ROW_H            52
 
 #define UI_EDITOR_PANEL_W        576
 #define UI_EDITOR_PANEL_H        164
@@ -24,10 +24,12 @@
 #define UI_ROLLER_2_X            180
 #define UI_RIGHT_X               354
 #define UI_RIGHT_W               214
+#define UI_EDIT_BUTTON_W         104
+#define UI_EDIT_BUTTON_GAP         6
 
 #define UI_COLOR_BG          lv_color_hex(0x000000)
 #define UI_COLOR_FG          lv_color_hex(0xF4F7F8)
-#define UI_COLOR_MUTED       lv_color_hex(0x737A82)
+#define UI_COLOR_MUTED       lv_color_hex(0x89919A)
 #define UI_COLOR_PANEL       lv_color_hex(0x0B0F13)
 #define UI_COLOR_PANEL_2     lv_color_hex(0x151A20)
 #define UI_COLOR_ACCENT      lv_color_hex(0x45D7F0)
@@ -52,7 +54,7 @@ typedef struct {
     uint8_t hour;
     uint8_t minute;
     ui_alarm_repeat_t repeat;
-    uint8_t custom_days; /* bit 0..6 = Mon..Sun */
+    uint8_t custom_days;
     bool enabled;
 } ui_alarm_item_t;
 
@@ -111,7 +113,7 @@ static lv_obj_t *make_latin_label(lv_obj_t *parent, const char *text,
 
 static const char *repeat_text(const ui_alarm_item_t *alarm)
 {
-    static char custom_buf[32];
+    static char custom_buf[24];
     if (alarm->repeat == UI_ALARM_REPEAT_DAILY) return "每天";
     if (alarm->repeat == UI_ALARM_REPEAT_NEVER) return "永不";
 
@@ -119,9 +121,6 @@ static const char *repeat_text(const ui_alarm_item_t *alarm)
     custom_buf[0] = '\0';
     for (int i = 0; i < 7; ++i) {
         if ((alarm->custom_days & (1u << i)) == 0) continue;
-        if (custom_buf[0] != '\0') {
-            strncat(custom_buf, " ", sizeof(custom_buf) - strlen(custom_buf) - 1);
-        }
         strncat(custom_buf, days[i], sizeof(custom_buf) - strlen(custom_buf) - 1);
     }
     return custom_buf[0] == '\0' ? "自定义" : custom_buf;
@@ -162,7 +161,6 @@ static void alarm_switch_event_cb(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     intptr_t index = (intptr_t)lv_event_get_user_data(e);
     if (index < 0 || index >= s_alarm_count) return;
-
     lv_obj_t *sw = lv_event_get_target_obj(e);
     s_alarms[index].enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
     note_activity();
@@ -213,11 +211,11 @@ static void rebuild_list(void)
         snprintf(time_buf, sizeof(time_buf), "%02u:%02u",
                  s_alarms[i].hour, s_alarms[i].minute);
         lv_obj_t *time = make_latin_label(row, time_buf, UI_COLOR_FG,
-                                          &lv_font_montserrat_20);
-        lv_obj_set_pos(time, 15, 5);
+                                          &lv_font_montserrat_28);
+        lv_obj_align(time, LV_ALIGN_LEFT_MID, 15, 0);
 
         lv_obj_t *repeat = make_label(row, repeat_text(&s_alarms[i]), UI_COLOR_MUTED);
-        lv_obj_set_pos(repeat, 112, 15);
+        lv_obj_align(repeat, LV_ALIGN_LEFT_MID, 110, 1);
 
         lv_obj_t *sw = lv_switch_create(row);
         lv_obj_set_size(sw, 48, 26);
@@ -226,6 +224,7 @@ static void rebuild_list(void)
         lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_bg_color(sw, UI_COLOR_ACCENT, LV_PART_INDICATOR);
         lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_clear_flag(sw, LV_OBJ_FLAG_EVENT_BUBBLE);
         if (s_alarms[i].enabled) lv_obj_add_state(sw, LV_STATE_CHECKED);
         lv_obj_add_event_cb(sw, alarm_switch_event_cb, LV_EVENT_VALUE_CHANGED,
                             (void *)(intptr_t)i);
@@ -248,8 +247,7 @@ static void refresh_repeat_buttons(void)
     if (s_days_row != NULL) {
         if (s_repeat == UI_ALARM_REPEAT_CUSTOM) {
             lv_obj_clear_flag(s_days_row, LV_OBJ_FLAG_HIDDEN);
-        }
-        else {
+        } else {
             lv_obj_add_flag(s_days_row, LV_OBJ_FLAG_HIDDEN);
             set_day_error(false);
         }
@@ -309,16 +307,14 @@ static bool editor_values_valid(void)
     if (time_already_exists(hour, minute)) {
         set_time_error(true);
         valid = false;
-    }
-    else {
+    } else {
         set_time_error(false);
     }
 
     if (s_repeat == UI_ALARM_REPEAT_CUSTOM && s_custom_days == 0) {
         set_day_error(true);
         valid = false;
-    }
-    else {
+    } else {
         set_day_error(false);
     }
     return valid;
@@ -338,8 +334,7 @@ static void primary_action_event_cb(lv_event_t *e)
         alarm->minute = minute;
         alarm->repeat = s_repeat;
         alarm->custom_days = s_custom_days;
-    }
-    else if (s_alarm_count < UI_ALARM_MAX) {
+    } else if (s_alarm_count < UI_ALARM_MAX) {
         ui_alarm_item_t *alarm = &s_alarms[s_alarm_count++];
         alarm->hour = hour;
         alarm->minute = minute;
@@ -403,11 +398,17 @@ static void reset_day_buttons(void)
 static void configure_editor_actions(bool editing)
 {
     lv_label_set_text(s_primary_label, editing ? "Save" : "Add");
-    lv_obj_set_width(s_primary_button, editing ? 104 : UI_RIGHT_W);
-    lv_obj_set_x(s_primary_button, UI_RIGHT_X);
+    lv_obj_set_width(s_primary_button, editing ? UI_EDIT_BUTTON_W : UI_RIGHT_W);
+    lv_obj_set_x(s_primary_button,
+                 editing ? UI_RIGHT_X + UI_EDIT_BUTTON_W + UI_EDIT_BUTTON_GAP
+                         : UI_RIGHT_X);
 
-    if (editing) lv_obj_clear_flag(s_delete_button, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_delete_button, LV_OBJ_FLAG_HIDDEN);
+    if (editing) {
+        lv_obj_set_x(s_delete_button, UI_RIGHT_X);
+        lv_obj_clear_flag(s_delete_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_delete_button, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void open_add_editor(lv_event_t *e)
@@ -539,9 +540,12 @@ static void build_editor(lv_obj_t *parent)
     lv_obj_add_event_cb(s_primary_button, primary_action_event_cb,
                         LV_EVENT_CLICKED, NULL);
 
-    s_delete_button = create_button(panel, "Del", 104, 42,
-                                    UI_COLOR_DANGER, UI_COLOR_FG, true);
-    lv_obj_set_pos(s_delete_button, UI_RIGHT_X + 110, 114);
+    s_delete_button = create_button(panel, "Del", UI_EDIT_BUTTON_W, 42,
+                                    UI_COLOR_PANEL_2, UI_COLOR_DANGER, true);
+    lv_obj_set_pos(s_delete_button, UI_RIGHT_X, 114);
+    lv_obj_set_style_border_width(s_delete_button, 1, 0);
+    lv_obj_set_style_border_color(s_delete_button, UI_COLOR_DANGER, 0);
+    lv_obj_set_style_border_opa(s_delete_button, LV_OPA_70, 0);
     lv_obj_add_event_cb(s_delete_button, delete_action_event_cb,
                         LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(s_delete_button, LV_OBJ_FLAG_HIDDEN);
@@ -571,8 +575,8 @@ lv_obj_t *ui_page_alarm_build(lv_obj_t *parent,
     lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_left(s_list, 10, 0);
     lv_obj_set_style_pad_right(s_list, 10, 0);
-    lv_obj_set_style_pad_top(s_list, 6, 0);
-    lv_obj_set_style_pad_bottom(s_list, 6, 0);
+    lv_obj_set_style_pad_top(s_list, 4, 0);
+    lv_obj_set_style_pad_bottom(s_list, 4, 0);
     lv_obj_set_style_pad_row(s_list, 6, 0);
 
     lv_obj_t *add_card = plain_obj(s_root);
