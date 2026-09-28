@@ -3,6 +3,7 @@ idf_component_register(
         "ui_manager.c"
         "ui_page_home.c"
         "ui_page_feature.c"
+        "ui_page_alarm.c"
         "ui_page_settings.c"
         "ui_system_icons.c"
         "ui_icon_robot2.c"
