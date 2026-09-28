@@ -13,6 +13,8 @@ lv_obj_t *ui_page_alarm_build(lv_obj_t *parent,
                               void *activity_user_data);
 
 void ui_page_alarm_stop(void);
+bool ui_page_alarm_editor_active(void);
+void ui_page_alarm_close_editor(void);
 
 #ifdef __cplusplus
 }
