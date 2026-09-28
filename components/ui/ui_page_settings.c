@@ -22,6 +22,13 @@
 #define UI_CONTENT_ICON_Y          46
 #define UI_VALUE_Y                 22
 
+#define UI_WIFI_LEFT_W            120
+#define UI_WIFI_INFO_W            236
+#define UI_WIFI_SCAN_W            (UI_CONTENT_W - UI_WIFI_LEFT_W - UI_WIFI_INFO_W)
+#define UI_WIFI_DIVIDER           lv_color_hex(0x202329)
+#define UI_WIFI_ROW_BG            lv_color_hex(0x0D1014)
+#define UI_WIFI_ROW_ACTIVE        lv_color_hex(0x141B22)
+
 #define UI_COLOR_BG          lv_color_hex(0x000000)
 #define UI_COLOR_ACCENT      lv_color_hex(0x45D7F0)
 #define UI_COLOR_FG          lv_color_hex(0xF4F7F8)
@@ -60,6 +67,17 @@ static slider_ctx_t s_slider_ctx = {0};
 static int32_t s_sound_value = 70;
 static int32_t s_brightness_value = 60;
 
+static bool s_wifi_enabled = true;
+static bool s_wifi_connected = false;
+static lv_obj_t *s_wifi_overlay = NULL;
+static lv_obj_t *s_wifi_password = NULL;
+
+static const char *s_wifi_networks[] = {
+    "ChenHome_5G",
+    "Studio_2.4G",
+    "Xiaomi_Guest",
+};
+
 static void note_activity(void)
 {
     if (s_activity_cb != NULL) s_activity_cb(s_activity_user_data);
@@ -84,6 +102,17 @@ static lv_obj_t *make_icon(lv_obj_t *parent, ui_settings_tab_t tab, lv_color_t c
         case UI_SETTINGS_SYSTEM:
         default:                    return ui_system_icon_system(parent, color);
     }
+}
+
+static lv_obj_t *make_label(lv_obj_t *parent,
+                            const char *text,
+                            lv_color_t color)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_color(label, color, 0);
+    lv_obj_set_style_text_opa(label, LV_OPA_COVER, 0);
+    return label;
 }
 
 static void style_slider(lv_obj_t *slider)
@@ -214,7 +243,6 @@ static void build_slider_content(ui_settings_tab_t tab)
         lv_slider_set_value(slider, s_sound_value, LV_ANIM_OFF);
     }
     else {
-        /* The visual track is 0..100, but brightness is clamped to 10..100. */
         s_slider_ctx.actual_min = 10;
         s_slider_ctx.max_value = 100;
         s_slider_ctx.step = 10;
@@ -229,6 +257,193 @@ static void build_slider_content(ui_settings_tab_t tab)
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_PRESS_LOST, NULL);
+}
+
+static void close_wifi_overlay(void)
+{
+    if (s_wifi_overlay != NULL) {
+        lv_obj_delete(s_wifi_overlay);
+        s_wifi_overlay = NULL;
+        s_wifi_password = NULL;
+    }
+}
+
+static void wifi_keyboard_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+        note_activity();
+        close_wifi_overlay();
+    }
+}
+
+static void open_wifi_password_overlay(const char *ssid)
+{
+    close_wifi_overlay();
+
+    s_wifi_overlay = plain_obj(s_root);
+    lv_obj_set_size(s_wifi_overlay, UI_CONTENT_W, UI_SCREEN_H);
+    lv_obj_set_pos(s_wifi_overlay, UI_CONTENT_X, 0);
+    lv_obj_set_style_bg_color(s_wifi_overlay, lv_color_hex(0x050608), 0);
+    lv_obj_set_style_bg_opa(s_wifi_overlay, LV_OPA_COVER, 0);
+    lv_obj_add_flag(s_wifi_overlay, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *ssid_label = make_label(s_wifi_overlay, ssid, UI_COLOR_FG);
+    lv_obj_set_pos(ssid_label, 12, 8);
+
+    s_wifi_password = lv_textarea_create(s_wifi_overlay);
+    lv_obj_set_size(s_wifi_password, 332, 32);
+    lv_obj_set_pos(s_wifi_password, 150, 4);
+    lv_textarea_set_one_line(s_wifi_password, true);
+    lv_textarea_set_password_mode(s_wifi_password, true);
+    lv_textarea_set_placeholder_text(s_wifi_password, "Password");
+    lv_obj_set_style_bg_color(s_wifi_password, UI_WIFI_ROW_BG, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_wifi_password, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_wifi_password, UI_COLOR_ACCENT, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_wifi_password, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_wifi_password, 8, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_wifi_password, UI_COLOR_FG, LV_PART_MAIN);
+
+    lv_obj_t *keyboard = lv_keyboard_create(s_wifi_overlay);
+    lv_obj_set_size(keyboard, UI_CONTENT_W, 128);
+    lv_obj_set_pos(keyboard, 0, 44);
+    lv_keyboard_set_textarea(keyboard, s_wifi_password);
+    lv_obj_set_style_bg_color(keyboard, lv_color_hex(0x080A0D), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(keyboard, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_add_event_cb(keyboard, wifi_keyboard_event_cb, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(keyboard, wifi_keyboard_event_cb, LV_EVENT_CANCEL, NULL);
+
+    lv_obj_move_foreground(s_wifi_overlay);
+    note_activity();
+}
+
+static void wifi_network_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const char *ssid = (const char *)lv_event_get_user_data(e);
+    if (ssid == NULL || !s_wifi_enabled) return;
+    open_wifi_password_overlay(ssid);
+}
+
+static void add_vertical_divider(lv_obj_t *parent, int32_t x)
+{
+    lv_obj_t *line = plain_obj(parent);
+    lv_obj_set_size(line, 1, 96);
+    lv_obj_set_pos(line, x, 14);
+    lv_obj_set_style_bg_color(line, UI_WIFI_DIVIDER, 0);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
+}
+
+static void build_wifi_status(lv_obj_t *parent)
+{
+    if (!s_wifi_enabled) {
+        lv_obj_t *label = make_label(parent, "WI-FI OFF", UI_COLOR_MUTED);
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+        return;
+    }
+
+    if (!s_wifi_connected) {
+        lv_obj_t *label = make_label(parent, "NO CONNECTION", UI_COLOR_MUTED);
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+        return;
+    }
+
+    static const char *names[] = {"IP", "MASK", "GATEWAY", "DNS", "MAC"};
+    static const char *values[] = {
+        "192.168.50.88",
+        "255.255.255.0",
+        "192.168.50.1",
+        "192.168.50.2",
+        "AA:BB:CC:DD:EE:FF",
+    };
+
+    for (int i = 0; i < 5; ++i) {
+        lv_obj_t *name = make_label(parent, names[i], UI_COLOR_MUTED);
+        lv_obj_set_pos(name, 12, 4 + i * 23);
+
+        lv_obj_t *value = make_label(parent, values[i], UI_COLOR_FG);
+        lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -10, 4 + i * 23);
+    }
+}
+
+static void build_wifi_scan(lv_obj_t *parent)
+{
+    if (!s_wifi_enabled) {
+        lv_obj_t *label = make_label(parent, "SCAN DISABLED", UI_COLOR_MUTED);
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+        return;
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        lv_obj_t *row = plain_obj(parent);
+        lv_obj_set_size(row, UI_WIFI_SCAN_W - 14, 34);
+        lv_obj_set_pos(row, 7, 7 + i * 38);
+        lv_obj_set_style_bg_color(row,
+                                  (i == 0) ? UI_WIFI_ROW_ACTIVE : UI_WIFI_ROW_BG,
+                                  0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(row, 8, 0);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row,
+                            wifi_network_event_cb,
+                            LV_EVENT_CLICKED,
+                            (void *)s_wifi_networks[i]);
+
+        lv_obj_t *wifi_icon = ui_system_icon_wifi(row,
+                                                  (i == 0) ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+        lv_obj_align(wifi_icon, LV_ALIGN_LEFT_MID, 7, 0);
+
+        lv_obj_t *ssid = make_label(row, s_wifi_networks[i], UI_COLOR_FG);
+        lv_obj_align(ssid, LV_ALIGN_LEFT_MID, 44, 0);
+    }
+}
+
+static void build_wifi_content(void);
+
+static void wifi_switch_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    lv_obj_t *sw = lv_event_get_target(e);
+    s_wifi_enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    if (!s_wifi_enabled) s_wifi_connected = false;
+    note_activity();
+
+    lv_obj_clean(s_content);
+    build_wifi_content();
+}
+
+static void build_wifi_content(void)
+{
+    lv_obj_t *left = plain_obj(s_content);
+    lv_obj_set_size(left, UI_WIFI_LEFT_W, UI_CONTENT_H);
+    lv_obj_set_pos(left, 0, 0);
+
+    lv_obj_t *wifi_icon = ui_system_icon_wifi(left,
+                                              s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_align(wifi_icon, LV_ALIGN_TOP_MID, 0, 18);
+
+    lv_obj_t *sw = lv_switch_create(left);
+    lv_obj_set_size(sw, 52, 26);
+    lv_obj_align(sw, LV_ALIGN_BOTTOM_MID, 0, -18);
+    lv_obj_set_style_bg_color(sw, UI_COLOR_TRACK, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sw, UI_COLOR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(sw, UI_COLOR_FG, LV_PART_KNOB);
+    if (s_wifi_enabled) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, wifi_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    add_vertical_divider(s_content, UI_WIFI_LEFT_W);
+
+    lv_obj_t *info = plain_obj(s_content);
+    lv_obj_set_size(info, UI_WIFI_INFO_W, UI_CONTENT_H);
+    lv_obj_set_pos(info, UI_WIFI_LEFT_W + 1, 0);
+    build_wifi_status(info);
+
+    add_vertical_divider(s_content, UI_WIFI_LEFT_W + UI_WIFI_INFO_W + 1);
+
+    lv_obj_t *scan = plain_obj(s_content);
+    lv_obj_set_size(scan, UI_WIFI_SCAN_W - 2, UI_CONTENT_H);
+    lv_obj_set_pos(scan, UI_WIFI_LEFT_W + UI_WIFI_INFO_W + 2, 0);
+    build_wifi_scan(scan);
 }
 
 static void refresh_tab_styles(void)
@@ -248,6 +463,7 @@ static void show_tab(ui_settings_tab_t tab)
 {
     if (s_content == NULL) return;
 
+    close_wifi_overlay();
     s_selected = tab;
     lv_obj_clean(s_content);
     s_slider_ctx = (slider_ctx_t){0};
@@ -255,7 +471,10 @@ static void show_tab(ui_settings_tab_t tab)
     if (tab == UI_SETTINGS_SOUND || tab == UI_SETTINGS_DISPLAY) {
         build_slider_content(tab);
     }
-    /* Wi-Fi / Bluetooth / AI / System intentionally remain blank for now. */
+    else if (tab == UI_SETTINGS_WIFI) {
+        build_wifi_content();
+    }
+    /* Bluetooth / AI / System intentionally remain blank for now. */
 
     refresh_tab_styles();
     note_activity();
@@ -279,9 +498,6 @@ static void build_nav(void)
         s_tab_cards[i] = card;
         lv_obj_set_size(card, width, UI_TAB_H);
         lv_obj_set_pos(card, x, UI_NAV_Y);
-        /* The cards touch edge-to-edge. They end exactly at the bottom of the
-         * 172 px viewport, so the bottom edge reads square while the 12 px
-         * radius keeps the upper edge soft and easy to scan. */
         lv_obj_set_style_radius(card, 12, 0);
         lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
         lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
@@ -325,6 +541,7 @@ lv_obj_t *ui_page_settings_build(lv_obj_t *parent,
 
 void ui_page_settings_stop(void)
 {
+    close_wifi_overlay();
     s_root = NULL;
     s_content = NULL;
     s_activity_cb = NULL;
