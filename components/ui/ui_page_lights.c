@@ -1,6 +1,7 @@
 #include "ui_page_lights.h"
 #include "ui_lights_labels.h"
 #include "ui_lights_icons.h"
+#include "ui_lights_extra_icons.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -37,6 +38,7 @@ typedef struct {
     const char *name;
     const lv_image_dsc_t *fallback_label;
     ui_lights_icon_t icon;
+    const lv_image_dsc_t *extra_icon;
     light_kind_t kind;
     bool initial_on;
 } light_spec_t;
@@ -46,6 +48,7 @@ typedef struct {
     lv_obj_t *label;
     lv_obj_t *accent;
     lv_obj_t *room_icon;
+    lv_obj_t *room_detail;
     lv_obj_t *footer;
     lv_obj_t *controls[3];
     lv_obj_t *control_icons[3];
@@ -55,14 +58,14 @@ typedef struct {
 } light_view_t;
 
 static const light_spec_t SPECS[8] = {
-    { "客厅灯",   &ui_lights_label_living,        UI_LIGHTS_ICON_SOFA,       LIGHT_NORMAL,      true  },
-    { "书房灯",   &ui_lights_label_study,         UI_LIGHTS_ICON_COMPUTER,   LIGHT_NORMAL,      false },
-    { "卧室灯",   &ui_lights_label_bedroom,       UI_LIGHTS_ICON_BED,        LIGHT_NORMAL,      true  },
-    { "床头灯",   &ui_lights_label_bedside,       UI_LIGHTS_ICON_BULB,       LIGHT_RGB,         true  },
-    { "小卧室灯", &ui_lights_label_small_bedroom, UI_LIGHTS_ICON_BED,        LIGHT_NORMAL,      false },
-    { "彩光灯带", &ui_lights_label_rgb_strip,     UI_LIGHTS_ICON_TV,         LIGHT_RGB,         true  },
-    { "浴室灯",   &ui_lights_label_bathroom,      UI_LIGHTS_ICON_DROP,       LIGHT_SWITCH_ONLY, false },
-    { "阳台灯",   &ui_lights_label_balcony,       UI_LIGHTS_ICON_WINDOW,     LIGHT_SWITCH_ONLY, true  },
+    { "客厅灯",   &ui_lights_label_living,        UI_LIGHTS_ICON_SOFA,     NULL,                     LIGHT_NORMAL,      true  },
+    { "书房灯",   &ui_lights_label_study,         UI_LIGHTS_ICON_COMPUTER, &ui_lights_extra_mac,     LIGHT_NORMAL,      false },
+    { "卧室灯",   &ui_lights_label_bedroom,       UI_LIGHTS_ICON_BED,      NULL,                     LIGHT_NORMAL,      true  },
+    { "床头灯",   &ui_lights_label_bedside,       UI_LIGHTS_ICON_BULB,     NULL,                     LIGHT_RGB,         true  },
+    { "小卧室灯", &ui_lights_label_small_bedroom, UI_LIGHTS_ICON_BED,      &ui_lights_extra_gamepad, LIGHT_NORMAL,      false },
+    { "彩光灯带", &ui_lights_label_rgb_strip,     UI_LIGHTS_ICON_TV,       &ui_lights_extra_tv2,     LIGHT_RGB,         true  },
+    { "浴室灯",   &ui_lights_label_bathroom,      UI_LIGHTS_ICON_DROP,     NULL,                     LIGHT_SWITCH_ONLY, false },
+    { "阳台灯",   &ui_lights_label_balcony,       UI_LIGHTS_ICON_WINDOW,   NULL,                     LIGHT_SWITCH_ONLY, true  },
 };
 
 static lv_obj_t *s_root;
@@ -117,6 +120,19 @@ static lv_obj_t *create_text_or_bitmap_label(lv_obj_t *parent, const light_spec_
     lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(label, LV_OBJ_FLAG_SCROLLABLE);
     return label;
+}
+
+static lv_obj_t *create_room_icon(lv_obj_t *parent, const light_spec_t *spec, lv_color_t color)
+{
+    if (!spec->extra_icon) return ui_lights_icon_create(parent, spec->icon, color);
+
+    lv_obj_t *icon = lv_image_create(parent);
+    lv_image_set_src(icon, spec->extra_icon);
+    lv_obj_set_style_image_recolor(icon, color, 0);
+    lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+    return icon;
 }
 
 static lv_obj_t *make_control(lv_obj_t *footer, int x, int w, int kind, lv_obj_t **icon_out)
@@ -187,6 +203,10 @@ static void update_state(light_view_t *view)
 
     ui_lights_icon_set_color(view->room_icon, main);
     lv_obj_set_style_opa(view->room_icon, view->on ? LV_OPA_COVER : LV_OPA_60, 0);
+    if (view->room_detail) {
+        lv_obj_set_style_bg_color(view->room_detail, main, 0);
+        lv_obj_set_style_bg_opa(view->room_detail, view->on ? LV_OPA_COVER : LV_OPA_60, 0);
+    }
 
     lv_obj_set_style_bg_color(view->footer, view->on ? C_FOOTER : C_CARD, 0);
     for (int i = 0; i < 3; i++) {
@@ -242,8 +262,13 @@ static void create_item(lv_obj_t *parent, size_t index)
     view->label = create_text_or_bitmap_label(view->item, spec);
     view->accent = rect(view->item, 50, 34, 42, 2, 1, C_WARM);
 
-    view->room_icon = ui_lights_icon_create(view->item, spec->icon, C_WARM_HI);
+    view->room_icon = create_room_icon(view->item, spec, C_WARM_HI);
     lv_obj_align(view->room_icon, LV_ALIGN_TOP_MID, 0, 48);
+
+    if (spec->extra_icon == &ui_lights_extra_tv2) {
+        /* Minimal cabinet/shelf line: deliberately wider than the 40px TV glyph. */
+        view->room_detail = rect(view->item, 44, 94, 54, 2, 1, C_WARM_HI);
+    }
 
     create_footer(view);
     update_state(view);
@@ -255,6 +280,7 @@ lv_obj_t *ui_page_lights_build(lv_obj_t *parent,
 {
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
+    ui_lights_extra_icons_init();
 #ifndef UI_LIGHTS_HAS_SOURCE_HAN
     if (!s_labels_ready) {
         ui_lights_labels_init();
