@@ -2,7 +2,7 @@ name: UI Web Preview
 on:
   push:
     branches: [main]
-    paths: ["components/ui/**","web_preview/**","tools/generate_alarm_font.sh","tools/generate_timer_asset.py",".github/workflows/ui-web-preview.yml"]
+    paths: ["components/ui/**","web_preview/**","tools/generate_alarm_font.sh","tools/generate_timer_asset.py","tools/check_ui_icon_policy.py",".github/workflows/ui-web-preview.yml"]
   workflow_dispatch:
 permissions:
   contents: write
@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Enforce UI icon policy
+        run: python3 tools/check_ui_icon_policy.py
       - name: Install Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
