@@ -29,6 +29,10 @@ LV_FONT_DECLARE(ui_font_source_han_lights_18);
 #define TEMP_MAX_K 6500
 #define TEMP_STEP_K 400
 
+#define COLOR_MIN 0
+#define COLOR_MAX 100
+#define COLOR_STEP 10
+
 #define C_BG            lv_color_hex(0x000000)
 #define C_CARD          lv_color_hex(0x090A0C)
 #define C_CARD_ON       lv_color_hex(0x101113)
@@ -45,7 +49,7 @@ LV_FONT_DECLARE(ui_font_source_han_lights_18);
 #define C_ADJUST_ACTIVE lv_color_hex(0x2A2317)
 
 typedef enum { LIGHT_NORMAL=0, LIGHT_RGB, LIGHT_SWITCH_ONLY } light_kind_t;
-typedef enum { ADJUST_NONE=0, ADJUST_BRIGHTNESS, ADJUST_TEMPERATURE } adjust_mode_t;
+typedef enum { ADJUST_NONE=0, ADJUST_BRIGHTNESS, ADJUST_TEMPERATURE, ADJUST_COLOR } adjust_mode_t;
 
 typedef struct {
     const char *name;
@@ -69,11 +73,16 @@ typedef struct {
     lv_obj_t *adjust_panel;
     lv_obj_t *adjust_slider;
     lv_obj_t *adjust_value;
+    lv_obj_t *hue_track;
+    lv_obj_t *hue_slider;
+    lv_obj_t *saturation_slider;
     light_kind_t kind;
     adjust_mode_t adjust_mode;
     bool on;
     uint8_t brightness;
     uint16_t color_temp_k;
+    uint8_t hue_percent;
+    uint8_t saturation;
 } light_view_t;
 
 static const light_spec_t SPECS[8] = {
@@ -190,6 +199,22 @@ static int32_t snap_color_temp(int32_t value)
     return value;
 }
 
+static int32_t snap_color_percent(int32_t value)
+{
+    if (value < COLOR_MIN) value = COLOR_MIN;
+    if (value > COLOR_MAX) value = COLOR_MAX;
+    value = ((value + COLOR_STEP / 2) / COLOR_STEP) * COLOR_STEP;
+    if (value > COLOR_MAX) value = COLOR_MAX;
+    return value;
+}
+
+static lv_color_t selected_hue_color(const light_view_t *view)
+{
+    uint16_t hue_deg = (uint16_t)((uint16_t)view->hue_percent * 360U / 100U);
+    if (hue_deg >= 360U) hue_deg = 0U;
+    return lv_color_hsv_to_rgb(hue_deg, 100, 100);
+}
+
 static void update_adjust_value(light_view_t *view)
 {
     if (!view || !view->adjust_value) return;
@@ -210,8 +235,22 @@ static void stop_adjust_timer(void)
 static void clear_control_highlights(light_view_t *view)
 {
     if (!view) return;
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         if (view->controls[i]) lv_obj_set_style_bg_opa(view->controls[i], LV_OPA_TRANSP, 0);
+    }
+}
+
+static void set_color_controls_visible(light_view_t *view, bool visible)
+{
+    if (!view || !view->hue_track || !view->hue_slider || !view->saturation_slider) return;
+    if (visible) {
+        lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(view->hue_slider, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(view->saturation_slider, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(view->hue_track, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(view->hue_slider, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(view->saturation_slider, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -222,6 +261,7 @@ static void exit_adjust(light_view_t *view)
     view->adjust_mode = ADJUST_NONE;
     lv_obj_add_flag(view->adjust_panel, LV_OBJ_FLAG_HIDDEN);
     set_default_content_visible(view, true);
+    set_color_controls_visible(view, false);
     clear_control_highlights(view);
 
     if (s_adjust_view == view) s_adjust_view = NULL;
@@ -243,7 +283,7 @@ static void restart_adjust_timer(light_view_t *view)
     lv_timer_set_auto_delete(s_adjust_timer, true);
 }
 
-static void style_adjust_slider(light_view_t *view)
+static void style_single_adjust_slider(light_view_t *view)
 {
     if (!view || !view->adjust_slider) return;
 
@@ -273,11 +313,22 @@ static void style_adjust_slider(light_view_t *view)
     }
 }
 
+static void update_saturation_gradient(light_view_t *view)
+{
+    if (!view || !view->saturation_slider) return;
+    lv_color_t hue = selected_hue_color(view);
+    lv_obj_set_style_bg_color(view->saturation_slider, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_color(view->saturation_slider, hue, LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_dir(view->saturation_slider, LV_GRAD_DIR_HOR, LV_PART_MAIN);
+    lv_obj_set_style_shadow_color(view->saturation_slider, hue, LV_PART_KNOB);
+}
+
 static void enter_adjust(light_view_t *view, adjust_mode_t mode)
 {
     if (!view || mode == ADJUST_NONE) return;
     if ((mode == ADJUST_BRIGHTNESS && !view->controls[0]) ||
-        (mode == ADJUST_TEMPERATURE && !view->controls[1])) return;
+        (mode == ADJUST_TEMPERATURE && !view->controls[1]) ||
+        (mode == ADJUST_COLOR && (view->kind != LIGHT_RGB || !view->controls[2]))) return;
 
     if (s_adjust_view && s_adjust_view != view) exit_adjust(s_adjust_view);
 
@@ -288,19 +339,36 @@ static void enter_adjust(light_view_t *view, adjust_mode_t mode)
     clear_control_highlights(view);
 
     if (mode == ADJUST_BRIGHTNESS) {
+        lv_obj_clear_flag(view->adjust_value, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(view->adjust_slider, LV_OBJ_FLAG_HIDDEN);
+        set_color_controls_visible(view, false);
         lv_slider_set_range(view->adjust_slider, BRIGHTNESS_MIN, BRIGHTNESS_MAX);
         lv_slider_set_value(view->adjust_slider, view->brightness, LV_ANIM_OFF);
         lv_obj_set_style_bg_color(view->controls[0], C_ADJUST_ACTIVE, 0);
         lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_COVER, 0);
-    } else {
+        style_single_adjust_slider(view);
+        update_adjust_value(view);
+    } else if (mode == ADJUST_TEMPERATURE) {
+        lv_obj_clear_flag(view->adjust_value, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(view->adjust_slider, LV_OBJ_FLAG_HIDDEN);
+        set_color_controls_visible(view, false);
         lv_slider_set_range(view->adjust_slider, TEMP_MIN_K, TEMP_MAX_K);
         lv_slider_set_value(view->adjust_slider, view->color_temp_k, LV_ANIM_OFF);
         lv_obj_set_style_bg_color(view->controls[1], C_ADJUST_ACTIVE, 0);
         lv_obj_set_style_bg_opa(view->controls[1], LV_OPA_COVER, 0);
+        style_single_adjust_slider(view);
+        update_adjust_value(view);
+    } else {
+        lv_obj_add_flag(view->adjust_value, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(view->adjust_slider, LV_OBJ_FLAG_HIDDEN);
+        set_color_controls_visible(view, true);
+        lv_slider_set_value(view->hue_slider, view->hue_percent, LV_ANIM_OFF);
+        lv_slider_set_value(view->saturation_slider, view->saturation, LV_ANIM_OFF);
+        update_saturation_gradient(view);
+        lv_obj_set_style_bg_color(view->controls[2], C_ADJUST_ACTIVE, 0);
+        lv_obj_set_style_bg_opa(view->controls[2], LV_OPA_COVER, 0);
     }
 
-    style_adjust_slider(view);
-    update_adjust_value(view);
     restart_adjust_timer(view);
     note_activity();
 }
@@ -314,6 +382,7 @@ static void adjustment_control_click(lv_event_t *event)
     adjust_mode_t requested = ADJUST_NONE;
     if (target == view->controls[0]) requested = ADJUST_BRIGHTNESS;
     else if (target == view->controls[1]) requested = ADJUST_TEMPERATURE;
+    else if (target == view->controls[2] && view->kind == LIGHT_RGB) requested = ADJUST_COLOR;
     if (requested == ADJUST_NONE) return;
 
     if (view->adjust_mode == requested) exit_adjust(view);
@@ -326,7 +395,7 @@ static void adjust_slider_changed(lv_event_t *event)
 {
     light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
     lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(event);
-    if (!view || !slider || view->adjust_mode == ADJUST_NONE) return;
+    if (!view || !slider || view->adjust_mode == ADJUST_NONE || view->adjust_mode == ADJUST_COLOR) return;
 
     int32_t raw = lv_slider_get_value(slider);
     if (view->adjust_mode == ADJUST_BRIGHTNESS) {
@@ -340,6 +409,35 @@ static void adjust_slider_changed(lv_event_t *event)
     }
 
     update_adjust_value(view);
+    restart_adjust_timer(view);
+    note_activity();
+}
+
+static void hue_slider_changed(lv_event_t *event)
+{
+    light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(event);
+    if (!view || !slider || view->adjust_mode != ADJUST_COLOR) return;
+
+    int32_t raw = lv_slider_get_value(slider);
+    int32_t snapped = snap_color_percent(raw);
+    view->hue_percent = (uint8_t)snapped;
+    if (snapped != raw) lv_slider_set_value(slider, snapped, LV_ANIM_OFF);
+    update_saturation_gradient(view);
+    restart_adjust_timer(view);
+    note_activity();
+}
+
+static void saturation_slider_changed(lv_event_t *event)
+{
+    light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(event);
+    if (!view || !slider || view->adjust_mode != ADJUST_COLOR) return;
+
+    int32_t raw = lv_slider_get_value(slider);
+    int32_t snapped = snap_color_percent(raw);
+    view->saturation = (uint8_t)snapped;
+    if (snapped != raw) lv_slider_set_value(slider, snapped, LV_ANIM_OFF);
     restart_adjust_timer(view);
     note_activity();
 }
@@ -392,6 +490,68 @@ static void create_footer(light_view_t *view)
 
     lv_obj_add_event_cb(view->controls[0], adjustment_control_click, LV_EVENT_CLICKED, view);
     lv_obj_add_event_cb(view->controls[1], adjustment_control_click, LV_EVENT_CLICKED, view);
+    if (view->kind == LIGHT_RGB && view->controls[2]) {
+        lv_obj_add_event_cb(view->controls[2], adjustment_control_click, LV_EVENT_CLICKED, view);
+    }
+}
+
+static void style_color_slider_knob(lv_obj_t *slider)
+{
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_width(slider, 18, LV_PART_KNOB);
+    lv_obj_set_style_height(slider, 18, LV_PART_KNOB);
+    lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    lv_obj_set_style_shadow_color(slider, lv_color_hex(0x000000), LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(slider, 5, LV_PART_KNOB);
+    lv_obj_set_style_shadow_opa(slider, LV_OPA_40, LV_PART_KNOB);
+}
+
+static void create_color_controls(light_view_t *view)
+{
+    if (!view || view->kind != LIGHT_RGB) return;
+
+    view->hue_track = lv_obj_create(view->adjust_panel);
+    lv_obj_remove_style_all(view->hue_track);
+    lv_obj_set_pos(view->hue_track, 17, 27);
+    lv_obj_set_size(view->hue_track, 108, 8);
+    lv_obj_set_style_radius(view->hue_track, 4, 0);
+    lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_SCROLLABLE);
+
+    for (int i = 0; i < 6; i++) {
+        uint16_t h1 = (uint16_t)(i * 60);
+        uint16_t h2 = (uint16_t)((i == 5) ? 0 : (i + 1) * 60);
+        lv_obj_t *segment = rect(view->hue_track, i * 18, 0, 18, 8, 0, lv_color_hsv_to_rgb(h1, 100, 100));
+        lv_obj_set_style_bg_grad_color(segment, lv_color_hsv_to_rgb(h2, 100, 100), 0);
+        lv_obj_set_style_bg_grad_dir(segment, LV_GRAD_DIR_HOR, 0);
+        if (i == 0) lv_obj_set_style_radius(segment, 4, 0);
+        if (i == 5) lv_obj_set_style_radius(segment, 4, 0);
+    }
+
+    view->hue_slider = lv_slider_create(view->adjust_panel);
+    lv_slider_set_range(view->hue_slider, COLOR_MIN, COLOR_MAX);
+    lv_slider_set_value(view->hue_slider, view->hue_percent, LV_ANIM_OFF);
+    lv_obj_set_pos(view->hue_slider, 17, 27);
+    lv_obj_set_size(view->hue_slider, 108, 8);
+    lv_obj_set_style_bg_opa(view->hue_slider, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(view->hue_slider, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    style_color_slider_knob(view->hue_slider);
+    lv_obj_add_event_cb(view->hue_slider, hue_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+
+    view->saturation_slider = lv_slider_create(view->adjust_panel);
+    lv_slider_set_range(view->saturation_slider, COLOR_MIN, COLOR_MAX);
+    lv_slider_set_value(view->saturation_slider, view->saturation, LV_ANIM_OFF);
+    lv_obj_set_pos(view->saturation_slider, 17, 72);
+    lv_obj_set_size(view->saturation_slider, 108, 8);
+    lv_obj_set_style_bg_opa(view->saturation_slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(view->saturation_slider, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(view->saturation_slider, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    style_color_slider_knob(view->saturation_slider);
+    update_saturation_gradient(view);
+    lv_obj_add_event_cb(view->saturation_slider, saturation_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+
+    set_color_controls_visible(view, false);
 }
 
 static void create_adjust_panel(light_view_t *view)
@@ -420,6 +580,8 @@ static void create_adjust_panel(light_view_t *view)
     lv_obj_set_size(view->adjust_slider, 108, 8);
     lv_obj_align(view->adjust_slider, LV_ALIGN_TOP_MID, 0, 63);
     lv_obj_add_event_cb(view->adjust_slider, adjust_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+
+    create_color_controls(view);
 }
 
 static void update_state(light_view_t *view)
@@ -467,6 +629,11 @@ static void update_state(light_view_t *view)
         lv_obj_set_style_bg_opa(view->controls[1], LV_OPA_COVER, 0);
         ui_lights_icon_set_color(view->control_icons[1], C_WARM_HI);
         lv_obj_set_style_opa(view->control_icons[1], LV_OPA_COVER, 0);
+    } else if (view->adjust_mode == ADJUST_COLOR && view->controls[2]) {
+        lv_obj_set_style_bg_color(view->controls[2], C_ADJUST_ACTIVE, 0);
+        lv_obj_set_style_bg_opa(view->controls[2], LV_OPA_COVER, 0);
+        ui_lights_icon_set_color(view->control_icons[2], selected_hue_color(view));
+        lv_obj_set_style_opa(view->control_icons[2], LV_OPA_COVER, 0);
     }
 
     if (view->switch_dot) {
@@ -503,6 +670,8 @@ static void create_item(lv_obj_t *parent, size_t index)
     view->on = spec->initial_on;
     view->brightness = 70;
     view->color_temp_k = 4100;
+    view->hue_percent = 0;
+    view->saturation = 100;
 
     view->item = lv_obj_create(parent);
     lv_obj_remove_style_all(view->item);
