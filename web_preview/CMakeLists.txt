@@ -11,6 +11,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_alarm
     list(APPEND UI_EXTRA_SOURCES ../components/ui/ui_font_source_han_alarm_16.c)
     set(UI_ALARM_HAS_SOURCE_HAN TRUE)
 endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_lights_18.c")
+    list(APPEND UI_EXTRA_SOURCES ../components/ui/ui_font_source_han_lights_18.c)
+    set(UI_LIGHTS_HAS_SOURCE_HAN TRUE)
+endif()
 
 add_executable(index
     main.c
@@ -48,6 +52,9 @@ target_include_directories(index PRIVATE . ../components/ui/include)
 target_compile_definitions(index PRIVATE LV_CONF_INCLUDE_SIMPLE)
 if(UI_ALARM_HAS_SOURCE_HAN)
     target_compile_definitions(index PRIVATE UI_ALARM_HAS_SOURCE_HAN=1)
+endif()
+if(UI_LIGHTS_HAS_SOURCE_HAN)
+    target_compile_definitions(index PRIVATE UI_LIGHTS_HAS_SOURCE_HAN=1)
 endif()
 target_link_libraries(index PRIVATE lvgl)
 target_compile_options(index PRIVATE "-sUSE_SDL=2")
