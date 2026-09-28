@@ -518,7 +518,7 @@ static void create_color_controls(light_view_t *view)
     lv_obj_set_style_bg_color(view->hue_track, lv_color_hsv_to_rgb(0, 100, 100), 0);
     lv_obj_set_style_bg_opa(view->hue_track, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(view->hue_track, 4, 0);
-    lv_obj_add_flag(view->hue_track, LV_OBJ_FLAG_CLIP_CORNER);
+    lv_obj_set_style_clip_corner(view->hue_track, true, 0);
     lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_SCROLLABLE);
 
