@@ -5,6 +5,13 @@ FetchContent_Declare(lvgl GIT_REPOSITORY https://github.com/lvgl/lvgl.git GIT_TA
 FetchContent_MakeAvailable(lvgl)
 # LVGL itself also needs the preview config while it is compiled.
 target_include_directories(lvgl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(UI_EXTRA_SOURCES)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_alarm_16.c")
+    list(APPEND UI_EXTRA_SOURCES ../components/ui/ui_font_source_han_alarm_16.c)
+    set(UI_ALARM_HAS_SOURCE_HAN TRUE)
+endif()
+
 add_executable(index
     main.c
     ../components/ui/ui_manager.c
@@ -25,9 +32,13 @@ add_executable(index
     ../components/ui/ui_asset_devices.c
     ../components/ui/ui_asset_alarm.c
     ../components/ui/ui_asset_settings.c
+    ${UI_EXTRA_SOURCES}
 )
 target_include_directories(index PRIVATE . ../components/ui/include)
 target_compile_definitions(index PRIVATE LV_CONF_INCLUDE_SIMPLE)
+if(UI_ALARM_HAS_SOURCE_HAN)
+    target_compile_definitions(index PRIVATE UI_ALARM_HAS_SOURCE_HAN=1)
+endif()
 target_link_libraries(index PRIVATE lvgl)
 target_compile_options(index PRIVATE "-sUSE_SDL=2")
 target_link_options(index PRIVATE "-sUSE_SDL=2" "-sALLOW_MEMORY_GROWTH=1" "-sINITIAL_MEMORY=67108864" "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
