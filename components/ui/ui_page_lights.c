@@ -96,10 +96,23 @@ static const light_spec_t SPECS[8] = {
     { "阳台灯",   &ui_lights_label_balcony,       UI_LIGHTS_ICON_WINDOW,   NULL,                     LIGHT_SWITCH_ONLY, true  },
 };
 
+#define LIGHT_COUNT (sizeof(SPECS) / sizeof(SPECS[0]))
+
+_Static_assert(UI_SCREEN_W == 640 && UI_SCREEN_H == 172,
+               "Lights UI must stay on the project 640x172 landscape canvas");
+_Static_assert(FOOTER_Y + FOOTER_H == ITEM_H,
+               "Lights footer must exactly terminate at the card bottom");
+_Static_assert((BRIGHTNESS_MAX - BRIGHTNESS_MIN) % BRIGHTNESS_STEP == 0,
+               "Brightness range must align to its step");
+_Static_assert((TEMP_MAX_K - TEMP_MIN_K) % TEMP_STEP_K == 0,
+               "Color-temperature range must align to its step");
+_Static_assert((COLOR_MAX - COLOR_MIN) % COLOR_STEP == 0,
+               "Color range must align to its step");
+
 static lv_obj_t *s_root;
 static ui_lights_activity_cb_t s_activity_cb;
 static void *s_activity_user_data;
-static light_view_t s_views[8];
+static light_view_t s_views[LIGHT_COUNT];
 static bool s_labels_ready;
 static light_view_t *s_adjust_view;
 static lv_timer_t *s_adjust_timer;
@@ -279,6 +292,7 @@ static void restart_adjust_timer(light_view_t *view)
 {
     stop_adjust_timer();
     s_adjust_timer = lv_timer_create(adjust_timeout_cb, ADJUST_TIMEOUT_MS, view);
+    if (!s_adjust_timer) return;
     lv_timer_set_repeat_count(s_adjust_timer, 1);
     lv_timer_set_auto_delete(s_adjust_timer, true);
 }
@@ -708,6 +722,10 @@ lv_obj_t *ui_page_lights_build(lv_obj_t *parent,
                                ui_lights_activity_cb_t activity_cb,
                                void *activity_user_data)
 {
+    /* Normal routing always stops the old page first. Keep build idempotent anyway,
+       so an accidental second build cannot leak an LVGL tree or a 30 s timer. */
+    if (s_root) ui_page_lights_stop();
+
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
     s_adjust_view = NULL;
@@ -744,7 +762,7 @@ lv_obj_t *ui_page_lights_build(lv_obj_t *parent,
     lv_obj_add_event_cb(scroller, scroll_activity, LV_EVENT_SCROLL_BEGIN, NULL);
     lv_obj_add_event_cb(scroller, scroll_activity, LV_EVENT_SCROLL, NULL);
 
-    for (size_t i = 0; i < 8; i++) create_item(scroller, i);
+    for (size_t i = 0; i < LIGHT_COUNT; i++) create_item(scroller, i);
     return s_root;
 }
 
@@ -752,8 +770,12 @@ void ui_page_lights_stop(void)
 {
     stop_adjust_timer();
     s_adjust_view = NULL;
-    if (s_root) lv_obj_delete(s_root);
+
+    lv_obj_t *root = s_root;
     s_root = NULL;
+    if (root) lv_obj_delete(root);
+
+    for (size_t i = 0; i < LIGHT_COUNT; i++) s_views[i] = (light_view_t){0};
     s_activity_cb = NULL;
     s_activity_user_data = NULL;
 }
