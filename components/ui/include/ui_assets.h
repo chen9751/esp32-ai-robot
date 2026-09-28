@@ -11,6 +11,8 @@ extern lv_image_dsc_t ui_icon_light;
 extern lv_image_dsc_t ui_label_light;
 extern lv_image_dsc_t ui_icon_devices;
 extern lv_image_dsc_t ui_label_devices;
+extern lv_image_dsc_t ui_icon_timer;
+extern lv_image_dsc_t ui_label_timer;
 extern lv_image_dsc_t ui_icon_alarm;
 extern lv_image_dsc_t ui_label_alarm;
 extern lv_image_dsc_t ui_icon_settings;
