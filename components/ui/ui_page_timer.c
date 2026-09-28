@@ -36,7 +36,7 @@ typedef struct {
 typedef struct {
     lv_obj_t *zone;
     seven_digit_t digits[2];
-    uint8_t kind; /* 0 hour, 1 minute, 2 second */
+    uint8_t kind;
     int16_t press_y;
     uint8_t start_value;
     bool pressed;
@@ -228,14 +228,13 @@ static void rebuild_action_area(void)
         return;
     }
 
-    lv_color_t primary_color = TIMER_ORANGE;
     const char *primary_symbol = s_state == TIMER_STATE_RUNNING
                                      ? LV_SYMBOL_PAUSE
                                      : LV_SYMBOL_PLAY;
 
     s_primary_button = make_round_button(s_action_area,
                                          60,
-                                         primary_color,
+                                         TIMER_ORANGE,
                                          primary_symbol);
     lv_obj_align(s_primary_button, LV_ALIGN_TOP_MID, 0, 18);
     lv_obj_add_event_cb(s_primary_button,
@@ -270,12 +269,17 @@ static void finish_countdown(void)
     s_state = TIMER_STATE_FINISHED;
     refresh_columns();
     rebuild_action_area();
+    note_activity();
 }
 
 static void timer_tick_cb(lv_timer_t *timer)
 {
     (void)timer;
     if (s_state != TIMER_STATE_RUNNING) return;
+
+    /* Active countdown counts as activity so the global 60 s standby timeout
+       cannot replace the current screen while a timer is running. */
+    note_activity();
 
     uint32_t now = lv_tick_get();
     int32_t ms_left = (int32_t)(s_deadline_tick - now);
@@ -304,6 +308,7 @@ static void begin_running(uint32_t seconds)
                                    NULL);
     refresh_columns();
     rebuild_action_area();
+    note_activity();
 }
 
 static void pause_running(void)
@@ -532,8 +537,12 @@ void ui_page_timer_stop(void)
         }
     }
 
-    s_activity_cb = NULL;
-    s_activity_user_data = NULL;
+    /* Keep the global activity callback while actively counting down so the
+       60 s idle policy stays suppressed even after leaving this page. */
+    if (s_state != TIMER_STATE_RUNNING) {
+        s_activity_cb = NULL;
+        s_activity_user_data = NULL;
+    }
 }
 
 bool ui_page_timer_is_running(void)
