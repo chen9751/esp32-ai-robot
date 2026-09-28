@@ -1,5 +1,6 @@
 #include "ui_page_feature.h"
 #include "ui_page_alarm.h"
+#include "ui_page_timer.h"
 #include "ui_page_settings.h"
 #include "ui_assets.h"
 
@@ -65,6 +66,7 @@ static ui_feature_asset_t feature_assets(ui_menu_action_t action)
         case UI_MENU_MUSIC:    return (ui_feature_asset_t){ &ui_icon_music, &ui_label_music };
         case UI_MENU_LIGHTS:   return (ui_feature_asset_t){ &ui_icon_light, &ui_label_light };
         case UI_MENU_DEVICES:  return (ui_feature_asset_t){ &ui_icon_devices, &ui_label_devices };
+        case UI_MENU_TIMER:    return (ui_feature_asset_t){ &ui_icon_timer, &ui_label_timer };
         case UI_MENU_ALARM:    return (ui_feature_asset_t){ &ui_icon_alarm, &ui_label_alarm };
         case UI_MENU_SETTINGS:
         default:               return (ui_feature_asset_t){ &ui_icon_settings, &ui_label_settings };
@@ -284,6 +286,9 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     else if (action == UI_MENU_ALARM) {
         ui_page_alarm_build(s_content, s_activity_cb, s_activity_user_data);
     }
+    else if (action == UI_MENU_TIMER) {
+        ui_page_timer_build(s_content, s_activity_cb, s_activity_user_data);
+    }
     else {
         build_generic_placeholder(action);
     }
@@ -322,6 +327,7 @@ void ui_page_feature_stop(void)
 {
     if (s_action == UI_MENU_SETTINGS) ui_page_settings_stop();
     if (s_action == UI_MENU_ALARM) ui_page_alarm_stop();
+    if (s_action == UI_MENU_TIMER) ui_page_timer_stop();
 
     if (s_content != NULL) {
         lv_anim_delete(s_content, NULL);
