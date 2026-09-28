@@ -17,6 +17,7 @@ add_executable(index
     ../components/ui/ui_manager.c
     ../components/ui/ui_page_home.c
     ../components/ui/ui_page_feature.c
+    ../components/ui/ui_page_timer.c
     ../components/ui/ui_page_settings.c
     ../components/ui/ui_page_alarm.c
     ../components/ui/ui_system_icons.c
@@ -30,6 +31,7 @@ add_executable(index
     ../components/ui/ui_asset_music.c
     ../components/ui/ui_asset_light.c
     ../components/ui/ui_asset_devices.c
+    ../components/ui/ui_asset_timer.c
     ../components/ui/ui_asset_alarm.c
     ../components/ui/ui_asset_settings.c
     ${UI_EXTRA_SOURCES}
