@@ -2,7 +2,7 @@ name: UI Web Preview
 on:
   push:
     branches: [main]
-    paths: ["components/ui/**","web_preview/**","tools/generate_alarm_font.sh","tools/generate_timer_asset.py","tools/check_ui_icon_policy.py",".github/workflows/ui-web-preview.yml"]
+    paths: ["components/ui/**","web_preview/**","tools/generate_alarm_font.sh","tools/generate_lights_font.sh","tools/generate_lights_icons.py","tools/generate_timer_asset.py","tools/check_ui_icon_policy.py",".github/workflows/ui-web-preview.yml"]
   workflow_dispatch:
 permissions:
   contents: write
@@ -25,20 +25,24 @@ jobs:
           actions-cache-folder: emsdk-cache
       - name: Generate Source Han alarm font subset
         run: bash tools/generate_alarm_font.sh
-      - name: Generate timer HOME asset
+      - name: Generate Source Han Lights font subset
+        run: bash tools/generate_lights_font.sh
+      - name: Generate antialiased Remix Icon Lights assets
         run: |
           python -m pip install --quiet pillow cairosvg numpy
-          python tools/generate_timer_asset.py
+          python tools/generate_lights_icons.py
+      - name: Generate timer HOME asset
+        run: python tools/generate_timer_asset.py
       - name: Configure
         run: emcmake cmake -S web_preview -B web_preview/build -DCMAKE_BUILD_TYPE=Release
       - name: Build LVGL WebAssembly preview
         run: cmake --build web_preview/build -j2
       - name: Commit generated UI assets
         run: |
-          if [ -n "$(git status --porcelain -- components/ui/ui_font_source_han_alarm_16.c components/ui/ui_asset_timer.c)" ]; then
+          if [ -n "$(git status --porcelain -- components/ui/ui_font_source_han_alarm_16.c components/ui/ui_font_source_han_lights_18.c components/ui/ui_lights_icons.c components/ui/ui_asset_timer.c)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add components/ui/ui_font_source_han_alarm_16.c components/ui/ui_asset_timer.c
+            git add components/ui/ui_font_source_han_alarm_16.c components/ui/ui_font_source_han_lights_18.c components/ui/ui_lights_icons.c components/ui/ui_asset_timer.c
             git commit -m "Regenerate approved UI assets"
             git push
           fi
