@@ -82,17 +82,25 @@ static bool s_bt_connected_visible = true;
 static bool s_bt_connected_selected = false;
 static int32_t s_bt_pairing_available = -1;
 
-static const char *s_bt_available_names[3] = {
+static const char *s_bt_available_names[] = {
     "BLE Remote",
     "Room Sensor",
     "Desk Light",
+    "Smart Button",
+    "Thermo Sensor",
+    "BLE Controller",
 };
 
-static const char *s_bt_available_rssi[3] = {
+static const char *s_bt_available_rssi[] = {
     "-58 dBm",
     "-72 dBm",
     "-81 dBm",
+    "-63 dBm",
+    "-76 dBm",
+    "-69 dBm",
 };
+
+#define UI_BT_AVAILABLE_COUNT ((int)(sizeof(s_bt_available_names) / sizeof(s_bt_available_names[0])))
 
 static void note_activity(void)
 {
@@ -412,12 +420,11 @@ static void wifi_toggle_event_cb(lv_event_t *e)
 }
 
 static lv_obj_t *build_bt_row(lv_obj_t *parent, const char *name,
-                              int32_t x, int32_t y, int32_t w,
-                              bool active)
+                              int32_t y, int32_t w, bool active)
 {
     lv_obj_t *row = plain_obj(parent);
     lv_obj_set_size(row, w, 28);
-    lv_obj_set_pos(row, x, y);
+    lv_obj_set_pos(row, 0, y);
     lv_obj_set_style_bg_color(row, active ? UI_COLOR_PANEL_2 : UI_COLOR_PANEL, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(row, 8, 0);
@@ -428,31 +435,43 @@ static lv_obj_t *build_bt_row(lv_obj_t *parent, const char *name,
     return row;
 }
 
+static lv_obj_t *build_bt_scroll_list(lv_obj_t *parent, int32_t x, int32_t y,
+                                      int32_t w, int32_t h)
+{
+    lv_obj_t *list = plain_obj(parent);
+    lv_obj_set_size(list, w, h);
+    lv_obj_set_pos(list, x, y);
+    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    return list;
+}
+
 static void build_bluetooth_left(lv_obj_t *parent)
 {
-    /* The icon itself is the Bluetooth power control. */
+    /* Match the Wi-Fi/AI left column proportions. The 32 px Remix icon stays
+     * visually consistent; only its invisible hit target is larger. */
     lv_obj_t *hit = plain_obj(parent);
-    lv_obj_set_size(hit, 84, 54);
-    lv_obj_set_pos(hit, 35, 8);
+    lv_obj_set_size(hit, 72, 60);
+    lv_obj_set_pos(hit, 41, 10);
     lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(hit, bt_icon_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *icon = ui_system_icon_bluetooth(hit,
                                               s_bt_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_center(icon);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 14);
 
     if (!s_bt_enabled) {
         lv_obj_t *hint = make_label(parent, "TAP TO TURN ON", UI_COLOR_MUTED);
-        lv_obj_align(hint, LV_ALIGN_TOP_MID, -UI_STATUS_RIGHT_W / 2, 68);
+        lv_obj_align(hint, LV_ALIGN_TOP_MID, -UI_STATUS_RIGHT_W / 2, 76);
         return;
     }
 
-    lv_obj_t *state = make_label(parent, "ON", UI_COLOR_FG);
-    lv_obj_align(state, LV_ALIGN_TOP_MID, -UI_STATUS_RIGHT_W / 2, 64);
-
     lv_obj_t *scan = add_action_button(parent,
                                        s_bt_scan_view ? "SCAN AGAIN" : "SCAN",
-                                       34, 92, 86,
+                                       34, 78, 86,
                                        UI_COLOR_PANEL_2,
                                        UI_COLOR_ACCENT);
     lv_obj_add_event_cb(scan, bt_scan_event_cb, LV_EVENT_CLICKED, NULL);
@@ -464,15 +483,17 @@ static void build_bluetooth_connected(lv_obj_t *parent)
     const int32_t w = UI_STATUS_RIGHT_W - 32;
 
     lv_obj_t *title = make_label(parent, "CONNECTED", UI_COLOR_MUTED);
-    lv_obj_set_pos(title, x, 14);
+    lv_obj_set_pos(title, x, 8);
+
+    lv_obj_t *list = build_bt_scroll_list(parent, x, 31, w, 86);
 
     if (!s_bt_connected_visible) {
-        lv_obj_t *empty = make_label(parent, "NO CONNECTED DEVICE", UI_COLOR_MUTED);
-        lv_obj_set_pos(empty, x, 54);
+        lv_obj_t *empty = make_label(list, "NO CONNECTED DEVICE", UI_COLOR_MUTED);
+        lv_obj_set_pos(empty, 0, 20);
         return;
     }
 
-    lv_obj_t *row = build_bt_row(parent, "Desk Knob", x, 43, w,
+    lv_obj_t *row = build_bt_row(list, "Desk Knob", 0, w,
                                  s_bt_connected_selected);
     lv_obj_add_event_cb(row, bt_connected_event_cb, LV_EVENT_CLICKED, NULL);
 
@@ -486,11 +507,6 @@ static void build_bluetooth_connected(lv_obj_t *parent)
                                              lv_color_hex(0x2A171A), UI_COLOR_DANGER);
         lv_obj_add_event_cb(forget, bt_forget_event_cb, LV_EVENT_CLICKED, NULL);
     }
-
-    lv_obj_t *hint = make_label(parent,
-                                s_bt_connected_selected ? "TAP FORGET TO REMOVE" : "TAP DEVICE FOR OPTIONS",
-                                UI_COLOR_MUTED);
-    lv_obj_set_pos(hint, x, 86);
 }
 
 static void build_bluetooth_scan(lv_obj_t *parent)
@@ -503,10 +519,12 @@ static void build_bluetooth_scan(lv_obj_t *parent)
                                  s_bt_scanning ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
     lv_obj_set_pos(title, x, 8);
 
-    for (int i = 0; i < 3; ++i) {
+    lv_obj_t *list = build_bt_scroll_list(parent, x, 31, w, 86);
+
+    for (int i = 0; i < UI_BT_AVAILABLE_COUNT; ++i) {
         bool pairing = (s_bt_pairing_available == i);
-        lv_obj_t *row = build_bt_row(parent, s_bt_available_names[i],
-                                     x, 32 + i * 30, w, pairing);
+        lv_obj_t *row = build_bt_row(list, s_bt_available_names[i],
+                                     i * 32, w, pairing);
         lv_obj_add_event_cb(row, bt_available_event_cb, LV_EVENT_CLICKED,
                             (void *)(uintptr_t)i);
 
