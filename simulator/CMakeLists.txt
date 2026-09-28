@@ -6,6 +6,12 @@ pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 
 add_subdirectory(../managed_components/lvgl__lvgl lvgl)
 
+set(UI_EXTRA_SOURCES)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_alarm_16.c")
+    list(APPEND UI_EXTRA_SOURCES ../components/ui/ui_font_source_han_alarm_16.c)
+    set(UI_ALARM_HAS_SOURCE_HAN TRUE)
+endif()
+
 add_executable(ai_robot_ui_preview
     main.c
     ../components/ui/ui_manager.c
@@ -26,6 +32,7 @@ add_executable(ai_robot_ui_preview
     ../components/ui/ui_asset_devices.c
     ../components/ui/ui_asset_alarm.c
     ../components/ui/ui_asset_settings.c
+    ${UI_EXTRA_SOURCES}
 )
 
 target_include_directories(ai_robot_ui_preview PRIVATE
@@ -38,3 +45,6 @@ target_link_libraries(ai_robot_ui_preview PRIVATE
 )
 
 target_compile_definitions(ai_robot_ui_preview PRIVATE LV_CONF_INCLUDE_SIMPLE)
+if(UI_ALARM_HAS_SOURCE_HAN)
+    target_compile_definitions(ai_robot_ui_preview PRIVATE UI_ALARM_HAS_SOURCE_HAN=1)
+endif()
