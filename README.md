@@ -9,7 +9,9 @@ Initial stack: ESP-IDF 5.5.4 + LVGL 9. Hardware, UI, audio, networking and robot
 - Target UI resolution: **640 × 172**, landscape. Do not design against the panel's official portrait orientation.
 - Main UI background: pure black unless a page explicitly needs otherwise.
 - UI framework: LVGL 9.
+- The current Web Preview compatibility baseline is **LVGL 9.2.2**. UI code must stay compatible with this baseline unless the project deliberately raises it and updates the preview/build checks at the same time.
 - Keep layout, typography, icons and image assets independent from hardware code so the same UI can be used by the simulator/web preview.
+- The Waveshare panel is physically 172 × 640. Landscape display rotation and the matching touch-coordinate transform belong in the hardware/display-input port, not inside individual UI pages.
 
 ## Typography and icon assets
 
@@ -84,7 +86,7 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
 - `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices, Timer, Alarm and Settings.
 - `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
-- `ui_page_lights.c`: horizontally scrollable lighting control page. It owns the eight room/light tiles, on/off presentation and visual control placeholders while remaining independent from Home Assistant/network business logic.
+- `ui_page_lights.c`: horizontally scrollable lighting control page. It owns the eight room/light tiles, local on/off presentation and the brightness/color-temperature/RGB adjustment UI while remaining independent from Home Assistant/network business logic.
 - `ui_page_timer.c`: countdown timer UI and timer state. Hours/minutes/seconds are adjusted with vertical drag, the maximum duration is 12:00:00, and the countdown keeps running independently from page lifetime.
 - `ui_page_settings.c`: settings page content and controls.
 - `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
@@ -92,6 +94,8 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_page_clock.c`: standby clock content.
 - `ui_page_weather.c`: weather page (placeholder until designed).
 - `ui_page_calendar.c`: calendar page (placeholder until designed).
+
+Lights behavior is defined as follows: tapping a room/device tile toggles that light's local on/off presentation. Normal lights expose brightness and color-temperature controls; RGB-capable lights additionally expose a color control; switch-only lights keep the same card footprint without fake adjustment controls. Brightness is adjusted in 10% steps. Color temperature currently spans 2500 K to 6500 K in 400 K steps. RGB adjustment uses two sliders: hue and saturation, both in 10% steps; saturation is rendered from white to the currently selected hue. Entering an adjustment temporarily replaces the card title/icon area, tapping the same active control exits, switching to another control changes adjustment mode directly, and 30 seconds without adjustment returns the card to its default presentation. These values are currently local UI state only; later Home Assistant/network integration must consume/refresh this state outside the page rather than embedding transport logic into the UI module.
 
 Timer behavior is defined as follows: the page contains no text labels. It shows only `HH:MM:SS` and circular icon controls. In the setting state, the single large Play control is green. Starting replaces it with two smaller circular controls: an orange Pause control above and a red Stop control below. Pausing freezes the remaining time and changes the upper control to an orange Play/Resume icon. Stop cancels the active countdown and restores the most recently configured duration. When the countdown reaches zero it remains at `00:00:00`; the upper action can immediately replay the last configured duration, while Stop returns to the editable setting state with that duration restored. A zero-duration timer does not start. Button backgrounds are translucent while their icons remain fully colored.
 
