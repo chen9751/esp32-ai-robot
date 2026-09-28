@@ -134,6 +134,36 @@ static void back_rail_event_cb(lv_event_t *e)
 
     lv_event_code_t code = lv_event_get_code(e);
 
+    /* Inside the alarm add/edit screen the global back rail first returns to
+       the alarm list. A second back action then exits the alarm feature. */
+    if (s_action == UI_MENU_ALARM && ui_page_alarm_editor_active()) {
+        if (code == LV_EVENT_PRESSED) {
+            lv_indev_get_point(indev, &s_press);
+            s_pressed = true;
+            s_horizontal_drag = false;
+            set_indicator_pressed(true);
+            note_activity();
+            return;
+        }
+        if (!s_pressed) return;
+        if (code == LV_EVENT_PRESSING) {
+            note_activity();
+            return;
+        }
+        if (code == LV_EVENT_RELEASED) {
+            s_pressed = false;
+            set_indicator_pressed(false);
+            ui_page_alarm_close_editor();
+            note_activity();
+            return;
+        }
+        if (code == LV_EVENT_PRESS_LOST) {
+            s_pressed = false;
+            set_indicator_pressed(false);
+            return;
+        }
+    }
+
     if (code == LV_EVENT_PRESSED) {
         lv_indev_get_point(indev, &s_press);
         s_pressed = true;
