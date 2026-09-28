@@ -84,6 +84,7 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
 - `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices, Timer, Alarm and Settings.
 - `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
+- `ui_page_lights.c`: horizontally scrollable lighting control page. It owns the eight room/light tiles, on/off presentation and visual control placeholders while remaining independent from Home Assistant/network business logic.
 - `ui_page_timer.c`: countdown timer UI and timer state. Hours/minutes/seconds are adjusted with vertical drag, the maximum duration is 12:00:00, and the countdown keeps running independently from page lifetime.
 - `ui_page_settings.c`: settings page content and controls.
 - `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
