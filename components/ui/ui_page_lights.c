@@ -145,7 +145,7 @@ static void update_state(light_view_t *view)
         lv_obj_set_style_bg_color(view->controls[i], view->on ? C_CTRL_BG : C_CARD, 0);
         if (view->control_icons[i]) {
             ui_lights_icon_set_color(view->control_icons[i], main);
-            lv_obj_set_style_opa(view->control_icons[i], view->on ? LV_OPA_COVER : LV_OPA_55, 0);
+            lv_obj_set_style_opa(view->control_icons[i], view->on ? LV_OPA_COVER : LV_OPA_50, 0);
         }
     }
 
