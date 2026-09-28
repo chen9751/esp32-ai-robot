@@ -2,6 +2,7 @@ set(UI_SRCS
     "ui_manager.c"
     "ui_page_home.c"
     "ui_page_feature.c"
+    "ui_page_timer.c"
     "ui_page_alarm.c"
     "ui_page_settings.c"
     "ui_system_icons.c"
@@ -15,6 +16,7 @@ set(UI_SRCS
     "ui_asset_music.c"
     "ui_asset_light.c"
     "ui_asset_devices.c"
+    "ui_asset_timer.c"
     "ui_asset_alarm.c"
     "ui_asset_settings.c"
 )
