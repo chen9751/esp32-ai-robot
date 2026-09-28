@@ -68,12 +68,28 @@ static slider_ctx_t s_slider_ctx = {0};
 static int32_t s_sound_value = 70;
 static int32_t s_brightness_value = 60;
 
-/* UI-only state for now. Networking/AI modules will inject real state later. */
+/* UI-only state for now. Networking/AI/BLE modules inject real state later. */
 static bool s_wifi_enabled = true;
 static bool s_wifi_configured = false;
 static bool s_wifi_connected = false;
 static bool s_ai_configured = false;
 static bool s_ai_online = false;
+
+static bool s_bt_enabled = true;
+static bool s_bt_scanning = false;
+static int32_t s_bt_selected_paired = -1;
+static int32_t s_bt_pairing_available = -1;
+static bool s_bt_paired_visible[2] = { true, true };
+
+static const char *s_bt_paired_names[2] = {
+    "Desk Knob",
+    "Temp Sensor",
+};
+
+static const char *s_bt_available_names[2] = {
+    "BLE Remote",
+    "Room Sensor",
+};
 
 static void note_activity(void)
 {
@@ -242,9 +258,9 @@ static void add_status_divider(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
 }
 
-static void add_action_button(lv_obj_t *parent, const char *text,
-                              int32_t x, int32_t y, int32_t w,
-                              lv_color_t bg, lv_color_t fg)
+static lv_obj_t *add_action_button(lv_obj_t *parent, const char *text,
+                                   int32_t x, int32_t y, int32_t w,
+                                   lv_color_t bg, lv_color_t fg)
 {
     lv_obj_t *btn = plain_obj(parent);
     lv_obj_set_size(btn, w, 25);
@@ -255,6 +271,7 @@ static void add_action_button(lv_obj_t *parent, const char *text,
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *label = make_label(btn, text, fg);
     lv_obj_center(label);
+    return btn;
 }
 
 /* Placeholder QR visual. The real payload/URL is added with the Web setup service. */
@@ -275,7 +292,7 @@ static void build_qr_placeholder(lv_obj_t *parent, int32_t x, int32_t y)
         for (int32_t c = 0; c < cells; ++c) {
             bool finder_tl = (r < 5 && c < 5 &&
                              (r == 0 || r == 4 || c == 0 || c == 4 ||
-                              (r >= 2 && r <= 2 && c >= 2 && c <= 2)));
+                              (r == 2 && c == 2)));
             bool finder_tr = (r < 5 && c >= 8 &&
                              (r == 0 || r == 4 || c == 8 || c == 12 ||
                               (r == 2 && c == 10)));
@@ -295,6 +312,11 @@ static void build_qr_placeholder(lv_obj_t *parent, int32_t x, int32_t y)
 }
 
 static void wifi_toggle_event_cb(lv_event_t *e);
+static void bt_toggle_event_cb(lv_event_t *e);
+static void bt_scan_event_cb(lv_event_t *e);
+static void bt_paired_event_cb(lv_event_t *e);
+static void bt_forget_event_cb(lv_event_t *e);
+static void bt_available_event_cb(lv_event_t *e);
 static void show_tab(ui_settings_tab_t tab);
 
 static void build_wifi_left(lv_obj_t *parent)
@@ -386,6 +408,176 @@ static void wifi_toggle_event_cb(lv_event_t *e)
     show_tab(UI_SETTINGS_WIFI);
 }
 
+static void build_bluetooth_left(lv_obj_t *parent)
+{
+    lv_obj_t *icon = ui_system_icon_bluetooth(parent,
+                                              s_bt_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(icon, 61, 14);
+
+    lv_obj_t *toggle = plain_obj(parent);
+    lv_obj_set_size(toggle, 64, 28);
+    lv_obj_set_pos(toggle, 45, 50);
+    lv_obj_set_style_bg_color(toggle,
+                              s_bt_enabled ? UI_COLOR_ACCENT : UI_COLOR_PANEL_2, 0);
+    lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, 0);
+    lv_obj_add_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(toggle, bt_toggle_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *knob = plain_obj(toggle);
+    lv_obj_set_size(knob, 22, 22);
+    lv_obj_set_pos(knob, s_bt_enabled ? 39 : 3, 3);
+    lv_obj_set_style_bg_color(knob, UI_COLOR_FG, 0);
+    lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(knob, LV_RADIUS_CIRCLE, 0);
+
+    lv_obj_t *state = make_label(parent, s_bt_enabled ? "ON" : "OFF",
+                                 s_bt_enabled ? UI_COLOR_FG : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, 68, 79);
+
+    lv_obj_t *scan = add_action_button(parent,
+                                       s_bt_scanning ? "SCANNING..." : "SCAN",
+                                       39, 97, 76,
+                                       s_bt_enabled ? UI_COLOR_PANEL_2 : UI_COLOR_PANEL,
+                                       s_bt_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    if (s_bt_enabled) lv_obj_add_event_cb(scan, bt_scan_event_cb, LV_EVENT_CLICKED, NULL);
+}
+
+static lv_obj_t *build_bt_row(lv_obj_t *parent, const char *name,
+                              int32_t x, int32_t y, int32_t w,
+                              bool active)
+{
+    lv_obj_t *row = plain_obj(parent);
+    lv_obj_set_size(row, w, 22);
+    lv_obj_set_pos(row, x, y);
+    lv_obj_set_style_bg_color(row, active ? UI_COLOR_PANEL_2 : UI_COLOR_PANEL, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(row, 7, 0);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *label = make_label(row, name, active ? UI_COLOR_FG : UI_COLOR_MUTED);
+    lv_obj_set_pos(label, 8, 3);
+    return row;
+}
+
+static void build_bluetooth_right(lv_obj_t *parent)
+{
+    const int32_t x = UI_STATUS_RIGHT_X + 12;
+    const int32_t w = UI_STATUS_RIGHT_W - 24;
+
+    if (!s_bt_enabled) {
+        lv_obj_t *label = make_label(parent, "BLUETOOTH DISABLED", UI_COLOR_MUTED);
+        lv_obj_align(label, LV_ALIGN_CENTER, 80, 0);
+        return;
+    }
+
+    lv_obj_t *paired_title = make_label(parent, "PAIRED", UI_COLOR_MUTED);
+    lv_obj_set_pos(paired_title, x, 4);
+
+    int32_t row_y = 23;
+    for (int i = 0; i < 2; ++i) {
+        if (!s_bt_paired_visible[i]) continue;
+        bool active = (s_bt_selected_paired == i);
+        lv_obj_t *row = build_bt_row(parent, s_bt_paired_names[i], x, row_y, w, active);
+        lv_obj_add_event_cb(row, bt_paired_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
+
+        lv_obj_t *status = make_label(row,
+                                      (i == 0) ? "CONNECTED" : "SAVED",
+                                      (i == 0) ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+        lv_obj_align(status, LV_ALIGN_RIGHT_MID, active ? -78 : -8, 0);
+
+        if (active) {
+            lv_obj_t *forget = add_action_button(row, "FORGET",
+                                                 w - 72, -1, 68,
+                                                 lv_color_hex(0x2A171A), UI_COLOR_DANGER);
+            lv_obj_add_event_cb(forget, bt_forget_event_cb, LV_EVENT_CLICKED,
+                                (void *)(uintptr_t)i);
+        }
+        row_y += 25;
+    }
+
+    lv_obj_t *sep = plain_obj(parent);
+    lv_obj_set_size(sep, w, 1);
+    lv_obj_set_pos(sep, x, 72);
+    lv_obj_set_style_bg_color(sep, lv_color_hex(0x22262B), 0);
+    lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
+
+    lv_obj_t *available_title = make_label(parent,
+                                           s_bt_scanning ? "AVAILABLE · SCANNING" : "AVAILABLE",
+                                           s_bt_scanning ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(available_title, x, 78);
+
+    for (int i = 0; i < 2; ++i) {
+        bool pairing = (s_bt_pairing_available == i);
+        lv_obj_t *row = build_bt_row(parent, s_bt_available_names[i],
+                                     x, 96 + i * 25, w, pairing);
+        lv_obj_add_event_cb(row, bt_available_event_cb, LV_EVENT_CLICKED,
+                            (void *)(uintptr_t)i);
+        lv_obj_t *status = make_label(row,
+                                      pairing ? "PAIRING..." : ((i == 0) ? "-58 dBm" : "-72 dBm"),
+                                      pairing ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+        lv_obj_align(status, LV_ALIGN_RIGHT_MID, -8, 0);
+    }
+}
+
+static void build_bluetooth_content(void)
+{
+    build_bluetooth_left(s_content);
+    add_status_divider(s_content);
+    build_bluetooth_right(s_content);
+}
+
+static void bt_toggle_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    s_bt_enabled = !s_bt_enabled;
+    if (!s_bt_enabled) {
+        s_bt_scanning = false;
+        s_bt_selected_paired = -1;
+        s_bt_pairing_available = -1;
+    }
+    note_activity();
+    show_tab(UI_SETTINGS_BLUETOOTH);
+}
+
+static void bt_scan_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !s_bt_enabled) return;
+    s_bt_scanning = !s_bt_scanning;
+    s_bt_pairing_available = -1;
+    note_activity();
+    show_tab(UI_SETTINGS_BLUETOOTH);
+}
+
+static void bt_paired_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int32_t index = (int32_t)(uintptr_t)lv_event_get_user_data(e);
+    s_bt_selected_paired = (s_bt_selected_paired == index) ? -1 : index;
+    note_activity();
+    show_tab(UI_SETTINGS_BLUETOOTH);
+}
+
+static void bt_forget_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int32_t index = (int32_t)(uintptr_t)lv_event_get_user_data(e);
+    if (index >= 0 && index < 2) s_bt_paired_visible[index] = false;
+    s_bt_selected_paired = -1;
+    note_activity();
+    show_tab(UI_SETTINGS_BLUETOOTH);
+}
+
+static void bt_available_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !s_bt_enabled) return;
+    int32_t index = (int32_t)(uintptr_t)lv_event_get_user_data(e);
+    s_bt_pairing_available = index;
+    s_bt_scanning = false;
+    note_activity();
+    show_tab(UI_SETTINGS_BLUETOOTH);
+}
+
 static void build_ai_content(void)
 {
     lv_obj_t *icon = ui_system_icon_ai_robot2(s_content,
@@ -450,10 +642,13 @@ static void show_tab(ui_settings_tab_t tab)
     else if (tab == UI_SETTINGS_WIFI) {
         build_wifi_content();
     }
+    else if (tab == UI_SETTINGS_BLUETOOTH) {
+        build_bluetooth_content();
+    }
     else if (tab == UI_SETTINGS_AI) {
         build_ai_content();
     }
-    /* Bluetooth and System remain placeholders for now. */
+    /* System remains a placeholder for now. */
 
     refresh_tab_styles();
     note_activity();
