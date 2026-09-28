@@ -7,10 +7,10 @@
 #define TIMER_SCREEN_H              172
 #define TIMER_CONTENT_X              56
 #define TIMER_CONTENT_W             (TIMER_SCREEN_W - TIMER_CONTENT_X)
-#define TIMER_GROUP_W               112
-#define TIMER_GROUP_GAP              18
-#define TIMER_GROUP_X0               10
-#define TIMER_ACTION_X              418
+#define TIMER_GROUP_W               118
+#define TIMER_GROUP_GAP              10
+#define TIMER_GROUP_X0                4
+#define TIMER_ACTION_X              396
 #define TIMER_ACTION_W              (TIMER_CONTENT_W - TIMER_ACTION_X)
 #define TIMER_DRAG_STEP_PX           18
 #define TIMER_MAX_SECONDS         43200u
@@ -111,7 +111,7 @@ static lv_obj_t *make_segment(lv_obj_t *parent, int x, int y, int w, int h)
     lv_obj_remove_style_all(seg);
     lv_obj_set_pos(seg, x, y);
     lv_obj_set_size(seg, w, h);
-    lv_obj_set_style_radius(seg, 2, 0);
+    lv_obj_set_style_radius(seg, 3, 0);
     lv_obj_set_style_bg_opa(seg, LV_OPA_TRANSP, 0);
     lv_obj_clear_flag(seg, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
@@ -123,17 +123,17 @@ static void build_digit(lv_obj_t *parent, seven_digit_t *digit, int x)
     lv_obj_t *holder = lv_obj_create(parent);
     lv_obj_remove_style_all(holder);
     lv_obj_set_pos(holder, x, 0);
-    lv_obj_set_size(holder, 40, 72);
+    lv_obj_set_size(holder, 52, 124);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
 
-    digit->seg[0] = make_segment(holder, 8,  2, 24, 5);
-    digit->seg[1] = make_segment(holder, 32, 8,  5, 25);
-    digit->seg[2] = make_segment(holder, 32, 39, 5, 25);
-    digit->seg[3] = make_segment(holder, 8, 65, 24, 5);
-    digit->seg[4] = make_segment(holder, 3, 39,  5, 25);
-    digit->seg[5] = make_segment(holder, 3, 8,   5, 25);
-    digit->seg[6] = make_segment(holder, 8, 34, 24, 5);
+    digit->seg[0] = make_segment(holder, 10,   2, 32, 8);
+    digit->seg[1] = make_segment(holder, 42,  11,  8, 45);
+    digit->seg[2] = make_segment(holder, 42,  67,  8, 45);
+    digit->seg[3] = make_segment(holder, 10, 114, 32, 8);
+    digit->seg[4] = make_segment(holder,  2,  67,  8, 45);
+    digit->seg[5] = make_segment(holder,  2,  11,  8, 45);
+    digit->seg[6] = make_segment(holder, 10,  58, 32, 8);
 }
 
 static void digit_set(seven_digit_t *digit, uint8_t value)
@@ -277,8 +277,6 @@ static void timer_tick_cb(lv_timer_t *timer)
     (void)timer;
     if (s_state != TIMER_STATE_RUNNING) return;
 
-    /* Active countdown counts as activity so the global 60 s standby timeout
-       cannot replace the current screen while a timer is running. */
     note_activity();
 
     uint32_t now = lv_tick_get();
@@ -439,13 +437,13 @@ static void build_column(lv_obj_t *parent,
 
     lv_obj_t *digits = lv_obj_create(column->zone);
     lv_obj_remove_style_all(digits);
-    lv_obj_set_size(digits, 88, 72);
+    lv_obj_set_size(digits, 112, 124);
     lv_obj_align(digits, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(digits, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(digits, LV_OBJ_FLAG_SCROLLABLE);
 
     build_digit(digits, &column->digits[0], 2);
-    build_digit(digits, &column->digits[1], 46);
+    build_digit(digits, &column->digits[1], 58);
 
     lv_obj_add_event_cb(column->zone,
                         column_event_cb,
@@ -470,8 +468,8 @@ static void build_colon(lv_obj_t *parent, int x)
     for (int i = 0; i < 2; ++i) {
         lv_obj_t *dot = lv_obj_create(parent);
         lv_obj_remove_style_all(dot);
-        lv_obj_set_size(dot, 6, 6);
-        lv_obj_set_pos(dot, x, i == 0 ? 66 : 100);
+        lv_obj_set_size(dot, 8, 8);
+        lv_obj_set_pos(dot, x, i == 0 ? 64 : 100);
         lv_obj_set_style_bg_color(dot, TIMER_FG, 0);
         lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
@@ -503,8 +501,8 @@ void ui_page_timer_build(lv_obj_t *parent,
     build_column(s_root, &s_columns[1], 1, x1);
     build_column(s_root, &s_columns[2], 2, x2);
 
-    build_colon(s_root, x0 + TIMER_GROUP_W + 6);
-    build_colon(s_root, x1 + TIMER_GROUP_W + 6);
+    build_colon(s_root, x0 + TIMER_GROUP_W + 1);
+    build_colon(s_root, x1 + TIMER_GROUP_W + 1);
 
     s_action_area = lv_obj_create(s_root);
     lv_obj_remove_style_all(s_action_area);
@@ -537,8 +535,6 @@ void ui_page_timer_stop(void)
         }
     }
 
-    /* Keep the global activity callback while actively counting down so the
-       60 s idle policy stays suppressed even after leaving this page. */
     if (s_state != TIMER_STATE_RUNNING) {
         s_activity_cb = NULL;
         s_activity_user_data = NULL;
