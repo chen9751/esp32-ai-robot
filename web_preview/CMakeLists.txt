@@ -17,6 +17,7 @@ add_executable(index
     ../components/ui/ui_manager.c
     ../components/ui/ui_page_home.c
     ../components/ui/ui_page_feature.c
+    ../components/ui/ui_page_lights.c
     ../components/ui/ui_page_timer.c
     ../components/ui/ui_page_settings.c
     ../components/ui/ui_page_alarm.c
@@ -34,6 +35,12 @@ add_executable(index
     ../components/ui/ui_asset_timer.c
     ../components/ui/ui_asset_alarm.c
     ../components/ui/ui_asset_settings.c
+    ../components/ui/ui_lights_labels.c
+    ../components/ui/ui_lights_label_living.c
+    ../components/ui/ui_lights_label_study.c
+    ../components/ui/ui_lights_labels_beds.c
+    ../components/ui/ui_lights_labels_extended.c
+    ../components/ui/ui_lights_labels_utility.c
     ${UI_EXTRA_SOURCES}
 )
 target_include_directories(index PRIVATE . ../components/ui/include)
