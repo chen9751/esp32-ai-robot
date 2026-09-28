@@ -19,7 +19,7 @@ The project has selected the following three open-source type/icon families as t
 | --- | --- | --- |
 | Main UI text | **Source Han Sans CN Normal / 思源黑体 CN Normal** | Chinese UI text, labels, settings and normal interface copy |
 | Retro / clock text | **Fusion Pixel Font / 缝合像素字体** | Clock, retro LCD/old-screen style numbers and selected status text |
-| UI icons | **Remix Icon** | Navigation, remote, music, lights, devices, alarm, settings and later system/device icons |
+| UI icons | **Remix Icon** | Navigation, remote, music, lights, devices, timer, alarm, settings and later system/device icons |
 
 Source assets and LVGL-generated subsets are documented under `assets/fonts/README.md`.
 
@@ -82,13 +82,16 @@ The embedded LVGL layer must stay independent from ESP-IDF networking logic. UI 
 UI pages are intentionally split into separate modules so the project does not grow into one large UI source file.
 
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
-- `ui_page_home.c`: six-function HOME carousel.
+- `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices, Timer, Alarm and Settings.
 - `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
+- `ui_page_timer.c`: countdown timer UI and timer state. Hours/minutes/seconds are adjusted with vertical drag, the maximum duration is 12:00:00, and the countdown keeps running when the page is closed or the UI enters standby.
 - `ui_page_settings.c`: settings page content and controls.
 - `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
 - `ui_page_standby.c`: standby gesture/navigation controller only.
 - `ui_page_clock.c`: standby clock content.
 - `ui_page_weather.c`: weather page (placeholder until designed).
 - `ui_page_calendar.c`: calendar page (placeholder until designed).
+
+Timer behavior is defined as follows: the setting state shows three editable time fields plus one large Play button. Starting switches the action area to Pause and Stop. Pause freezes the remaining time and changes the upper action to Resume. Stop cancels the active countdown and restores the most recently configured duration. When the countdown reaches zero it remains at `00:00:00`; the upper action can immediately replay the last configured duration, while Stop returns to the editable setting state with that duration restored. A zero-duration timer does not start. The countdown state is intentionally independent from the page lifetime so navigating away does not cancel it.
 
 Standby behavior is fixed as follows: after 60 seconds without input, any active page returns to the clock. The clock/weather/calendar pages loop horizontally. A short tap from any standby page opens HOME. Upward swiping from standby moves the standby page itself upward with the finger, revealing a stationary HOME page underneath. From HOME, a downward swipe brings the clock in from above to cover HOME. These are intentionally asymmetric inverse transitions. These vertical transitions never return to a previously active function page.
