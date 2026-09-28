@@ -21,6 +21,14 @@ LV_FONT_DECLARE(ui_font_source_han_lights_18);
 #define FOOTER_H 50
 #define ADJUST_TIMEOUT_MS 30000
 
+#define BRIGHTNESS_MIN 10
+#define BRIGHTNESS_MAX 100
+#define BRIGHTNESS_STEP 10
+
+#define TEMP_MIN_K 2500
+#define TEMP_MAX_K 6500
+#define TEMP_STEP_K 400
+
 #define C_BG            lv_color_hex(0x000000)
 #define C_CARD          lv_color_hex(0x090A0C)
 #define C_CARD_ON       lv_color_hex(0x101113)
@@ -31,10 +39,13 @@ LV_FONT_DECLARE(ui_font_source_han_lights_18);
 #define C_DIVIDER       lv_color_hex(0x23252A)
 #define C_WARM          lv_color_hex(0xFFD06F)
 #define C_WARM_HI       lv_color_hex(0xFFF0C2)
+#define C_TEMP_WARM     lv_color_hex(0xFFD36A)
+#define C_TEMP_COOL     lv_color_hex(0xFFFFFF)
 #define C_SWITCH_ON     lv_color_hex(0x3A301F)
 #define C_ADJUST_ACTIVE lv_color_hex(0x2A2317)
 
 typedef enum { LIGHT_NORMAL=0, LIGHT_RGB, LIGHT_SWITCH_ONLY } light_kind_t;
+typedef enum { ADJUST_NONE=0, ADJUST_BRIGHTNESS, ADJUST_TEMPERATURE } adjust_mode_t;
 
 typedef struct {
     const char *name;
@@ -56,12 +67,13 @@ typedef struct {
     lv_obj_t *control_icons[3];
     lv_obj_t *switch_dot;
     lv_obj_t *adjust_panel;
-    lv_obj_t *brightness_slider;
-    lv_obj_t *brightness_value;
+    lv_obj_t *adjust_slider;
+    lv_obj_t *adjust_value;
     light_kind_t kind;
+    adjust_mode_t adjust_mode;
     bool on;
-    bool brightness_adjusting;
     uint8_t brightness;
+    uint16_t color_temp_k;
 } light_view_t;
 
 static const light_spec_t SPECS[8] = {
@@ -160,10 +172,32 @@ static void set_default_content_visible(light_view_t *view, bool visible)
     }
 }
 
-static void update_brightness_value(light_view_t *view)
+static int32_t snap_brightness(int32_t value)
 {
-    if (!view || !view->brightness_value) return;
-    lv_label_set_text_fmt(view->brightness_value, "%u%%", (unsigned)view->brightness);
+    if (value < BRIGHTNESS_MIN) value = BRIGHTNESS_MIN;
+    if (value > BRIGHTNESS_MAX) value = BRIGHTNESS_MAX;
+    value = ((value + BRIGHTNESS_STEP / 2) / BRIGHTNESS_STEP) * BRIGHTNESS_STEP;
+    if (value > BRIGHTNESS_MAX) value = BRIGHTNESS_MAX;
+    return value;
+}
+
+static int32_t snap_color_temp(int32_t value)
+{
+    if (value < TEMP_MIN_K) value = TEMP_MIN_K;
+    if (value > TEMP_MAX_K) value = TEMP_MAX_K;
+    value = TEMP_MIN_K + (((value - TEMP_MIN_K) + TEMP_STEP_K / 2) / TEMP_STEP_K) * TEMP_STEP_K;
+    if (value > TEMP_MAX_K) value = TEMP_MAX_K;
+    return value;
+}
+
+static void update_adjust_value(light_view_t *view)
+{
+    if (!view || !view->adjust_value) return;
+    if (view->adjust_mode == ADJUST_BRIGHTNESS) {
+        lv_label_set_text_fmt(view->adjust_value, "%u%%", (unsigned)view->brightness);
+    } else if (view->adjust_mode == ADJUST_TEMPERATURE) {
+        lv_label_set_text_fmt(view->adjust_value, "%uK", (unsigned)view->color_temp_k);
+    }
 }
 
 static void stop_adjust_timer(void)
@@ -173,15 +207,22 @@ static void stop_adjust_timer(void)
     s_adjust_timer = NULL;
 }
 
-static void exit_brightness_adjust(light_view_t *view)
+static void clear_control_highlights(light_view_t *view)
 {
-    if (!view || !view->brightness_adjusting) return;
+    if (!view) return;
+    for (int i = 0; i < 2; i++) {
+        if (view->controls[i]) lv_obj_set_style_bg_opa(view->controls[i], LV_OPA_TRANSP, 0);
+    }
+}
 
-    view->brightness_adjusting = false;
+static void exit_adjust(light_view_t *view)
+{
+    if (!view || view->adjust_mode == ADJUST_NONE) return;
+
+    view->adjust_mode = ADJUST_NONE;
     lv_obj_add_flag(view->adjust_panel, LV_OBJ_FLAG_HIDDEN);
     set_default_content_visible(view, true);
-
-    if (view->controls[0]) lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_TRANSP, 0);
+    clear_control_highlights(view);
 
     if (s_adjust_view == view) s_adjust_view = NULL;
     stop_adjust_timer();
@@ -191,7 +232,7 @@ static void adjust_timeout_cb(lv_timer_t *timer)
 {
     light_view_t *view = (light_view_t *)lv_timer_get_user_data(timer);
     s_adjust_timer = NULL;
-    if (view) exit_brightness_adjust(view);
+    if (view) exit_adjust(view);
 }
 
 static void restart_adjust_timer(light_view_t *view)
@@ -202,48 +243,103 @@ static void restart_adjust_timer(light_view_t *view)
     lv_timer_set_auto_delete(s_adjust_timer, true);
 }
 
-static void enter_brightness_adjust(light_view_t *view)
+static void style_adjust_slider(light_view_t *view)
 {
-    if (!view || !view->controls[0]) return;
+    if (!view || !view->adjust_slider) return;
 
-    if (s_adjust_view && s_adjust_view != view) exit_brightness_adjust(s_adjust_view);
+    lv_obj_set_style_bg_opa(view->adjust_slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(view->adjust_slider, 4, LV_PART_MAIN);
+    lv_obj_set_style_radius(view->adjust_slider, 4, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(view->adjust_slider, C_WARM_HI, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(view->adjust_slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_width(view->adjust_slider, 20, LV_PART_KNOB);
+    lv_obj_set_style_height(view->adjust_slider, 20, LV_PART_KNOB);
+    lv_obj_set_style_radius(view->adjust_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(view->adjust_slider, 6, LV_PART_KNOB);
+    lv_obj_set_style_shadow_opa(view->adjust_slider, LV_OPA_30, LV_PART_KNOB);
 
-    view->brightness_adjusting = true;
+    if (view->adjust_mode == ADJUST_TEMPERATURE) {
+        lv_obj_set_style_bg_color(view->adjust_slider, C_TEMP_WARM, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_color(view->adjust_slider, C_TEMP_COOL, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(view->adjust_slider, LV_GRAD_DIR_HOR, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(view->adjust_slider, LV_OPA_TRANSP, LV_PART_INDICATOR);
+        lv_obj_set_style_shadow_color(view->adjust_slider, C_TEMP_WARM, LV_PART_KNOB);
+    } else {
+        lv_obj_set_style_bg_color(view->adjust_slider, C_OFF_DARK, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(view->adjust_slider, LV_GRAD_DIR_NONE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(view->adjust_slider, C_WARM, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(view->adjust_slider, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_shadow_color(view->adjust_slider, C_WARM, LV_PART_KNOB);
+    }
+}
+
+static void enter_adjust(light_view_t *view, adjust_mode_t mode)
+{
+    if (!view || mode == ADJUST_NONE) return;
+    if ((mode == ADJUST_BRIGHTNESS && !view->controls[0]) ||
+        (mode == ADJUST_TEMPERATURE && !view->controls[1])) return;
+
+    if (s_adjust_view && s_adjust_view != view) exit_adjust(s_adjust_view);
+
+    view->adjust_mode = mode;
     s_adjust_view = view;
     set_default_content_visible(view, false);
     lv_obj_clear_flag(view->adjust_panel, LV_OBJ_FLAG_HIDDEN);
-    lv_slider_set_value(view->brightness_slider, view->brightness, LV_ANIM_OFF);
-    update_brightness_value(view);
+    clear_control_highlights(view);
 
-    lv_obj_set_style_bg_color(view->controls[0], C_ADJUST_ACTIVE, 0);
-    lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_COVER, 0);
+    if (mode == ADJUST_BRIGHTNESS) {
+        lv_slider_set_range(view->adjust_slider, BRIGHTNESS_MIN, BRIGHTNESS_MAX);
+        lv_slider_set_value(view->adjust_slider, view->brightness, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(view->controls[0], C_ADJUST_ACTIVE, 0);
+        lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_COVER, 0);
+    } else {
+        lv_slider_set_range(view->adjust_slider, TEMP_MIN_K, TEMP_MAX_K);
+        lv_slider_set_value(view->adjust_slider, view->color_temp_k, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(view->controls[1], C_ADJUST_ACTIVE, 0);
+        lv_obj_set_style_bg_opa(view->controls[1], LV_OPA_COVER, 0);
+    }
 
+    style_adjust_slider(view);
+    update_adjust_value(view);
     restart_adjust_timer(view);
     note_activity();
 }
 
-static void brightness_control_click(lv_event_t *event)
+static void adjustment_control_click(lv_event_t *event)
 {
     light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
-    if (!view) return;
+    lv_obj_t *target = (lv_obj_t *)lv_event_get_target(event);
+    if (!view || !target) return;
 
-    if (view->brightness_adjusting) exit_brightness_adjust(view);
-    else enter_brightness_adjust(view);
+    adjust_mode_t requested = ADJUST_NONE;
+    if (target == view->controls[0]) requested = ADJUST_BRIGHTNESS;
+    else if (target == view->controls[1]) requested = ADJUST_TEMPERATURE;
+    if (requested == ADJUST_NONE) return;
+
+    if (view->adjust_mode == requested) exit_adjust(view);
+    else enter_adjust(view, requested);
 
     note_activity();
 }
 
-static void brightness_slider_changed(lv_event_t *event)
+static void adjust_slider_changed(lv_event_t *event)
 {
     light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
     lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(event);
-    if (!view || !slider) return;
+    if (!view || !slider || view->adjust_mode == ADJUST_NONE) return;
 
-    int32_t value = lv_slider_get_value(slider);
-    if (value < 1) value = 1;
-    if (value > 100) value = 100;
-    view->brightness = (uint8_t)value;
-    update_brightness_value(view);
+    int32_t raw = lv_slider_get_value(slider);
+    if (view->adjust_mode == ADJUST_BRIGHTNESS) {
+        int32_t snapped = snap_brightness(raw);
+        view->brightness = (uint8_t)snapped;
+        if (snapped != raw) lv_slider_set_value(slider, snapped, LV_ANIM_OFF);
+    } else {
+        int32_t snapped = snap_color_temp(raw);
+        view->color_temp_k = (uint16_t)snapped;
+        if (snapped != raw) lv_slider_set_value(slider, snapped, LV_ANIM_OFF);
+    }
+
+    update_adjust_value(view);
     restart_adjust_timer(view);
     note_activity();
 }
@@ -294,10 +390,11 @@ static void create_footer(light_view_t *view)
         add_vertical_divider(view->footer, third * 2);
     }
 
-    lv_obj_add_event_cb(view->controls[0], brightness_control_click, LV_EVENT_CLICKED, view);
+    lv_obj_add_event_cb(view->controls[0], adjustment_control_click, LV_EVENT_CLICKED, view);
+    lv_obj_add_event_cb(view->controls[1], adjustment_control_click, LV_EVENT_CLICKED, view);
 }
 
-static void create_brightness_adjust_panel(light_view_t *view)
+static void create_adjust_panel(light_view_t *view)
 {
     view->adjust_panel = lv_obj_create(view->item);
     lv_obj_remove_style_all(view->adjust_panel);
@@ -310,33 +407,19 @@ static void create_brightness_adjust_panel(light_view_t *view)
     lv_obj_clear_flag(view->adjust_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(view->adjust_panel, LV_OBJ_FLAG_HIDDEN);
 
-    view->brightness_value = lv_label_create(view->adjust_panel);
-    lv_label_set_text(view->brightness_value, "70%");
-    lv_obj_set_style_text_color(view->brightness_value, C_WARM_HI, 0);
-    lv_obj_set_style_text_opa(view->brightness_value, LV_OPA_COVER, 0);
-    lv_obj_align(view->brightness_value, LV_ALIGN_TOP_MID, 0, 18);
-    lv_obj_clear_flag(view->brightness_value, LV_OBJ_FLAG_CLICKABLE);
+    view->adjust_value = lv_label_create(view->adjust_panel);
+    lv_label_set_text(view->adjust_value, "70%");
+    lv_obj_set_style_text_color(view->adjust_value, C_WARM_HI, 0);
+    lv_obj_set_style_text_opa(view->adjust_value, LV_OPA_COVER, 0);
+    lv_obj_align(view->adjust_value, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_clear_flag(view->adjust_value, LV_OBJ_FLAG_CLICKABLE);
 
-    view->brightness_slider = lv_slider_create(view->adjust_panel);
-    lv_slider_set_range(view->brightness_slider, 1, 100);
-    lv_slider_set_value(view->brightness_slider, view->brightness, LV_ANIM_OFF);
-    lv_obj_set_size(view->brightness_slider, 108, 8);
-    lv_obj_align(view->brightness_slider, LV_ALIGN_TOP_MID, 0, 63);
-    lv_obj_set_style_bg_color(view->brightness_slider, C_OFF_DARK, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(view->brightness_slider, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(view->brightness_slider, 4, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(view->brightness_slider, C_WARM, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(view->brightness_slider, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(view->brightness_slider, 4, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(view->brightness_slider, C_WARM_HI, LV_PART_KNOB);
-    lv_obj_set_style_bg_opa(view->brightness_slider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_width(view->brightness_slider, 20, LV_PART_KNOB);
-    lv_obj_set_style_height(view->brightness_slider, 20, LV_PART_KNOB);
-    lv_obj_set_style_radius(view->brightness_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_shadow_color(view->brightness_slider, C_WARM, LV_PART_KNOB);
-    lv_obj_set_style_shadow_width(view->brightness_slider, 6, LV_PART_KNOB);
-    lv_obj_set_style_shadow_opa(view->brightness_slider, LV_OPA_30, LV_PART_KNOB);
-    lv_obj_add_event_cb(view->brightness_slider, brightness_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+    view->adjust_slider = lv_slider_create(view->adjust_panel);
+    lv_slider_set_range(view->adjust_slider, BRIGHTNESS_MIN, BRIGHTNESS_MAX);
+    lv_slider_set_value(view->adjust_slider, view->brightness, LV_ANIM_OFF);
+    lv_obj_set_size(view->adjust_slider, 108, 8);
+    lv_obj_align(view->adjust_slider, LV_ALIGN_TOP_MID, 0, 63);
+    lv_obj_add_event_cb(view->adjust_slider, adjust_slider_changed, LV_EVENT_VALUE_CHANGED, view);
 }
 
 static void update_state(light_view_t *view)
@@ -373,11 +456,17 @@ static void update_state(light_view_t *view)
         }
     }
 
-    if (view->brightness_adjusting && view->controls[0]) {
+    clear_control_highlights(view);
+    if (view->adjust_mode == ADJUST_BRIGHTNESS && view->controls[0]) {
         lv_obj_set_style_bg_color(view->controls[0], C_ADJUST_ACTIVE, 0);
         lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_COVER, 0);
         ui_lights_icon_set_color(view->control_icons[0], C_WARM_HI);
         lv_obj_set_style_opa(view->control_icons[0], LV_OPA_COVER, 0);
+    } else if (view->adjust_mode == ADJUST_TEMPERATURE && view->controls[1]) {
+        lv_obj_set_style_bg_color(view->controls[1], C_ADJUST_ACTIVE, 0);
+        lv_obj_set_style_bg_opa(view->controls[1], LV_OPA_COVER, 0);
+        ui_lights_icon_set_color(view->control_icons[1], C_WARM_HI);
+        lv_obj_set_style_opa(view->control_icons[1], LV_OPA_COVER, 0);
     }
 
     if (view->switch_dot) {
@@ -393,7 +482,7 @@ static void item_click(lv_event_t *event)
 {
     light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
     if (!view) return;
-    if (view->brightness_adjusting) return;
+    if (view->adjust_mode != ADJUST_NONE) return;
     view->on = !view->on;
     update_state(view);
     note_activity();
@@ -413,6 +502,7 @@ static void create_item(lv_obj_t *parent, size_t index)
     view->kind = spec->kind;
     view->on = spec->initial_on;
     view->brightness = 70;
+    view->color_temp_k = 4100;
 
     view->item = lv_obj_create(parent);
     lv_obj_remove_style_all(view->item);
@@ -436,7 +526,7 @@ static void create_item(lv_obj_t *parent, size_t index)
         view->room_detail = rect(view->item, 44, 94, 54, 2, 1, C_WARM_HI);
     }
 
-    create_brightness_adjust_panel(view);
+    create_adjust_panel(view);
     create_footer(view);
     update_state(view);
 }
