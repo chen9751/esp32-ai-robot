@@ -499,11 +499,11 @@ static void style_color_slider_knob(lv_obj_t *slider)
 {
     lv_obj_set_style_bg_color(slider, lv_color_hex(0xFFFFFF), LV_PART_KNOB);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_width(slider, 18, LV_PART_KNOB);
-    lv_obj_set_style_height(slider, 18, LV_PART_KNOB);
+    lv_obj_set_style_width(slider, 14, LV_PART_KNOB);
+    lv_obj_set_style_height(slider, 14, LV_PART_KNOB);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
     lv_obj_set_style_shadow_color(slider, lv_color_hex(0x000000), LV_PART_KNOB);
-    lv_obj_set_style_shadow_width(slider, 5, LV_PART_KNOB);
+    lv_obj_set_style_shadow_width(slider, 3, LV_PART_KNOB);
     lv_obj_set_style_shadow_opa(slider, LV_OPA_40, LV_PART_KNOB);
 }
 
@@ -515,18 +515,22 @@ static void create_color_controls(light_view_t *view)
     lv_obj_remove_style_all(view->hue_track);
     lv_obj_set_pos(view->hue_track, 17, 27);
     lv_obj_set_size(view->hue_track, 108, 8);
+    lv_obj_set_style_bg_color(view->hue_track, lv_color_hsv_to_rgb(0, 100, 100), 0);
+    lv_obj_set_style_bg_opa(view->hue_track, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(view->hue_track, 4, 0);
+    lv_obj_add_flag(view->hue_track, LV_OBJ_FLAG_CLIP_CORNER);
     lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(view->hue_track, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* Six overlapping two-stop gradients form one continuous hue strip.
+     * Overlap avoids scale/rounding seams; the parent clips only the outer corners. */
     for (int i = 0; i < 6; i++) {
         uint16_t h1 = (uint16_t)(i * 60);
         uint16_t h2 = (uint16_t)((i == 5) ? 0 : (i + 1) * 60);
-        lv_obj_t *segment = rect(view->hue_track, i * 18, 0, 18, 8, 0, lv_color_hsv_to_rgb(h1, 100, 100));
+        lv_obj_t *segment = rect(view->hue_track, i * 18, 0, 19, 8, 0,
+                                 lv_color_hsv_to_rgb(h1, 100, 100));
         lv_obj_set_style_bg_grad_color(segment, lv_color_hsv_to_rgb(h2, 100, 100), 0);
         lv_obj_set_style_bg_grad_dir(segment, LV_GRAD_DIR_HOR, 0);
-        if (i == 0) lv_obj_set_style_radius(segment, 4, 0);
-        if (i == 5) lv_obj_set_style_radius(segment, 4, 0);
     }
 
     view->hue_slider = lv_slider_create(view->adjust_panel);
