@@ -34,6 +34,11 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_alarm_16.c")
     set(UI_ALARM_HAS_SOURCE_HAN TRUE)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_lights_18.c")
+    list(APPEND UI_SRCS "ui_font_source_han_lights_18.c")
+    set(UI_LIGHTS_HAS_SOURCE_HAN TRUE)
+endif()
+
 idf_component_register(
     SRCS ${UI_SRCS}
     INCLUDE_DIRS "include"
@@ -42,4 +47,8 @@ idf_component_register(
 
 if(UI_ALARM_HAS_SOURCE_HAN)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_ALARM_HAS_SOURCE_HAN=1)
+endif()
+
+if(UI_LIGHTS_HAS_SOURCE_HAN)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_LIGHTS_HAS_SOURCE_HAN=1)
 endif()
