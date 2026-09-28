@@ -31,6 +31,52 @@ Do not replace the selected icon system with enlarged bitmap/pixel icons unless 
 
 For small monochrome UI icons, compact A8 image subsets rasterized directly from the selected Remix Icon SVG source are also acceptable. They must retain the original Remix Icon geometry and be documented with their upstream icon filenames; do not redraw equivalent icons with one-off LVGL geometry.
 
+## Settings and phone configuration model
+
+The 640 × 172 device screen is intentionally **not** used as a full text-entry configuration console. Complex text entry is delegated to a phone-based Web configuration flow so the embedded UI can stay compact and touch-friendly.
+
+### Device-side settings
+
+Keep frequent, low-complexity controls local on the device:
+
+- volume
+- display brightness
+- microphone or other simple on/off controls
+- Wi-Fi on/off
+- Bluetooth on/off
+- status and diagnostic information
+
+The current settings navigation uses six tabs:
+
+`Sound | Display | Wi-Fi | Bluetooth | AI | System`
+
+Sound and Display provide direct local controls. Wi-Fi and AI primarily act as status/configuration entry pages. Bluetooth and System remain available for later expansion.
+
+### QR-based configuration entry
+
+Configuration that requires typing, long URLs, passwords or other structured text should use a QR-based phone flow rather than an on-screen LVGL keyboard.
+
+Current intended behavior:
+
+- **Wi-Fi not configured / not connected**: show a QR configuration entry on the device.
+- **Wi-Fi connected**: show SSID, connection state, IP, MAC and DNS, plus local `Disconnect` and `Forget` actions.
+- **AI not configured**: show the same QR-based configuration entry pattern.
+- **AI configured**: show current AI server information such as server address, port, model and online/offline state.
+
+The QR shown in the current UI is only a visual placeholder. The real QR payload, local Web page and provisioning transport will be implemented later.
+
+### Future Web configuration service
+
+The planned phone configuration page will be a local Web interface hosted by or associated with the device. It is expected to handle settings that are awkward to enter on a 640 × 172 touch display, especially:
+
+- Wi-Fi SSID and password
+- AI server address / hostname
+- AI server port
+- model selection or model identifier
+- future text-based integration settings such as Home Assistant addresses or tokens
+
+The embedded LVGL layer must stay independent from ESP-IDF networking logic. UI code should display state and emit user actions; networking/provisioning code should own scanning, association, credential persistence, connection state and actual QR/Web endpoint generation.
+
 ## UI page architecture
 
 UI pages are intentionally split into separate modules so the project does not grow into one large UI source file.
