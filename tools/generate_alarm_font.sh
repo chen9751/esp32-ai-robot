@@ -23,7 +23,6 @@ npx --yes lv_font_conv \
   --no-compress \
   --lv-font-name ui_font_source_han_alarm_16 \
   --lv-include lvgl.h \
-  --relative-project-path "$ROOT_DIR" \
   -o "$OUT"
 
 echo "Generated: $OUT"
