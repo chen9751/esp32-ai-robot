@@ -11,6 +11,7 @@ add_executable(index
     ../components/ui/ui_page_home.c
     ../components/ui/ui_page_feature.c
     ../components/ui/ui_page_settings.c
+    ../components/ui/ui_page_alarm.c
     ../components/ui/ui_system_icons.c
     ../components/ui/ui_icon_robot2.c
     ../components/ui/ui_page_standby.c
