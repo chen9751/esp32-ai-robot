@@ -181,9 +181,7 @@ static void exit_brightness_adjust(light_view_t *view)
     lv_obj_add_flag(view->adjust_panel, LV_OBJ_FLAG_HIDDEN);
     set_default_content_visible(view, true);
 
-    if (view->controls[0]) {
-        lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_TRANSP, 0);
-    }
+    if (view->controls[0]) lv_obj_set_style_bg_opa(view->controls[0], LV_OPA_TRANSP, 0);
 
     if (s_adjust_view == view) s_adjust_view = NULL;
     stop_adjust_timer();
@@ -201,6 +199,7 @@ static void restart_adjust_timer(light_view_t *view)
     stop_adjust_timer();
     s_adjust_timer = lv_timer_create(adjust_timeout_cb, ADJUST_TIMEOUT_MS, view);
     lv_timer_set_repeat_count(s_adjust_timer, 1);
+    lv_timer_set_auto_delete(s_adjust_timer, true);
 }
 
 static void enter_brightness_adjust(light_view_t *view)
@@ -237,7 +236,7 @@ static void brightness_control_click(lv_event_t *event)
 static void brightness_slider_changed(lv_event_t *event)
 {
     light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
-    lv_obj_t *slider = lv_event_get_target_obj(event);
+    lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(event);
     if (!view || !slider) return;
 
     int32_t value = lv_slider_get_value(slider);
