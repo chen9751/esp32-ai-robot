@@ -2,10 +2,10 @@ name: UI Web Preview
 on:
   push:
     branches: [main]
-    paths: ["components/ui/**","web_preview/**",".github/workflows/ui-web-preview.yml"]
+    paths: ["components/ui/**","web_preview/**","tools/generate_alarm_font.sh",".github/workflows/ui-web-preview.yml"]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency:
@@ -21,10 +21,21 @@ jobs:
         with:
           version: "4.0.15"
           actions-cache-folder: emsdk-cache
+      - name: Generate Source Han alarm font subset
+        run: bash tools/generate_alarm_font.sh
       - name: Configure
         run: emcmake cmake -S web_preview -B web_preview/build -DCMAKE_BUILD_TYPE=Release
       - name: Build LVGL WebAssembly preview
         run: cmake --build web_preview/build -j2
+      - name: Commit generated font subset
+        run: |
+          if [ -n "$(git status --porcelain -- components/ui/ui_font_source_han_alarm_16.c)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add components/ui/ui_font_source_han_alarm_16.c
+            git commit -m "Generate Source Han alarm font subset"
+            git push
+          fi
       - name: Prepare Pages artifact
         run: |
           mkdir -p web_preview/dist
