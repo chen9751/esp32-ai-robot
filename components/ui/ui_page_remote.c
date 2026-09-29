@@ -1,4 +1,5 @@
 #include "ui_page_remote.h"
+#include "ui_remote_icons.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -15,7 +16,6 @@
 #define TOUCH_TAP_SLOP            12
 
 #define COLOR_BG        lv_color_hex(0x000000)
-#define COLOR_PANEL     lv_color_hex(0x0A101A)
 #define COLOR_BUTTON    lv_color_hex(0x111824)
 #define COLOR_BUTTON_2  lv_color_hex(0x171F2D)
 #define COLOR_BORDER    lv_color_hex(0x526581)
@@ -34,37 +34,30 @@ static bool s_touch_active = false;
 
 typedef struct {
     ui_remote_action_t action;
-    const char *symbol;
+    ui_remote_icon_t icon;
     lv_color_t color;
 } remote_button_data_t;
 
-static remote_button_data_t s_power   = { UI_REMOTE_ACTION_POWER,       LV_SYMBOL_POWER,    COLOR_POWER };
-static remote_button_data_t s_input   = { UI_REMOTE_ACTION_INPUT,       LV_SYMBOL_VIDEO,    COLOR_ICON };
-static remote_button_data_t s_home    = { UI_REMOTE_ACTION_HOME,        LV_SYMBOL_HOME,     COLOR_ICON };
-static remote_button_data_t s_back    = { UI_REMOTE_ACTION_BACK,        LV_SYMBOL_LEFT,     COLOR_ICON };
-static remote_button_data_t s_setup   = { UI_REMOTE_ACTION_SETTINGS,    LV_SYMBOL_SETTINGS, COLOR_ICON };
-static remote_button_data_t s_display = { UI_REMOTE_ACTION_DISPLAY,     LV_SYMBOL_IMAGE,    COLOR_ICON };
-static remote_button_data_t s_vol_up  = { UI_REMOTE_ACTION_VOLUME_UP,   LV_SYMBOL_PLUS,     COLOR_ICON };
-static remote_button_data_t s_vol_dn  = { UI_REMOTE_ACTION_VOLUME_DOWN, LV_SYMBOL_MINUS,    COLOR_ICON };
+static remote_button_data_t s_power   = { UI_REMOTE_ACTION_POWER,       UI_REMOTE_ICON_POWER,    COLOR_POWER };
+static remote_button_data_t s_input   = { UI_REMOTE_ACTION_INPUT,       UI_REMOTE_ICON_INPUT,    COLOR_ICON };
+static remote_button_data_t s_home    = { UI_REMOTE_ACTION_HOME,        UI_REMOTE_ICON_HOME,     COLOR_ICON };
+static remote_button_data_t s_back    = { UI_REMOTE_ACTION_BACK,        UI_REMOTE_ICON_BACK,     COLOR_ICON };
+static remote_button_data_t s_setup   = { UI_REMOTE_ACTION_SETTINGS,    UI_REMOTE_ICON_SETTINGS, COLOR_ICON };
+static remote_button_data_t s_display = { UI_REMOTE_ACTION_DISPLAY,     UI_REMOTE_ICON_DISPLAY,  COLOR_ICON };
+static remote_button_data_t s_vol_up  = { UI_REMOTE_ACTION_VOLUME_UP,   UI_REMOTE_ICON_ADD,      COLOR_ICON };
+static remote_button_data_t s_vol_dn  = { UI_REMOTE_ACTION_VOLUME_DOWN, UI_REMOTE_ICON_SUBTRACT, COLOR_ICON };
 
-static int32_t iabs32(int32_t value)
-{
-    return value < 0 ? -value : value;
-}
+static int32_t iabs32(int32_t value) { return value < 0 ? -value : value; }
 
 static void note_activity(void)
 {
-    if (s_activity_cb != NULL) {
-        s_activity_cb(s_activity_user_data);
-    }
+    if (s_activity_cb != NULL) s_activity_cb(s_activity_user_data);
 }
 
 static void emit_action(ui_remote_action_t action, int32_t value)
 {
     note_activity();
-    if (s_action_cb != NULL) {
-        s_action_cb(action, value, s_action_user_data);
-    }
+    if (s_action_cb != NULL) s_action_cb(action, value, s_action_user_data);
 }
 
 static void button_event_cb(lv_event_t *e)
@@ -78,35 +71,20 @@ static void button_event_cb(lv_event_t *e)
         lv_obj_set_style_bg_color(button, COLOR_PRESSED, 0);
         return;
     }
-
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         lv_obj_set_style_bg_color(button, COLOR_BUTTON, 0);
     }
-
-    if (code == LV_EVENT_CLICKED && data != NULL) {
-        emit_action(data->action, 0);
-    }
+    if (code == LV_EVENT_CLICKED && data != NULL) emit_action(data->action, 0);
 }
 
-static lv_obj_t *create_icon_label(lv_obj_t *parent,
-                                   const char *symbol,
-                                   lv_color_t color,
-                                   int32_t font_size_hint)
+static lv_obj_t *create_icon(lv_obj_t *parent, ui_remote_icon_t icon, lv_color_t color)
 {
-    (void)font_size_hint;
-    lv_obj_t *label = lv_label_create(parent);
-    lv_label_set_text(label, symbol);
-    lv_obj_set_style_text_color(label, color, 0);
-    lv_obj_set_style_text_opa(label, LV_OPA_COVER, 0);
-    lv_obj_center(label);
-    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
-    return label;
+    lv_obj_t *image = ui_remote_icon_create(parent, icon, color);
+    lv_obj_center(image);
+    return image;
 }
 
-static lv_obj_t *create_circle_button(lv_obj_t *parent,
-                                      int32_t x,
-                                      int32_t y,
-                                      remote_button_data_t *data)
+static lv_obj_t *create_circle_button(lv_obj_t *parent, int32_t x, int32_t y, remote_button_data_t *data)
 {
     lv_obj_t *button = lv_obj_create(parent);
     lv_obj_remove_style_all(button);
@@ -120,14 +98,9 @@ static lv_obj_t *create_circle_button(lv_obj_t *parent,
     lv_obj_set_style_border_width(button, 1, 0);
     lv_obj_set_style_border_color(button, COLOR_BORDER, 0);
     lv_obj_set_style_border_opa(button, LV_OPA_70, 0);
-    lv_obj_set_style_shadow_width(button, 10, 0);
-    lv_obj_set_style_shadow_opa(button, LV_OPA_20, 0);
-    lv_obj_set_style_shadow_color(button, COLOR_BORDER, 0);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-
-    create_icon_label(button, data->symbol, data->color, 28);
-
+    create_icon(button, data->icon, data->color);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_PRESSED, data);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_RELEASED, data);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_PRESS_LOST, data);
@@ -139,7 +112,6 @@ static void touchpad_event_cb(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     if (indev == NULL) return;
-
     lv_obj_t *pad = lv_event_get_current_target(e);
     lv_event_code_t code = lv_event_get_code(e);
 
@@ -150,7 +122,6 @@ static void touchpad_event_cb(lv_event_t *e)
         lv_obj_set_style_border_color(pad, lv_color_hex(0x7897C8), 0);
         return;
     }
-
     if (!s_touch_active) return;
 
     lv_point_t point;
@@ -162,33 +133,18 @@ static void touchpad_event_cb(lv_event_t *e)
         note_activity();
         return;
     }
-
     if (code == LV_EVENT_RELEASED) {
         s_touch_active = false;
         lv_obj_set_style_border_color(pad, COLOR_BORDER, 0);
-
-        int32_t ax = iabs32(dx);
-        int32_t ay = iabs32(dy);
-
+        int32_t ax = iabs32(dx), ay = iabs32(dy);
         if (ax <= TOUCH_TAP_SLOP && ay <= TOUCH_TAP_SLOP) {
             emit_action(UI_REMOTE_ACTION_OK, 0);
-            return;
-        }
-
-        if (ax >= TOUCH_SWIPE_THRESHOLD || ay >= TOUCH_SWIPE_THRESHOLD) {
-            if (ax > ay) {
-                emit_action(dx > 0 ? UI_REMOTE_ACTION_SWIPE_RIGHT
-                                   : UI_REMOTE_ACTION_SWIPE_LEFT,
-                            ax);
-            } else {
-                emit_action(dy > 0 ? UI_REMOTE_ACTION_SWIPE_DOWN
-                                   : UI_REMOTE_ACTION_SWIPE_UP,
-                            ay);
-            }
+        } else if (ax >= TOUCH_SWIPE_THRESHOLD || ay >= TOUCH_SWIPE_THRESHOLD) {
+            if (ax > ay) emit_action(dx > 0 ? UI_REMOTE_ACTION_SWIPE_RIGHT : UI_REMOTE_ACTION_SWIPE_LEFT, ax);
+            else emit_action(dy > 0 ? UI_REMOTE_ACTION_SWIPE_DOWN : UI_REMOTE_ACTION_SWIPE_UP, ay);
         }
         return;
     }
-
     if (code == LV_EVENT_PRESS_LOST) {
         s_touch_active = false;
         lv_obj_set_style_border_color(pad, COLOR_BORDER, 0);
@@ -211,7 +167,6 @@ static lv_obj_t *create_touchpad(lv_obj_t *parent)
     lv_obj_set_style_border_opa(pad, LV_OPA_80, 0);
     lv_obj_add_flag(pad, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(pad, LV_OBJ_FLAG_SCROLLABLE);
-
     lv_obj_add_event_cb(pad, touchpad_event_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(pad, touchpad_event_cb, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(pad, touchpad_event_cb, LV_EVENT_RELEASED, NULL);
@@ -219,13 +174,23 @@ static lv_obj_t *create_touchpad(lv_obj_t *parent)
     return pad;
 }
 
+static lv_obj_t *create_volume_half(lv_obj_t *rocker, int32_t x, int32_t w, remote_button_data_t *data)
+{
+    lv_obj_t *button = lv_obj_create(rocker);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_pos(button, x, 0);
+    lv_obj_set_size(button, w, 52);
+    lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+    create_icon(button, data->icon, data->color);
+    lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, data);
+    return button;
+}
+
 static lv_obj_t *create_volume_rocker(lv_obj_t *parent)
 {
-    const int32_t x = 484;
-    const int32_t y = 100;
-    const int32_t w = 116;
-    const int32_t h = 52;
-
+    const int32_t x = 484, y = 100, w = 116, h = 52;
     lv_obj_t *rocker = lv_obj_create(parent);
     lv_obj_remove_style_all(rocker);
     lv_obj_set_pos(rocker, x, y);
@@ -248,33 +213,13 @@ static lv_obj_t *create_volume_rocker(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(divider, LV_OPA_50, 0);
     lv_obj_clear_flag(divider, LV_OBJ_FLAG_CLICKABLE);
 
-    /* Requested order: volume + on the left, volume - on the right. */
-    lv_obj_t *plus = lv_obj_create(rocker);
-    lv_obj_remove_style_all(plus);
-    lv_obj_set_pos(plus, 0, 0);
-    lv_obj_set_size(plus, w / 2, h);
-    lv_obj_set_style_bg_opa(plus, LV_OPA_TRANSP, 0);
-    lv_obj_add_flag(plus, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(plus, LV_OBJ_FLAG_SCROLLABLE);
-    create_icon_label(plus, s_vol_up.symbol, s_vol_up.color, 26);
-    lv_obj_add_event_cb(plus, button_event_cb, LV_EVENT_CLICKED, &s_vol_up);
-
-    lv_obj_t *minus = lv_obj_create(rocker);
-    lv_obj_remove_style_all(minus);
-    lv_obj_set_pos(minus, w / 2, 0);
-    lv_obj_set_size(minus, w - (w / 2), h);
-    lv_obj_set_style_bg_opa(minus, LV_OPA_TRANSP, 0);
-    lv_obj_add_flag(minus, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(minus, LV_OBJ_FLAG_SCROLLABLE);
-    create_icon_label(minus, s_vol_dn.symbol, s_vol_dn.color, 26);
-    lv_obj_add_event_cb(minus, button_event_cb, LV_EVENT_CLICKED, &s_vol_dn);
-
+    /* User-approved order: volume + on the left, volume - on the right. */
+    create_volume_half(rocker, 0, w / 2, &s_vol_up);
+    create_volume_half(rocker, w / 2, w - (w / 2), &s_vol_dn);
     return rocker;
 }
 
-void ui_page_remote_build(lv_obj_t *parent,
-                          ui_remote_activity_cb_t activity_cb,
-                          void *activity_user_data)
+void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb, void *activity_user_data)
 {
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
@@ -288,15 +233,12 @@ void ui_page_remote_build(lv_obj_t *parent,
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* x < 56 is intentionally kept clear for ui_page_feature's global back rail. */
+    /* x < 56 remains clear for ui_page_feature's global back rail. */
     create_circle_button(root, 64, 22, &s_power);
     create_circle_button(root, 64, 98, &s_input);
-
     create_touchpad(root);
-
     create_circle_button(root, 420, 22, &s_home);
     create_circle_button(root, 420, 98, &s_back);
-
     create_circle_button(root, 484, 22, &s_setup);
     create_circle_button(root, 548, 22, &s_display);
     create_volume_rocker(root);
