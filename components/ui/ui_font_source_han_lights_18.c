@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 18 px
  * Bpp: 4
- * Opts: --font /tmp/tmp.mczZ0T7z5U/SourceHanSansSC-Normal.otf --symbols 客厅灯书房卧室床头小彩光带浴阳台播放源电视音箱 --size 18 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_lights_18 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_lights_18.c
+ * Opts: --font /tmp/tmp.CWTe44O5li/SourceHanSansSC-Normal.otf --symbols 客厅灯书房卧室床头小彩光带浴阳台播放源：电视音箱 --size 18 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_lights_18 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_lights_18.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -505,7 +505,12 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
     0xb0, 0x0, 0x0, 0x0, 0x9, 0xa0, 0x0, 0x0,
     0x7, 0xb1, 0x11, 0x11, 0x11, 0x1a, 0xa0, 0x0,
     0x0, 0x7, 0xfe, 0xee, 0xee, 0xee, 0xef, 0xa0,
-    0x0
+    0x0,
+
+    /* U+FF1A "：" */
+    0x15, 0x1a, 0xfa, 0x7f, 0x70, 0x0, 0x0, 0x0,
+    0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x61, 0xaf,
+    0xa6, 0xf6, 0x0, 0x0
 };
 
 
@@ -537,7 +542,8 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index = 2817, .adv_w = 288, .box_w = 17, .box_h = 17, .ofs_x = 0, .ofs_y = -2},
     {.bitmap_index = 2962, .adv_w = 288, .box_w = 18, .box_h = 17, .ofs_x = 0, .ofs_y = -2},
     {.bitmap_index = 3115, .adv_w = 288, .box_w = 16, .box_h = 17, .ofs_x = 1, .ofs_y = -2},
-    {.bitmap_index = 3251, .adv_w = 288, .box_w = 18, .box_h = 17, .ofs_x = 0, .ofs_y = -1}
+    {.bitmap_index = 3251, .adv_w = 288, .box_w = 18, .box_h = 17, .ofs_x = 0, .ofs_y = -1},
+    {.bitmap_index = 3404, .adv_w = 288, .box_w = 3, .box_h = 13, .ofs_x = 3, .ofs_y = -1}
 };
 
 /*---------------------
@@ -547,15 +553,15 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
 static const uint16_t unicode_list_0[] = {
     0x0, 0x2e3, 0x501, 0x51f, 0x58a, 0xace, 0xd3c, 0xd3e,
     0xda9, 0xfc0, 0x1024, 0x1103, 0x13d9, 0x1647, 0x16d8, 0x1f0e,
-    0x202a, 0x2209, 0x26cf, 0x2d4b, 0x3b60, 0x47cd, 0x498d
+    0x202a, 0x2209, 0x26cf, 0x2d4b, 0x3b60, 0x47cd, 0x498d, 0xb0b4
 };
 
 /*Collect the unicode lists and glyph_id offsets*/
 static const lv_font_fmt_txt_cmap_t cmaps[] =
 {
     {
-        .range_start = 20070, .range_length = 18830, .glyph_id_start = 1,
-        .unicode_list = unicode_list_0, .glyph_id_ofs_list = NULL, .list_length = 23, .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY
+        .range_start = 20070, .range_length = 45237, .glyph_id_start = 1,
+        .unicode_list = unicode_list_0, .glyph_id_ofs_list = NULL, .list_length = 24, .type = LV_FONT_FMT_TXT_CMAP_SPARSE_TINY
     }
 };
 
