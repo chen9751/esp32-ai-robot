@@ -19,8 +19,8 @@
 #define COLOR_BUTTON    lv_color_hex(0x111824)
 #define COLOR_BUTTON_2  lv_color_hex(0x171F2D)
 #define COLOR_BORDER    lv_color_hex(0x526581)
-#define COLOR_ICON      lv_color_hex(0xEAF2FF)
-#define COLOR_POWER     lv_color_hex(0xFF604F)
+#define COLOR_ICON_HEX             0xEAF2FFu
+#define COLOR_POWER_HEX            0xFF604Fu
 #define COLOR_TOUCH     lv_color_hex(0x142238)
 #define COLOR_TOUCH_2   lv_color_hex(0x0B1422)
 #define COLOR_PRESSED   lv_color_hex(0x24344D)
@@ -35,17 +35,19 @@ static bool s_touch_active = false;
 typedef struct {
     ui_remote_action_t action;
     ui_remote_icon_t icon;
-    lv_color_t color;
+    uint32_t color_hex;
 } remote_button_data_t;
 
-static remote_button_data_t s_power   = { UI_REMOTE_ACTION_POWER,       UI_REMOTE_ICON_POWER,    COLOR_POWER };
-static remote_button_data_t s_input   = { UI_REMOTE_ACTION_INPUT,       UI_REMOTE_ICON_INPUT,    COLOR_ICON };
-static remote_button_data_t s_home    = { UI_REMOTE_ACTION_HOME,        UI_REMOTE_ICON_HOME,     COLOR_ICON };
-static remote_button_data_t s_back    = { UI_REMOTE_ACTION_BACK,        UI_REMOTE_ICON_BACK,     COLOR_ICON };
-static remote_button_data_t s_setup   = { UI_REMOTE_ACTION_SETTINGS,    UI_REMOTE_ICON_SETTINGS, COLOR_ICON };
-static remote_button_data_t s_display = { UI_REMOTE_ACTION_DISPLAY,     UI_REMOTE_ICON_DISPLAY,  COLOR_ICON };
-static remote_button_data_t s_vol_up  = { UI_REMOTE_ACTION_VOLUME_UP,   UI_REMOTE_ICON_ADD,      COLOR_ICON };
-static remote_button_data_t s_vol_dn  = { UI_REMOTE_ACTION_VOLUME_DOWN, UI_REMOTE_ICON_SUBTRACT, COLOR_ICON };
+/* lv_color_hex() is a runtime LVGL function in v9.x, so file-scope data stores
+ * compile-time RGB integers and converts them when the icon object is created. */
+static remote_button_data_t s_power   = { UI_REMOTE_ACTION_POWER,       UI_REMOTE_ICON_POWER,    COLOR_POWER_HEX };
+static remote_button_data_t s_input   = { UI_REMOTE_ACTION_INPUT,       UI_REMOTE_ICON_INPUT,    COLOR_ICON_HEX };
+static remote_button_data_t s_home    = { UI_REMOTE_ACTION_HOME,        UI_REMOTE_ICON_HOME,     COLOR_ICON_HEX };
+static remote_button_data_t s_back    = { UI_REMOTE_ACTION_BACK,        UI_REMOTE_ICON_BACK,     COLOR_ICON_HEX };
+static remote_button_data_t s_setup   = { UI_REMOTE_ACTION_SETTINGS,    UI_REMOTE_ICON_SETTINGS, COLOR_ICON_HEX };
+static remote_button_data_t s_display = { UI_REMOTE_ACTION_DISPLAY,     UI_REMOTE_ICON_DISPLAY,  COLOR_ICON_HEX };
+static remote_button_data_t s_vol_up  = { UI_REMOTE_ACTION_VOLUME_UP,   UI_REMOTE_ICON_ADD,      COLOR_ICON_HEX };
+static remote_button_data_t s_vol_dn  = { UI_REMOTE_ACTION_VOLUME_DOWN, UI_REMOTE_ICON_SUBTRACT, COLOR_ICON_HEX };
 
 static int32_t iabs32(int32_t value) { return value < 0 ? -value : value; }
 
@@ -77,9 +79,9 @@ static void button_event_cb(lv_event_t *e)
     if (code == LV_EVENT_CLICKED && data != NULL) emit_action(data->action, 0);
 }
 
-static lv_obj_t *create_icon(lv_obj_t *parent, ui_remote_icon_t icon, lv_color_t color)
+static lv_obj_t *create_icon(lv_obj_t *parent, ui_remote_icon_t icon, uint32_t color_hex)
 {
-    lv_obj_t *image = ui_remote_icon_create(parent, icon, color);
+    lv_obj_t *image = ui_remote_icon_create(parent, icon, lv_color_hex(color_hex));
     lv_obj_center(image);
     return image;
 }
@@ -100,7 +102,7 @@ static lv_obj_t *create_circle_button(lv_obj_t *parent, int32_t x, int32_t y, re
     lv_obj_set_style_border_opa(button, LV_OPA_70, 0);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-    create_icon(button, data->icon, data->color);
+    create_icon(button, data->icon, data->color_hex);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_PRESSED, data);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_RELEASED, data);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_PRESS_LOST, data);
@@ -183,7 +185,7 @@ static lv_obj_t *create_volume_half(lv_obj_t *rocker, int32_t x, int32_t w, remo
     lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-    create_icon(button, data->icon, data->color);
+    create_icon(button, data->icon, data->color_hex);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, data);
     return button;
 }
