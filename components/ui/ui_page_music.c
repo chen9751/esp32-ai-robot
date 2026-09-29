@@ -8,8 +8,9 @@
 #define UI_COLOR_FG       lv_color_hex(0xF5F7F8)
 #define UI_COLOR_MUTED    lv_color_hex(0x8C9197)
 #define UI_COLOR_TRACK    lv_color_hex(0x3A3D41)
-#define UI_COLOR_PANEL    lv_color_hex(0x17191C)
+#define UI_COLOR_PANEL    lv_color_hex(0x101719)
 #define UI_COLOR_ACCENT   lv_color_hex(0x38F2B4)
+#define UI_COLOR_BORDER   lv_color_hex(0x263033)
 
 static ui_music_activity_cb_t s_activity_cb = NULL;
 static void *s_activity_user_data = NULL;
@@ -19,7 +20,7 @@ static void *s_action_user_data = NULL;
 static lv_obj_t *s_root = NULL;
 static lv_obj_t *s_title = NULL;
 static lv_obj_t *s_subtitle = NULL;
-static lv_obj_t *s_slider = NULL;
+static lv_obj_t *s_progress = NULL;
 static lv_obj_t *s_elapsed = NULL;
 static lv_obj_t *s_duration = NULL;
 static lv_obj_t *s_play_label = NULL;
@@ -88,11 +89,12 @@ static void refresh_play_icon(void)
 static void style_target_button(lv_obj_t *btn, bool active)
 {
     if (btn == NULL) return;
+
     lv_obj_set_style_bg_color(btn, active ? UI_COLOR_ACCENT : UI_COLOR_PANEL, 0);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(btn, active ? 0 : 1, 0);
-    lv_obj_set_style_border_color(btn, lv_color_hex(0x34373B), 0);
+    lv_obj_set_style_border_color(btn, UI_COLOR_BORDER, 0);
 
     lv_obj_t *label = lv_obj_get_child(btn, 0);
     if (label != NULL) {
@@ -108,6 +110,22 @@ static void refresh_target(void)
     style_target_button(s_target_speaker, s_target == UI_MUSIC_TARGET_SPEAKER);
 }
 
+static lv_obj_t *make_target_button(lv_obj_t *parent,
+                                    int32_t x,
+                                    int32_t width,
+                                    const char *text,
+                                    const lv_font_t *font)
+{
+    lv_obj_t *btn = plain_obj(parent);
+    lv_obj_set_size(btn, width, 34);
+    lv_obj_set_pos(btn, x, 17);
+    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *label = make_label(btn, text, UI_COLOR_FG, font);
+    lv_obj_center(label);
+    return btn;
+}
+
 static lv_obj_t *make_transport_button(lv_obj_t *parent,
                                        int32_t x,
                                        int32_t y,
@@ -121,6 +139,8 @@ static lv_obj_t *make_transport_button(lv_obj_t *parent,
     lv_obj_set_style_bg_color(btn, primary ? UI_COLOR_ACCENT : UI_COLOR_PANEL, 0);
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(btn, primary ? 0 : 1, 0);
+    lv_obj_set_style_border_color(btn, UI_COLOR_BORDER, 0);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *label = make_label(btn, symbol,
@@ -165,23 +185,6 @@ static void next_event_cb(lv_event_t *e)
     emit_action(UI_MUSIC_ACTION_NEXT, 0);
 }
 
-static void slider_event_cb(lv_event_t *e)
-{
-    lv_event_code_t code = lv_event_get_code(e);
-    note_activity();
-
-    if (code == LV_EVENT_VALUE_CHANGED) {
-        int32_t value = lv_slider_get_value(s_slider);
-        if (s_duration_seconds > 0) {
-            s_position_seconds = (value * s_duration_seconds) / 1000;
-            refresh_time_labels();
-        }
-    }
-    else if (code == LV_EVENT_RELEASED) {
-        emit_action(UI_MUSIC_ACTION_SEEK, s_position_seconds);
-    }
-}
-
 void ui_page_music_build(lv_obj_t *parent,
                          ui_music_activity_cb_t activity_cb,
                          void *activity_user_data)
@@ -206,49 +209,29 @@ void ui_page_music_build(lv_obj_t *parent,
     lv_obj_set_width(s_subtitle, 300);
     lv_label_set_long_mode(s_subtitle, LV_LABEL_LONG_DOT);
 
-    lv_obj_t *target_switch = plain_obj(s_root);
-    lv_obj_set_size(target_switch, 196, 40);
-    lv_obj_set_pos(target_switch, 426, 14);
-    lv_obj_set_style_bg_color(target_switch, lv_color_hex(0x0B0C0E), 0);
-    lv_obj_set_style_bg_opa(target_switch, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(target_switch, LV_RADIUS_CIRCLE, 0);
-
-    s_target_tv = plain_obj(target_switch);
-    lv_obj_set_size(s_target_tv, 76, 34);
-    lv_obj_set_pos(s_target_tv, 3, 3);
-    lv_obj_add_flag(s_target_tv, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *tv_label = make_label(s_target_tv, "TV", UI_COLOR_FG,
-                                    &lv_font_montserrat_16);
-    lv_obj_center(tv_label);
+    /* Target buttons deliberately share the same visual language as transport:
+     * accent = active, dark circular/pill surface = inactive.  They are kept
+     * as separate controls instead of nesting two pills inside one container. */
+    s_target_tv = make_target_button(s_root, 432, 72, "TV", &lv_font_montserrat_16);
     lv_obj_add_event_cb(s_target_tv, target_event_cb, LV_EVENT_CLICKED, NULL);
 
-    s_target_speaker = plain_obj(target_switch);
-    lv_obj_set_size(s_target_speaker, 114, 34);
-    lv_obj_set_pos(s_target_speaker, 79, 3);
-    lv_obj_add_flag(s_target_speaker, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *speaker_label = make_label(s_target_speaker, "Speaker", UI_COLOR_FG,
-                                         &lv_font_montserrat_14);
-    lv_obj_center(speaker_label);
+    s_target_speaker = make_target_button(s_root, 512, 110, "Speaker", &lv_font_montserrat_14);
     lv_obj_add_event_cb(s_target_speaker, target_event_cb, LV_EVENT_CLICKED, NULL);
     refresh_target();
 
-    s_slider = lv_slider_create(s_root);
-    lv_obj_set_size(s_slider, 326, 8);
-    lv_obj_set_pos(s_slider, 78, 106);
-    lv_slider_set_range(s_slider, 0, 1000);
-    lv_obj_set_style_bg_color(s_slider, UI_COLOR_TRACK, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(s_slider, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_slider, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_slider, UI_COLOR_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(s_slider, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(s_slider, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(s_slider, UI_COLOR_FG, LV_PART_KNOB);
-    lv_obj_set_style_bg_opa(s_slider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_width(s_slider, 18, LV_PART_KNOB);
-    lv_obj_set_style_height(s_slider, 18, LV_PART_KNOB);
-    lv_obj_set_style_radius(s_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_add_event_cb(s_slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(s_slider, slider_event_cb, LV_EVENT_RELEASED, NULL);
+    /* Display-only progress.  lv_bar has no knob and is not clickable, so
+     * playback position can only be updated by ui_page_music_set_playback(). */
+    s_progress = lv_bar_create(s_root);
+    lv_obj_set_size(s_progress, 326, 8);
+    lv_obj_set_pos(s_progress, 78, 106);
+    lv_bar_set_range(s_progress, 0, 1000);
+    lv_obj_clear_flag(s_progress, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(s_progress, UI_COLOR_TRACK, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_progress, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_progress, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_progress, UI_COLOR_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_progress, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_progress, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
 
     s_elapsed = make_label(s_root, "00:00", UI_COLOR_MUTED, &lv_font_montserrat_14);
     lv_obj_set_pos(s_elapsed, 78, 127);
@@ -275,7 +258,7 @@ void ui_page_music_stop(void)
     s_root = NULL;
     s_title = NULL;
     s_subtitle = NULL;
-    s_slider = NULL;
+    s_progress = NULL;
     s_elapsed = NULL;
     s_duration = NULL;
     s_play_label = NULL;
@@ -323,11 +306,11 @@ void ui_page_music_set_playback(bool playing,
     refresh_play_icon();
     refresh_time_labels();
 
-    if (s_slider != NULL) {
+    if (s_progress != NULL) {
         int32_t value = 0;
         if (s_duration_seconds > 0) {
             value = (s_position_seconds * 1000) / s_duration_seconds;
         }
-        lv_slider_set_value(s_slider, value, LV_ANIM_OFF);
+        lv_bar_set_value(s_progress, value, LV_ANIM_OFF);
     }
 }
