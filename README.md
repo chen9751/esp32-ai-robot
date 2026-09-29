@@ -86,6 +86,7 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
 - `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices, Timer, Alarm and Settings.
 - `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
+- `ui_page_music.c`: compact music transport page with metadata, seek/progress display, previous/play-pause/next controls and a two-way `TV | Speaker` target selector. It emits UI actions only; Debian playback control, Bluetooth HID and playback-state synchronization stay outside the LVGL page.
 - `ui_page_lights.c`: horizontally scrollable lighting control page. It owns the eight room/light tiles, local on/off presentation and the brightness/color-temperature/RGB adjustment UI while remaining independent from Home Assistant/network business logic.
 - `ui_page_timer.c`: countdown timer UI and timer state. Hours/minutes/seconds are adjusted with vertical drag, the maximum duration is 12:00:00, and the countdown keeps running independently from page lifetime.
 - `ui_page_settings.c`: settings page content and controls.
@@ -94,6 +95,8 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_page_clock.c`: standby clock content.
 - `ui_page_weather.c`: weather page (placeholder until designed).
 - `ui_page_calendar.c`: calendar page (placeholder until designed).
+
+Music behavior is defined as follows: the page has no album artwork and no shuffle, repeat or volume controls. The upper-right selector switches only between `TV` and `Speaker`; there is no additional "control target" label. `TV` is reserved for direct ESP32 Bluetooth-HID media control of the television, while `Speaker` is reserved for commands sent to the Debian playback service that outputs to the paired iPad mini / CM220 speaker path. The LVGL module stores presentation state, exposes metadata/playback setters and emits target/transport/seek actions; transport-specific code must consume those actions elsewhere.
 
 Lights behavior is defined as follows: tapping a room/device tile toggles that light's local on/off presentation. Normal lights expose brightness and color-temperature controls; RGB-capable lights additionally expose a color control; switch-only lights keep the same card footprint without fake adjustment controls. Brightness is adjusted in 10% steps. Color temperature currently spans 2500 K to 6500 K in 400 K steps. RGB adjustment uses two sliders: hue and saturation, both in 10% steps; saturation is rendered from white to the currently selected hue. Entering an adjustment temporarily replaces the card title/icon area, tapping the same active control exits, switching to another control changes adjustment mode directly, and 30 seconds without adjustment returns the card to its default presentation. These values are currently local UI state only; later Home Assistant/network integration must consume/refresh this state outside the page rather than embedding transport logic into the UI module.
 
