@@ -14,6 +14,8 @@
 #define TOUCH_RADIUS              24
 #define TOUCH_SWIPE_THRESHOLD     34
 #define TOUCH_TAP_SLOP            12
+#define REMOTE_ICON_COUNT           8
+#define ICON_ROTATION_MS          240
 
 #define COLOR_BG        lv_color_hex(0x000000)
 #define COLOR_BUTTON    lv_color_hex(0x111824)
@@ -31,6 +33,9 @@ static ui_remote_activity_cb_t s_activity_cb = NULL;
 static void *s_activity_user_data = NULL;
 static lv_point_t s_touch_press = {0, 0};
 static bool s_touch_active = false;
+static bool s_icons_ccw90 = false;
+static lv_obj_t *s_icons[REMOTE_ICON_COUNT] = {0};
+static uint8_t s_icon_count = 0;
 
 typedef struct {
     ui_remote_action_t action;
@@ -62,6 +67,18 @@ static void emit_action(ui_remote_action_t action, int32_t value)
     if (s_action_cb != NULL) s_action_cb(action, value, s_action_user_data);
 }
 
+static void icon_rotation_exec_cb(void *obj, int32_t angle)
+{
+    lv_image_set_rotation((lv_obj_t *)obj, angle);
+}
+
+static void register_icon(lv_obj_t *image)
+{
+    if (image == NULL) return;
+    if (s_icon_count < REMOTE_ICON_COUNT) s_icons[s_icon_count++] = image;
+    lv_image_set_rotation(image, s_icons_ccw90 ? 2700 : 0);
+}
+
 static void button_event_cb(lv_event_t *e)
 {
     lv_obj_t *button = lv_event_get_current_target(e);
@@ -83,6 +100,7 @@ static lv_obj_t *create_icon(lv_obj_t *parent, ui_remote_icon_t icon, uint32_t c
 {
     lv_obj_t *image = ui_remote_icon_create(parent, icon, lv_color_hex(color_hex));
     lv_obj_center(image);
+    register_icon(image);
     return image;
 }
 
@@ -226,6 +244,8 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
     s_touch_active = false;
+    s_icon_count = 0;
+    for (uint8_t i = 0; i < REMOTE_ICON_COUNT; i++) s_icons[i] = NULL;
 
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_remove_style_all(root);
@@ -235,7 +255,7 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* x < 56 remains clear for ui_page_feature's global back rail. */
+    /* Geometry intentionally unchanged by orientation: only icon images rotate. */
     create_circle_button(root, 64, 22, &s_power);
     create_circle_button(root, 64, 98, &s_input);
     create_touchpad(root);
@@ -251,10 +271,44 @@ void ui_page_remote_stop(void)
     s_touch_active = false;
     s_activity_cb = NULL;
     s_activity_user_data = NULL;
+    s_icon_count = 0;
+    for (uint8_t i = 0; i < REMOTE_ICON_COUNT; i++) s_icons[i] = NULL;
 }
 
 void ui_page_remote_set_action_cb(ui_remote_action_cb_t cb, void *user_data)
 {
     s_action_cb = cb;
     s_action_user_data = user_data;
+}
+
+void ui_page_remote_set_icons_ccw90(bool ccw90, bool animate)
+{
+    if (s_icons_ccw90 == ccw90 && s_icon_count > 0) return;
+    bool was_ccw90 = s_icons_ccw90;
+    s_icons_ccw90 = ccw90;
+
+    for (uint8_t i = 0; i < s_icon_count; i++) {
+        lv_obj_t *icon = s_icons[i];
+        if (icon == NULL) continue;
+
+        lv_anim_delete(icon, icon_rotation_exec_cb);
+
+        if (!animate || was_ccw90 == ccw90) {
+            lv_image_set_rotation(icon, ccw90 ? 2700 : 0);
+            continue;
+        }
+
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, icon);
+        lv_anim_set_exec_cb(&a, icon_rotation_exec_cb);
+        lv_anim_set_duration(&a, ICON_ROTATION_MS);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+
+        /* LVGL rotation is clockwise-positive. 3600 == 0 visually, so
+         * 3600 -> 2700 is a true 90-degree counter-clockwise animation. */
+        if (ccw90) lv_anim_set_values(&a, 3600, 2700);
+        else lv_anim_set_values(&a, 2700, 3600);
+        lv_anim_start(&a);
+    }
 }
