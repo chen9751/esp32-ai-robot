@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -34,6 +35,10 @@ void ui_page_remote_build(lv_obj_t *parent,
                           void *activity_user_data);
 void ui_page_remote_stop(void);
 void ui_page_remote_set_action_cb(ui_remote_action_cb_t cb, void *user_data);
+
+/* Rotate only the eight icon image objects. Button geometry, touchpad geometry,
+ * hit areas and the 640x172 layout remain unchanged. */
+void ui_page_remote_set_icons_ccw90(bool ccw90, bool animate);
 
 #ifdef __cplusplus
 }
