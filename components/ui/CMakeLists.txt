@@ -2,6 +2,7 @@ set(UI_SRCS
     "ui_manager.c"
     "ui_page_home.c"
     "ui_page_feature.c"
+    "ui_page_remote.c"
     "ui_page_music.c"
     "ui_page_lights.c"
     "ui_lights_icons.c"
