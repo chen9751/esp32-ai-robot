@@ -1,5 +1,7 @@
 #include "ui_page_music.h"
 
+LV_FONT_DECLARE(ui_font_source_han_lights_18);
+
 #define UI_SCREEN_W          640
 #define UI_SCREEN_H          172
 #define UI_BACK_RAIL_W        56
@@ -24,8 +26,8 @@ static lv_obj_t *s_progress = NULL;
 static lv_obj_t *s_elapsed = NULL;
 static lv_obj_t *s_duration = NULL;
 static lv_obj_t *s_play_label = NULL;
-static lv_obj_t *s_target_tv = NULL;
-static lv_obj_t *s_target_speaker = NULL;
+static lv_obj_t *s_target_caption = NULL;
+static lv_obj_t *s_target_dropdown = NULL;
 
 static ui_music_target_t s_target = UI_MUSIC_TARGET_TV;
 static bool s_playing = false;
@@ -86,44 +88,11 @@ static void refresh_play_icon(void)
     }
 }
 
-static void style_target_button(lv_obj_t *btn, bool active)
-{
-    if (btn == NULL) return;
-
-    lv_obj_set_style_bg_color(btn, active ? UI_COLOR_ACCENT : UI_COLOR_PANEL, 0);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(btn, active ? 0 : 1, 0);
-    lv_obj_set_style_border_color(btn, UI_COLOR_BORDER, 0);
-
-    lv_obj_t *label = lv_obj_get_child(btn, 0);
-    if (label != NULL) {
-        lv_obj_set_style_text_color(label,
-                                    active ? lv_color_hex(0x07140F) : UI_COLOR_FG,
-                                    0);
-    }
-}
-
 static void refresh_target(void)
 {
-    style_target_button(s_target_tv, s_target == UI_MUSIC_TARGET_TV);
-    style_target_button(s_target_speaker, s_target == UI_MUSIC_TARGET_SPEAKER);
-}
-
-static lv_obj_t *make_target_button(lv_obj_t *parent,
-                                    int32_t x,
-                                    int32_t width,
-                                    const char *text,
-                                    const lv_font_t *font)
-{
-    lv_obj_t *btn = plain_obj(parent);
-    lv_obj_set_size(btn, width, 34);
-    lv_obj_set_pos(btn, x, 17);
-    lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *label = make_label(btn, text, UI_COLOR_FG, font);
-    lv_obj_center(label);
-    return btn;
+    if (s_target_dropdown == NULL) return;
+    lv_dropdown_set_selected(s_target_dropdown,
+                             s_target == UI_MUSIC_TARGET_SPEAKER ? 1 : 0);
 }
 
 static lv_obj_t *make_transport_button(lv_obj_t *parent,
@@ -150,18 +119,21 @@ static lv_obj_t *make_transport_button(lv_obj_t *parent,
     return btn;
 }
 
-static void target_event_cb(lv_event_t *e)
+static void target_dropdown_event_cb(lv_event_t *e)
 {
-    lv_obj_t *target_obj = lv_event_get_target(e);
-    ui_music_target_t next = target_obj == s_target_speaker
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+
+    uint16_t selected = lv_dropdown_get_selected(s_target_dropdown);
+    ui_music_target_t next = selected == 1
                            ? UI_MUSIC_TARGET_SPEAKER
                            : UI_MUSIC_TARGET_TV;
+
     if (next == s_target) {
         note_activity();
         return;
     }
+
     s_target = next;
-    refresh_target();
     emit_action(UI_MUSIC_ACTION_TARGET_CHANGED, (int32_t)s_target);
 }
 
@@ -209,14 +181,45 @@ void ui_page_music_build(lv_obj_t *parent,
     lv_obj_set_width(s_subtitle, 300);
     lv_label_set_long_mode(s_subtitle, LV_LABEL_LONG_DOT);
 
-    /* Target buttons deliberately share the same visual language as transport:
-     * accent = active, dark circular/pill surface = inactive.  They are kept
-     * as separate controls instead of nesting two pills inside one container. */
-    s_target_tv = make_target_button(s_root, 432, 72, "TV", &lv_font_montserrat_16);
-    lv_obj_add_event_cb(s_target_tv, target_event_cb, LV_EVENT_CLICKED, NULL);
+    /* Compact playback-source selector.  The target stays a UI state only;
+     * transport actions are routed by the application layer. */
+    s_target_caption = make_label(s_root, "播放源：", UI_COLOR_MUTED,
+                                  &ui_font_source_han_lights_18);
+    lv_obj_set_pos(s_target_caption, 432, 24);
 
-    s_target_speaker = make_target_button(s_root, 512, 110, "Speaker", &lv_font_montserrat_14);
-    lv_obj_add_event_cb(s_target_speaker, target_event_cb, LV_EVENT_CLICKED, NULL);
+    s_target_dropdown = lv_dropdown_create(s_root);
+    lv_obj_set_size(s_target_dropdown, 112, 36);
+    lv_obj_set_pos(s_target_dropdown, 510, 16);
+    lv_dropdown_set_options_static(s_target_dropdown, "电视\n音箱");
+    lv_dropdown_set_dir(s_target_dropdown, LV_DIR_BOTTOM);
+
+    lv_obj_set_style_bg_color(s_target_dropdown, UI_COLOR_PANEL, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_target_dropdown, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_target_dropdown, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_target_dropdown, UI_COLOR_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_target_dropdown, 18, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_target_dropdown, UI_COLOR_FG, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_target_dropdown, &ui_font_source_han_lights_18, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(s_target_dropdown, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(s_target_dropdown, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(s_target_dropdown, 7, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(s_target_dropdown, 7, LV_PART_MAIN);
+
+    lv_obj_t *dropdown_list = lv_dropdown_get_list(s_target_dropdown);
+    if (dropdown_list != NULL) {
+        lv_obj_set_style_bg_color(dropdown_list, UI_COLOR_PANEL, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(dropdown_list, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(dropdown_list, 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(dropdown_list, UI_COLOR_BORDER, LV_PART_MAIN);
+        lv_obj_set_style_radius(dropdown_list, 14, LV_PART_MAIN);
+        lv_obj_set_style_text_color(dropdown_list, UI_COLOR_FG, LV_PART_MAIN);
+        lv_obj_set_style_text_font(dropdown_list, &ui_font_source_han_lights_18, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(dropdown_list, UI_COLOR_ACCENT, LV_PART_SELECTED);
+        lv_obj_set_style_text_color(dropdown_list, lv_color_hex(0x07140F), LV_PART_SELECTED);
+    }
+
+    lv_obj_add_event_cb(s_target_dropdown, target_dropdown_event_cb,
+                        LV_EVENT_VALUE_CHANGED, NULL);
     refresh_target();
 
     /* Display-only progress.  lv_bar has no knob and is not clickable, so
@@ -262,8 +265,8 @@ void ui_page_music_stop(void)
     s_elapsed = NULL;
     s_duration = NULL;
     s_play_label = NULL;
-    s_target_tv = NULL;
-    s_target_speaker = NULL;
+    s_target_caption = NULL;
+    s_target_dropdown = NULL;
     s_activity_cb = NULL;
     s_activity_user_data = NULL;
 }
