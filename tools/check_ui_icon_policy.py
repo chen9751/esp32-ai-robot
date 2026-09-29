@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 LIGHTS = ROOT / "components/ui/ui_page_lights.c"
 ICONS = ROOT / "components/ui/ui_lights_icons.c"
 EXTRA_ICONS = ROOT / "components/ui/ui_lights_extra_icons.c"
+REMOTE = ROOT / "components/ui/ui_page_remote.c"
+REMOTE_ICONS = ROOT / "components/ui/ui_remote_icons.c"
 ESP_CMAKE = ROOT / "components/ui/CMakeLists.txt"
 WEB_CMAKE = ROOT / "web_preview/CMakeLists.txt"
 
@@ -14,10 +16,9 @@ errors = []
 lights = LIGHTS.read_text(encoding="utf-8")
 icons = ICONS.read_text(encoding="utf-8")
 extra_icons = EXTRA_ICONS.read_text(encoding="utf-8")
+remote = REMOTE.read_text(encoding="utf-8")
+remote_icons = REMOTE_ICONS.read_text(encoding="utf-8")
 
-# Semantic glyphs must not drift back to hand-drawn LVGL geometry.
-# These are the old hand-drawn helper identifiers only. A helper named
-# create_room_icon is now allowed because it only selects approved Remix assets.
 legacy_identifiers = (
     "create_small_icon",
     "ICON_SOFA",
@@ -44,7 +45,6 @@ for token in (
     if token not in lights:
         errors.append(f"Lights page is missing approved icon reference: {token}")
 
-# Keep provenance explicit so replacements can be audited against Remix Icon.
 for source in (
     "Others/sofa-line.svg",
     "Device/computer-line.svg",
@@ -68,9 +68,28 @@ for source in (
     if source not in extra_icons:
         errors.append(f"Extra Remix Icon source provenance missing: {source}")
 
+# Remote controls must use project-approved Remix Icon assets, never LVGL symbol glyphs.
+if "LV_SYMBOL_" in remote:
+    errors.append("Remote page contains forbidden LVGL symbol glyphs; use Remix Icon assets")
+for token in ('#include "ui_remote_icons.h"', "UI_REMOTE_ICON_POWER", "UI_REMOTE_ICON_ADD", "UI_REMOTE_ICON_SUBTRACT"):
+    if token not in remote:
+        errors.append(f"Remote page is missing approved icon reference: {token}")
+for source in (
+    "Device/shut-down-line.svg",
+    "Device/remote-control-line.svg",
+    "Buildings/home-5-line.svg",
+    "Arrows/arrow-go-back-line.svg",
+    "System/settings-3-line.svg",
+    "Device/tv-2-line.svg",
+    "System/add-line.svg",
+    "System/subtract-line.svg",
+):
+    if source not in remote_icons:
+        errors.append(f"Remote Remix Icon source provenance missing: {source}")
+
 for path in (ESP_CMAKE, WEB_CMAKE):
     cmake = path.read_text(encoding="utf-8")
-    for source in ("ui_lights_icons.c", "ui_lights_extra_icons.c"):
+    for source in ("ui_lights_icons.c", "ui_lights_extra_icons.c", "ui_page_remote.c", "ui_remote_icons.c"):
         if source not in cmake:
             errors.append(f"{path.relative_to(ROOT)} does not build {source}")
 
@@ -80,4 +99,4 @@ if errors:
         print(f" - {error}")
     sys.exit(1)
 
-print("UI icon policy check passed: Lights semantic icons are sourced from Remix Icon.")
+print("UI icon policy check passed: semantic UI icons are sourced from Remix Icon.")

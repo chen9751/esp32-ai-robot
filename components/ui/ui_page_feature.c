@@ -1,4 +1,5 @@
 #include "ui_page_feature.h"
+#include "ui_page_remote.h"
 #include "ui_page_alarm.h"
 #include "ui_page_timer.h"
 #include "ui_page_settings.h"
@@ -44,11 +45,7 @@ static void *s_back_user_data = NULL;
 static ui_feature_activity_cb_t s_activity_cb = NULL;
 static void *s_activity_user_data = NULL;
 
-static int32_t iabs32(int32_t v)
-{
-    return v < 0 ? -v : v;
-}
-
+static int32_t iabs32(int32_t v) { return v < 0 ? -v : v; }
 static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
 {
     if (v < lo) return lo;
@@ -93,10 +90,7 @@ static void set_indicator_pressed(bool pressed)
                               0);
 }
 
-static void content_set_x(void *obj, int32_t x)
-{
-    lv_obj_set_x((lv_obj_t *)obj, x);
-}
+static void content_set_x(void *obj, int32_t x) { lv_obj_set_x((lv_obj_t *)obj, x); }
 
 static void finish_back(lv_anim_t *anim)
 {
@@ -115,7 +109,6 @@ static void finish_rest(lv_anim_t *anim)
 static void animate_content_to(int32_t end_x, uint32_t duration_ms, bool commit)
 {
     if (s_content == NULL || s_animating) return;
-
     s_animating = true;
 
     lv_anim_t anim;
@@ -132,14 +125,11 @@ static void animate_content_to(int32_t end_x, uint32_t duration_ms, bool commit)
 static void back_rail_event_cb(lv_event_t *e)
 {
     if (s_content == NULL || s_animating) return;
-
     lv_indev_t *indev = lv_event_get_indev(e);
     if (indev == NULL) return;
 
     lv_event_code_t code = lv_event_get_code(e);
 
-    /* Inside the alarm add/edit screen the global back rail first returns to
-       the alarm list. A second back action then exits the alarm feature. */
     if (s_action == UI_MENU_ALARM && ui_page_alarm_editor_active()) {
         if (code == LV_EVENT_PRESSED) {
             lv_indev_get_point(indev, &s_press);
@@ -147,25 +137,18 @@ static void back_rail_event_cb(lv_event_t *e)
             s_horizontal_drag = false;
             set_indicator_pressed(true);
             note_activity();
-            return;
-        }
-        if (!s_pressed) return;
-        if (code == LV_EVENT_PRESSING) {
-            note_activity();
-            return;
-        }
-        if (code == LV_EVENT_RELEASED) {
+        } else if (s_pressed && code == LV_EVENT_RELEASED) {
             s_pressed = false;
             set_indicator_pressed(false);
             ui_page_alarm_close_editor();
             note_activity();
-            return;
-        }
-        if (code == LV_EVENT_PRESS_LOST) {
+        } else if (code == LV_EVENT_PRESS_LOST) {
             s_pressed = false;
             set_indicator_pressed(false);
-            return;
+        } else if (s_pressed && code == LV_EVENT_PRESSING) {
+            note_activity();
         }
+        return;
     }
 
     if (code == LV_EVENT_PRESSED) {
@@ -176,7 +159,6 @@ static void back_rail_event_cb(lv_event_t *e)
         note_activity();
         return;
     }
-
     if (!s_pressed) return;
 
     lv_point_t point;
@@ -191,9 +173,7 @@ static void back_rail_event_cb(lv_event_t *e)
         if (!s_horizontal_drag && ax >= UI_BACK_LOCK_DISTANCE && dx > 0 && ax > ay) {
             s_horizontal_drag = true;
         }
-        if (s_horizontal_drag) {
-            lv_obj_set_x(s_content, clamp_i32(dx, 0, UI_SCREEN_W));
-        }
+        if (s_horizontal_drag) lv_obj_set_x(s_content, clamp_i32(dx, 0, UI_SCREEN_W));
         return;
     }
 
@@ -201,14 +181,11 @@ static void back_rail_event_cb(lv_event_t *e)
         s_pressed = false;
         set_indicator_pressed(false);
         note_activity();
-
         if (s_horizontal_drag) {
-            if (dx >= UI_BACK_COMMIT_DISTANCE) animate_content_to(UI_SCREEN_W, UI_BACK_ANIM_MS, true);
-            else animate_content_to(0, UI_BACK_ANIM_MS, false);
-            return;
-        }
-
-        if (ax <= UI_BACK_TAP_SLOP && ay <= UI_BACK_TAP_SLOP) {
+            animate_content_to(dx >= UI_BACK_COMMIT_DISTANCE ? UI_SCREEN_W : 0,
+                               UI_BACK_ANIM_MS,
+                               dx >= UI_BACK_COMMIT_DISTANCE);
+        } else if (ax <= UI_BACK_TAP_SLOP && ay <= UI_BACK_TAP_SLOP) {
             animate_content_to(UI_SCREEN_W, UI_BACK_ANIM_MS, true);
         }
         return;
@@ -227,34 +204,30 @@ static void back_rail_event_cb(lv_event_t *e)
 static void build_generic_placeholder(ui_menu_action_t action)
 {
     ui_feature_asset_t assets = feature_assets(action);
+    lv_obj_t *group = lv_obj_create(s_content);
+    lv_obj_remove_style_all(group);
+    lv_obj_set_size(group, 150, 124);
+    lv_obj_align(group, LV_ALIGN_CENTER, 10, 0);
+    lv_obj_clear_flag(group, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(group, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_flex_flow(group, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(group, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(group, 8, 0);
 
-    lv_obj_t *content_group = lv_obj_create(s_content);
-    lv_obj_remove_style_all(content_group);
-    lv_obj_set_size(content_group, 150, 124);
-    lv_obj_align(content_group, LV_ALIGN_CENTER, 10, 0);
-    lv_obj_clear_flag(content_group, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(content_group, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_flex_flow(content_group, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content_group,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(content_group, 8, 0);
-
-    lv_obj_t *icon_holder = lv_obj_create(content_group);
-    lv_obj_remove_style_all(icon_holder);
-    lv_obj_set_size(icon_holder, 96, 78);
-    lv_obj_clear_flag(icon_holder, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(icon_holder, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *icon = create_a8_image(icon_holder, assets.icon);
+    lv_obj_t *ih = lv_obj_create(group);
+    lv_obj_remove_style_all(ih);
+    lv_obj_set_size(ih, 96, 78);
+    lv_obj_clear_flag(ih, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(ih, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *icon = create_a8_image(ih, assets.icon);
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t *label_holder = lv_obj_create(content_group);
-    lv_obj_remove_style_all(label_holder);
-    lv_obj_set_size(label_holder, 136, 24);
-    lv_obj_clear_flag(label_holder, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(label_holder, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *label = create_a8_image(label_holder, assets.label);
+    lv_obj_t *lh = lv_obj_create(group);
+    lv_obj_remove_style_all(lh);
+    lv_obj_set_size(lh, 136, 24);
+    lv_obj_clear_flag(lh, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(lh, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *label = create_a8_image(lh, assets.label);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 }
 
@@ -282,22 +255,19 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     lv_obj_set_style_bg_opa(s_content, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_content, LV_OBJ_FLAG_SCROLLABLE);
 
-    if (action == UI_MENU_SETTINGS) {
+    if (action == UI_MENU_REMOTE) {
+        ui_page_remote_build(s_content, s_activity_cb, s_activity_user_data);
+    } else if (action == UI_MENU_SETTINGS) {
         ui_page_settings_build(s_content, s_activity_cb, s_activity_user_data);
-    }
-    else if (action == UI_MENU_ALARM) {
+    } else if (action == UI_MENU_ALARM) {
         ui_page_alarm_build(s_content, s_activity_cb, s_activity_user_data);
-    }
-    else if (action == UI_MENU_TIMER) {
+    } else if (action == UI_MENU_TIMER) {
         ui_page_timer_build(s_content, s_activity_cb, s_activity_user_data);
-    }
-    else if (action == UI_MENU_LIGHTS) {
+    } else if (action == UI_MENU_LIGHTS) {
         ui_page_lights_build(s_content, s_activity_cb, s_activity_user_data);
-    }
-    else if (action == UI_MENU_MUSIC) {
+    } else if (action == UI_MENU_MUSIC) {
         ui_page_music_build(s_content, s_activity_cb, s_activity_user_data);
-    }
-    else {
+    } else {
         build_generic_placeholder(action);
     }
 
@@ -312,8 +282,7 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
     s_indicator = lv_obj_create(s_rail);
     lv_obj_remove_style_all(s_indicator);
     lv_obj_set_size(s_indicator, UI_BACK_INDICATOR_W, UI_BACK_INDICATOR_H);
-    lv_obj_set_pos(s_indicator,
-                   UI_BACK_INDICATOR_X,
+    lv_obj_set_pos(s_indicator, UI_BACK_INDICATOR_X,
                    (UI_SCREEN_H - UI_BACK_INDICATOR_H) / 2);
     lv_obj_set_style_bg_color(s_indicator, UI_COLOR_BACK_IDLE, 0);
     lv_obj_set_style_bg_opa(s_indicator, LV_OPA_COVER, 0);
@@ -333,6 +302,7 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
 
 void ui_page_feature_stop(void)
 {
+    if (s_action == UI_MENU_REMOTE) ui_page_remote_stop();
     if (s_action == UI_MENU_SETTINGS) ui_page_settings_stop();
     if (s_action == UI_MENU_ALARM) ui_page_alarm_stop();
     if (s_action == UI_MENU_TIMER) ui_page_timer_stop();
