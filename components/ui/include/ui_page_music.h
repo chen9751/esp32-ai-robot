@@ -37,7 +37,9 @@ void ui_page_music_set_target(ui_music_target_t target);
 ui_music_target_t ui_page_music_get_target(void);
 
 /* UI state injection. Transport/network modules own the real playback state. */
-void ui_page_music_set_metadata(const char *title, const char *subtitle);
+void ui_page_music_set_metadata(const char *title,
+                                const char *album,
+                                const char *artist);
 void ui_page_music_set_playback(bool playing,
                                 int32_t position_seconds,
                                 int32_t duration_seconds);
