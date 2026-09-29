@@ -9,7 +9,7 @@
 #define CIRCLE_SIZE               52
 #define TOUCH_X                  128
 #define TOUCH_Y                   20
-#define TOUCH_W                  280
+#define TOUCH_W                  258
 #define TOUCH_H                  132
 #define TOUCH_RADIUS              24
 #define TOUCH_SWIPE_THRESHOLD     34
@@ -192,7 +192,7 @@ static lv_obj_t *create_volume_half(lv_obj_t *rocker, int32_t x, int32_t w, remo
 
 static lv_obj_t *create_volume_rocker(lv_obj_t *parent)
 {
-    const int32_t x = 484, y = 100, w = 116, h = 52;
+    const int32_t x = 462, y = 100, w = 150, h = 52;
     lv_obj_t *rocker = lv_obj_create(parent);
     lv_obj_remove_style_all(rocker);
     lv_obj_set_pos(rocker, x, y);
@@ -239,10 +239,10 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     create_circle_button(root, 64, 22, &s_power);
     create_circle_button(root, 64, 98, &s_input);
     create_touchpad(root);
-    create_circle_button(root, 420, 22, &s_home);
-    create_circle_button(root, 420, 98, &s_back);
-    create_circle_button(root, 484, 22, &s_setup);
-    create_circle_button(root, 548, 22, &s_display);
+    create_circle_button(root, 398, 22, &s_home);
+    create_circle_button(root, 398, 98, &s_back);
+    create_circle_button(root, 474, 22, &s_setup);
+    create_circle_button(root, 549, 22, &s_display);
     create_volume_rocker(root);
 }
 
