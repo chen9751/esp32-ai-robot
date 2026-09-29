@@ -21,6 +21,8 @@ add_executable(index
     ../components/ui/ui_manager.c
     ../components/ui/ui_page_home.c
     ../components/ui/ui_page_feature.c
+    ../components/ui/ui_page_remote.c
+    ../components/ui/ui_remote_icons.c
     ../components/ui/ui_page_music.c
     ../components/ui/ui_page_lights.c
     ../components/ui/ui_lights_icons.c
