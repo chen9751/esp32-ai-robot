@@ -125,7 +125,7 @@ static lv_obj_t *make_transport_button(lv_obj_t *parent,
 
     lv_obj_t *label = make_label(btn, symbol,
                                  primary ? lv_color_hex(0x07140F) : UI_COLOR_FG,
-                                 &lv_font_montserrat_24);
+                                 &lv_font_montserrat_20);
     lv_obj_center(label);
     return btn;
 }
@@ -195,7 +195,7 @@ void ui_page_music_build(lv_obj_t *parent,
     lv_obj_set_style_bg_color(s_root, UI_COLOR_BG, 0);
     lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
 
-    s_title = make_label(s_root, "No track", UI_COLOR_FG, &lv_font_montserrat_26);
+    s_title = make_label(s_root, "No track", UI_COLOR_FG, &lv_font_montserrat_28);
     lv_obj_set_pos(s_title, 78, 22);
     lv_obj_set_width(s_title, 300);
     lv_label_set_long_mode(s_title, LV_LABEL_LONG_DOT);
