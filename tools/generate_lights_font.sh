@@ -8,7 +8,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 FONT_URL="https://raw.githubusercontent.com/adobe-fonts/source-han-sans/release/OTF/SimplifiedChinese/SourceHanSansSC-Normal.otf"
 FONT_FILE="$TMP_DIR/SourceHanSansSC-Normal.otf"
-SYMBOLS='客厅灯书房卧室床头小彩光带浴阳台'
+SYMBOLS='客厅灯书房卧室床头小彩光带浴阳台播放源电视音箱'
 
 echo "Downloading Source Han Sans SC Normal..."
 curl -L --fail --retry 3 --silent --show-error "$FONT_URL" -o "$FONT_FILE"
