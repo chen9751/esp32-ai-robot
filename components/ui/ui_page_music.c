@@ -21,13 +21,15 @@ static void *s_action_user_data = NULL;
 
 static lv_obj_t *s_root = NULL;
 static lv_obj_t *s_title = NULL;
-static lv_obj_t *s_subtitle = NULL;
+static lv_obj_t *s_album = NULL;
+static lv_obj_t *s_artist = NULL;
 static lv_obj_t *s_progress = NULL;
 static lv_obj_t *s_elapsed = NULL;
 static lv_obj_t *s_duration = NULL;
 static lv_obj_t *s_play_label = NULL;
 static lv_obj_t *s_target_caption = NULL;
 static lv_obj_t *s_target_dropdown = NULL;
+static lv_obj_t *s_target_arrow = NULL;
 
 static ui_music_target_t s_target = UI_MUSIC_TARGET_TV;
 static bool s_playing = false;
@@ -95,6 +97,24 @@ static void refresh_target(void)
                              s_target == UI_MUSIC_TARGET_SPEAKER ? 1 : 0);
 }
 
+static void style_dropdown_list(void)
+{
+    if (s_target_dropdown == NULL) return;
+
+    lv_obj_t *dropdown_list = lv_dropdown_get_list(s_target_dropdown);
+    if (dropdown_list == NULL) return;
+
+    lv_obj_set_style_bg_color(dropdown_list, UI_COLOR_PANEL, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dropdown_list, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(dropdown_list, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(dropdown_list, UI_COLOR_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_radius(dropdown_list, 14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dropdown_list, UI_COLOR_FG, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dropdown_list, &ui_font_source_han_lights_18, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(dropdown_list, UI_COLOR_ACCENT, LV_PART_SELECTED);
+    lv_obj_set_style_text_color(dropdown_list, lv_color_hex(0x07140F), LV_PART_SELECTED);
+}
+
 static lv_obj_t *make_transport_button(lv_obj_t *parent,
                                        int32_t x,
                                        int32_t y,
@@ -121,7 +141,15 @@ static lv_obj_t *make_transport_button(lv_obj_t *parent,
 
 static void target_dropdown_event_cb(lv_event_t *e)
 {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_CLICKED) {
+        style_dropdown_list();
+        note_activity();
+        return;
+    }
+
+    if (code != LV_EVENT_VALUE_CHANGED) return;
 
     uint16_t selected = lv_dropdown_get_selected(s_target_dropdown);
     ui_music_target_t next = selected == 1
@@ -171,18 +199,25 @@ void ui_page_music_build(lv_obj_t *parent,
     lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
 
     s_title = make_label(s_root, "No track", UI_COLOR_FG, &lv_font_montserrat_28);
-    lv_obj_set_pos(s_title, 78, 22);
+    lv_obj_set_pos(s_title, 78, 12);
     lv_obj_set_width(s_title, 300);
     lv_label_set_long_mode(s_title, LV_LABEL_LONG_DOT);
 
-    s_subtitle = make_label(s_root, "Waiting for media", UI_COLOR_MUTED,
-                            &lv_font_montserrat_16);
-    lv_obj_set_pos(s_subtitle, 78, 56);
-    lv_obj_set_width(s_subtitle, 300);
-    lv_label_set_long_mode(s_subtitle, LV_LABEL_LONG_DOT);
+    s_album = make_label(s_root, "No album", UI_COLOR_MUTED,
+                         &lv_font_montserrat_14);
+    lv_obj_set_pos(s_album, 78, 50);
+    lv_obj_set_width(s_album, 300);
+    lv_label_set_long_mode(s_album, LV_LABEL_LONG_DOT);
 
-    /* Compact playback-source selector.  The target stays a UI state only;
-     * transport actions are routed by the application layer. */
+    s_artist = make_label(s_root, "No artist", UI_COLOR_MUTED,
+                          &lv_font_montserrat_14);
+    lv_obj_set_pos(s_artist, 78, 72);
+    lv_obj_set_width(s_artist, 300);
+    lv_label_set_long_mode(s_artist, LV_LABEL_LONG_DOT);
+
+    /* Playback-source selector. Chinese text uses Source Han; the drop arrow
+     * is a separate LVGL symbol rendered with Montserrat so it never becomes
+     * a missing-glyph square. */
     s_target_caption = make_label(s_root, "播放源：", UI_COLOR_MUTED,
                                   &ui_font_source_han_lights_18);
     lv_obj_set_pos(s_target_caption, 432, 24);
@@ -192,6 +227,7 @@ void ui_page_music_build(lv_obj_t *parent,
     lv_obj_set_pos(s_target_dropdown, 510, 16);
     lv_dropdown_set_options_static(s_target_dropdown, "电视\n音箱");
     lv_dropdown_set_dir(s_target_dropdown, LV_DIR_BOTTOM);
+    lv_dropdown_set_symbol(s_target_dropdown, "");
 
     lv_obj_set_style_bg_color(s_target_dropdown, UI_COLOR_PANEL, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_target_dropdown, LV_OPA_COVER, LV_PART_MAIN);
@@ -201,29 +237,19 @@ void ui_page_music_build(lv_obj_t *parent,
     lv_obj_set_style_text_color(s_target_dropdown, UI_COLOR_FG, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_target_dropdown, &ui_font_source_han_lights_18, LV_PART_MAIN);
     lv_obj_set_style_pad_left(s_target_dropdown, 14, LV_PART_MAIN);
-    lv_obj_set_style_pad_right(s_target_dropdown, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(s_target_dropdown, 30, LV_PART_MAIN);
     lv_obj_set_style_pad_top(s_target_dropdown, 7, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(s_target_dropdown, 7, LV_PART_MAIN);
 
-    lv_obj_t *dropdown_list = lv_dropdown_get_list(s_target_dropdown);
-    if (dropdown_list != NULL) {
-        lv_obj_set_style_bg_color(dropdown_list, UI_COLOR_PANEL, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(dropdown_list, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_border_width(dropdown_list, 1, LV_PART_MAIN);
-        lv_obj_set_style_border_color(dropdown_list, UI_COLOR_BORDER, LV_PART_MAIN);
-        lv_obj_set_style_radius(dropdown_list, 14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(dropdown_list, UI_COLOR_FG, LV_PART_MAIN);
-        lv_obj_set_style_text_font(dropdown_list, &ui_font_source_han_lights_18, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(dropdown_list, UI_COLOR_ACCENT, LV_PART_SELECTED);
-        lv_obj_set_style_text_color(dropdown_list, lv_color_hex(0x07140F), LV_PART_SELECTED);
-    }
+    s_target_arrow = make_label(s_target_dropdown, LV_SYMBOL_DOWN,
+                                UI_COLOR_MUTED, &lv_font_montserrat_16);
+    lv_obj_align(s_target_arrow, LV_ALIGN_RIGHT_MID, -10, 0);
 
     lv_obj_add_event_cb(s_target_dropdown, target_dropdown_event_cb,
-                        LV_EVENT_VALUE_CHANGED, NULL);
+                        LV_EVENT_ALL, NULL);
     refresh_target();
 
-    /* Display-only progress.  lv_bar has no knob and is not clickable, so
-     * playback position can only be updated by ui_page_music_set_playback(). */
+    /* Display-only progress. */
     s_progress = lv_bar_create(s_root);
     lv_obj_set_size(s_progress, 326, 8);
     lv_obj_set_pos(s_progress, 78, 106);
@@ -260,13 +286,15 @@ void ui_page_music_stop(void)
 {
     s_root = NULL;
     s_title = NULL;
-    s_subtitle = NULL;
+    s_album = NULL;
+    s_artist = NULL;
     s_progress = NULL;
     s_elapsed = NULL;
     s_duration = NULL;
     s_play_label = NULL;
     s_target_caption = NULL;
     s_target_dropdown = NULL;
+    s_target_arrow = NULL;
     s_activity_cb = NULL;
     s_activity_user_data = NULL;
 }
@@ -288,11 +316,19 @@ ui_music_target_t ui_page_music_get_target(void)
     return s_target;
 }
 
-void ui_page_music_set_metadata(const char *title, const char *subtitle)
+void ui_page_music_set_metadata(const char *title,
+                                const char *album,
+                                const char *artist)
 {
-    if (s_title != NULL) lv_label_set_text(s_title, title != NULL ? title : "No track");
-    if (s_subtitle != NULL) lv_label_set_text(s_subtitle,
-                                               subtitle != NULL ? subtitle : "");
+    if (s_title != NULL) {
+        lv_label_set_text(s_title, title != NULL && title[0] != '\0' ? title : "No track");
+    }
+    if (s_album != NULL) {
+        lv_label_set_text(s_album, album != NULL && album[0] != '\0' ? album : "No album");
+    }
+    if (s_artist != NULL) {
+        lv_label_set_text(s_artist, artist != NULL && artist[0] != '\0' ? artist : "No artist");
+    }
 }
 
 void ui_page_music_set_playback(bool playing,
