@@ -95,7 +95,7 @@ parts.extend([
     '{',
     '    lv_obj_t *image = lv_image_create(parent);',
     '    lv_image_set_src(image, descriptor_for(icon));',
-    '    lv_image_set_pivot(image, SIZE / 2, SIZE / 2);',
+    f'    lv_image_set_pivot(image, {SIZE // 2}, {SIZE // 2});',
     '    lv_image_set_antialias(image, true);',
     '    lv_obj_set_style_image_recolor(image, color, 0);',
     '    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);',
