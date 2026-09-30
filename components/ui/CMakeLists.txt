@@ -46,11 +46,13 @@ endif()
 
 if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_16.c" AND
    EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_temp_72.c" AND
-   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_remix_devices_28.c")
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_remix_devices_28.c" AND
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_remix_devices_56.c")
     list(APPEND UI_SRCS
         "ui_font_source_han_devices_16.c"
         "ui_font_source_han_devices_temp_72.c"
         "ui_font_remix_devices_28.c"
+        "ui_font_remix_devices_56.c"
     )
     set(UI_DEVICES_HAS_FONTS TRUE)
 endif()
