@@ -2,6 +2,13 @@
 
 #include "lvgl.h"
 
+/* LVGL 9.2.2 provides discrete named opacity constants and does not define
+ * LV_OPA_55. Keep the devices page compatible with the project's baseline by
+ * mapping that visual track opacity to the nearest supported constant. */
+#ifndef LV_OPA_55
+#define LV_OPA_55 LV_OPA_50
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
