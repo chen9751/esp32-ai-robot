@@ -45,12 +45,14 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_lights_18.c")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_16.c" AND
-   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_temp_44.c")
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_temp_72.c" AND
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_remix_devices_28.c")
     list(APPEND UI_SRCS
         "ui_font_source_han_devices_16.c"
-        "ui_font_source_han_devices_temp_44.c"
+        "ui_font_source_han_devices_temp_72.c"
+        "ui_font_remix_devices_28.c"
     )
-    set(UI_DEVICES_HAS_SOURCE_HAN TRUE)
+    set(UI_DEVICES_HAS_FONTS TRUE)
 endif()
 
 idf_component_register(
@@ -67,6 +69,6 @@ if(UI_LIGHTS_HAS_SOURCE_HAN)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_LIGHTS_HAS_SOURCE_HAN=1)
 endif()
 
-if(UI_DEVICES_HAS_SOURCE_HAN)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_DEVICES_HAS_SOURCE_HAN=1)
+if(UI_DEVICES_HAS_FONTS)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_DEVICES_HAS_FONTS=1)
 endif()
