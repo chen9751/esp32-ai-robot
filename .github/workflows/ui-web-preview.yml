@@ -29,7 +29,7 @@ jobs:
         run: bash tools/generate_alarm_font.sh
       - name: Generate Source Han Lights font subset
         run: bash tools/generate_lights_font.sh
-      - name: Generate Source Han Devices font subsets
+      - name: Generate Devices text and Remix font subsets
         run: bash tools/generate_devices_font.sh
       - name: Generate antialiased Remix Icon assets
         run: |
@@ -44,10 +44,10 @@ jobs:
         run: cmake --build web_preview/build -j2
       - name: Commit generated UI assets
         run: |
-          if [ -n "$(git status --porcelain -- components/ui/ui_font_source_han_alarm_16.c components/ui/ui_font_source_han_lights_18.c components/ui/ui_font_source_han_devices_16.c components/ui/ui_font_source_han_devices_temp_44.c components/ui/ui_lights_icons.c components/ui/ui_remote_icons.c components/ui/ui_asset_timer.c)" ]; then
+          if [ -n "$(git status --porcelain -- components/ui/ui_font_source_han_alarm_16.c components/ui/ui_font_source_han_lights_18.c components/ui/ui_font_source_han_devices_16.c components/ui/ui_font_source_han_devices_temp_72.c components/ui/ui_font_remix_devices_28.c components/ui/ui_lights_icons.c components/ui/ui_remote_icons.c components/ui/ui_asset_timer.c)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add components/ui/ui_font_source_han_alarm_16.c components/ui/ui_font_source_han_lights_18.c components/ui/ui_font_source_han_devices_16.c components/ui/ui_font_source_han_devices_temp_44.c components/ui/ui_lights_icons.c components/ui/ui_remote_icons.c components/ui/ui_asset_timer.c
+            git add components/ui/ui_font_source_han_alarm_16.c components/ui/ui_font_source_han_lights_18.c components/ui/ui_font_source_han_devices_16.c components/ui/ui_font_source_han_devices_temp_72.c components/ui/ui_font_remix_devices_28.c components/ui/ui_lights_icons.c components/ui/ui_remote_icons.c components/ui/ui_asset_timer.c
             git commit -m "Regenerate approved UI assets"
             git pull --rebase origin main
             git push origin HEAD:main
