@@ -4,6 +4,7 @@
 
 #define UI_SCREEN_W 640
 #define UI_SCREEN_H 172
+#define UI_DEVICE_PAGE_COUNT 4
 
 #define UI_COLOR_BG lv_color_hex(0x000000)
 #define UI_COLOR_FG lv_color_hex(0xFFFFFF)
@@ -21,12 +22,30 @@ static const ui_device_placeholder_t s_pages[] = {
 
 static lv_obj_t *s_root = NULL;
 static lv_obj_t *s_pager = NULL;
+static bool s_wrapping = false;
 static ui_devices_activity_cb_t s_activity_cb = NULL;
 static void *s_activity_user_data = NULL;
 
 static void note_activity(void)
 {
     if (s_activity_cb != NULL) s_activity_cb(s_activity_user_data);
+}
+
+static void normalize_loop_position(void)
+{
+    if (s_pager == NULL || s_wrapping) return;
+
+    int32_t x = lv_obj_get_scroll_x(s_pager);
+    int32_t first_clone_x = 0;
+    int32_t last_clone_x = (UI_DEVICE_PAGE_COUNT + 1) * UI_SCREEN_W;
+
+    s_wrapping = true;
+    if (x <= first_clone_x) {
+        lv_obj_scroll_to_x(s_pager, UI_DEVICE_PAGE_COUNT * UI_SCREEN_W, LV_ANIM_OFF);
+    } else if (x >= last_clone_x) {
+        lv_obj_scroll_to_x(s_pager, UI_SCREEN_W, LV_ANIM_OFF);
+    }
+    s_wrapping = false;
 }
 
 static void pager_event_cb(lv_event_t *e)
@@ -39,6 +58,10 @@ static void pager_event_cb(lv_event_t *e)
         code == LV_EVENT_SCROLL_END ||
         code == LV_EVENT_RELEASED) {
         note_activity();
+    }
+
+    if (code == LV_EVENT_SCROLL_END) {
+        normalize_loop_position();
     }
 }
 
@@ -66,6 +89,7 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
 {
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
+    s_wrapping = false;
 
     s_root = lv_obj_create(parent);
     lv_obj_remove_style_all(s_root);
@@ -92,12 +116,15 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
                           LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_START);
 
-    for (size_t i = 0; i < sizeof(s_pages) / sizeof(s_pages[0]); ++i) {
+    /* Edge clones make the pager feel continuous in both directions. */
+    build_placeholder(s_pager, s_pages[UI_DEVICE_PAGE_COUNT - 1].title);
+    for (size_t i = 0; i < UI_DEVICE_PAGE_COUNT; ++i) {
         build_placeholder(s_pager, s_pages[i].title);
     }
+    build_placeholder(s_pager, s_pages[0].title);
 
     lv_obj_add_event_cb(s_pager, pager_event_cb, LV_EVENT_ALL, NULL);
-    lv_obj_scroll_to_x(s_pager, 0, LV_ANIM_OFF);
+    lv_obj_scroll_to_x(s_pager, UI_SCREEN_W, LV_ANIM_OFF);
     return s_root;
 }
 
@@ -105,6 +132,7 @@ void ui_page_devices_stop(void)
 {
     s_root = NULL;
     s_pager = NULL;
+    s_wrapping = false;
     s_activity_cb = NULL;
     s_activity_user_data = NULL;
 }
