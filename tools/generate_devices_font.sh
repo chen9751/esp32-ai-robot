@@ -15,7 +15,7 @@ SOURCE_HAN_FILE="$TMP_DIR/SourceHanSansSC-Normal.otf"
 REMIX_FILE="$TMP_DIR/remixicon.ttf"
 
 # Right-side labels stay textual; all left-side controls use Remix Icon glyphs.
-UI_SYMBOLS='睡眠干燥辅热ECOAUTO'
+UI_SYMBOLS='睡眠干燥辅热ECOAUTO1234567'
 TEMP_SYMBOLS='0123456789.°'
 # Remix Icon v4.x code points:
 # power=f126, snowflake=f512, sun=f1bf, windy=f2ca,
