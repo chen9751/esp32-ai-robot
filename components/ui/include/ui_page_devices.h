@@ -1,0 +1,26 @@
+#pragma once
+
+#include "lvgl.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef void (*ui_devices_activity_cb_t)(void *user_data);
+
+/*
+ * Four full-screen device placeholders, horizontally paged in this order:
+ * Air Conditioner -> Curtain -> Bath Heater -> Drying Rack.
+ *
+ * This module owns presentation and paging only. Device/HA transport logic
+ * must remain outside the UI layer.
+ */
+lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
+                                ui_devices_activity_cb_t activity_cb,
+                                void *activity_user_data);
+
+void ui_page_devices_stop(void);
+
+#ifdef __cplusplus
+}
+#endif
