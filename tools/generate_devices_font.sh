@@ -3,21 +3,32 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_UI="$ROOT_DIR/components/ui/ui_font_source_han_devices_16.c"
-OUT_TEMP="$ROOT_DIR/components/ui/ui_font_source_han_devices_temp_44.c"
+OUT_TEMP="$ROOT_DIR/components/ui/ui_font_source_han_devices_temp_72.c"
+OUT_REMIX="$ROOT_DIR/components/ui/ui_font_remix_devices_28.c"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-FONT_URL="https://raw.githubusercontent.com/adobe-fonts/source-han-sans/release/OTF/SimplifiedChinese/SourceHanSansSC-Normal.otf"
-FONT_FILE="$TMP_DIR/SourceHanSansSC-Normal.otf"
-UI_SYMBOLS='开关模式制冷制热风扇干燥摆风睡眠辅热温度计'
+SOURCE_HAN_URL="https://raw.githubusercontent.com/adobe-fonts/source-han-sans/release/OTF/SimplifiedChinese/SourceHanSansSC-Normal.otf"
+REMIX_URL="https://raw.githubusercontent.com/Remix-Design/RemixIcon/master/fonts/remixicon.ttf"
+SOURCE_HAN_FILE="$TMP_DIR/SourceHanSansSC-Normal.otf"
+REMIX_FILE="$TMP_DIR/remixicon.ttf"
+
+# Right-side labels stay textual; all left-side controls use Remix Icon glyphs.
+UI_SYMBOLS='睡眠干燥辅热ECOAUTO'
 TEMP_SYMBOLS='0123456789.°'
+# Remix Icon v4.x code points:
+# power=f126, snowflake=f512, sun=f1bf, windy=f2ca,
+# drop=ec6a, swing=ea62, temp-cold=f1f2.
+REMIX_SYMBOLS=$'\uF126\uF512\uF1BF\uF2CA\uEC6A\uEA62\uF1F2'
 
 echo "Downloading Source Han Sans SC Normal..."
-curl -L --fail --retry 3 --silent --show-error "$FONT_URL" -o "$FONT_FILE"
+curl -L --fail --retry 3 --silent --show-error "$SOURCE_HAN_URL" -o "$SOURCE_HAN_FILE"
+echo "Downloading Remix Icon font..."
+curl -L --fail --retry 3 --silent --show-error "$REMIX_URL" -o "$REMIX_FILE"
 
 echo "Generating LVGL Devices UI subset..."
 npx --yes lv_font_conv \
-  --font "$FONT_FILE" \
+  --font "$SOURCE_HAN_FILE" \
   --symbols "$UI_SYMBOLS" \
   --size 16 \
   --bpp 4 \
@@ -29,15 +40,28 @@ npx --yes lv_font_conv \
 
 echo "Generating LVGL Devices temperature subset..."
 npx --yes lv_font_conv \
-  --font "$FONT_FILE" \
+  --font "$SOURCE_HAN_FILE" \
   --symbols "$TEMP_SYMBOLS" \
-  --size 44 \
+  --size 72 \
   --bpp 4 \
   --format lvgl \
   --no-compress \
-  --lv-font-name ui_font_source_han_devices_temp_44 \
+  --lv-font-name ui_font_source_han_devices_temp_72 \
   --lv-include lvgl.h \
   -o "$OUT_TEMP"
 
+echo "Generating LVGL Devices Remix Icon subset..."
+npx --yes lv_font_conv \
+  --font "$REMIX_FILE" \
+  --symbols "$REMIX_SYMBOLS" \
+  --size 28 \
+  --bpp 4 \
+  --format lvgl \
+  --no-compress \
+  --lv-font-name ui_font_remix_devices_28 \
+  --lv-include lvgl.h \
+  -o "$OUT_REMIX"
+
 echo "Generated: $OUT_UI"
 echo "Generated: $OUT_TEMP"
+echo "Generated: $OUT_REMIX"
