@@ -16,12 +16,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_light
     set(UI_LIGHTS_HAS_SOURCE_HAN TRUE)
 endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_devices_16.c" AND
-   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_devices_temp_72.c" AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_source_han_devices_temp_84.c" AND
    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_remix_devices_28.c" AND
    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../components/ui/ui_font_remix_devices_56.c")
     list(APPEND UI_EXTRA_SOURCES
         ../components/ui/ui_font_source_han_devices_16.c
-        ../components/ui/ui_font_source_han_devices_temp_72.c
+        ../components/ui/ui_font_source_han_devices_temp_84.c
         ../components/ui/ui_font_remix_devices_28.c
         ../components/ui/ui_font_remix_devices_56.c
     )
