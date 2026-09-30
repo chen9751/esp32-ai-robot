@@ -22,6 +22,8 @@
 #define COLOR_DISABLED_BG lv_color_hex(0x090D14)
 #define COLOR_DISABLED_BR lv_color_hex(0x263142)
 #define COLOR_POWER       lv_color_hex(0xFF604F)
+#define COLOR_OVERLAY     lv_color_hex(0x0C121D)
+#define COLOR_FAN_PANEL   lv_color_hex(0x0B111A)
 
 #define TEMP_MIN_X2 32
 #define TEMP_MAX_X2 62
@@ -31,22 +33,21 @@
 #define FAN_TAP_SLOP 8
 
 /* Remix Icon font glyphs (v4.x). */
-#define RI_POWER      "\xEF\x84\xA6" /* shut-down-line U+F126 */
-#define RI_COOL       "\xEF\x94\x92" /* snowflake-line U+F512 */
-#define RI_HEAT       "\xEF\x86\xBF" /* sun-line U+F1BF */
-#define RI_FAN        "\xEF\x8B\x8A" /* windy-line U+F2CA */
-#define RI_DRY        "\xEE\xB1\xAA" /* drop-line U+EC6A */
-#define RI_SWING      "\xEE\xA9\xA2" /* arrow-left-right-line U+EA62 */
+#define RI_POWER       "\xEF\x84\xA6" /* shut-down-line U+F126 */
+#define RI_COOL        "\xEF\x94\x92" /* snowflake-line U+F512 */
+#define RI_HEAT        "\xEF\x86\xBF" /* sun-line U+F1BF */
+#define RI_FAN         "\xEF\x8B\x8A" /* windy-line U+F2CA */
+#define RI_DRY         "\xEE\xB1\xAA" /* drop-line U+EC6A */
+#define RI_SWING       "\xEE\xA9\xA2" /* arrow-left-right-line U+EA62 */
 #define RI_THERMOMETER "\xEF\x87\xB2" /* temp-cold-line U+F1F2 */
-#define MODE_OPTIONS RI_COOL "\n" RI_HEAT "\n" RI_FAN "\n" RI_DRY
 
 #if defined(UI_DEVICES_HAS_FONTS)
 LV_FONT_DECLARE(ui_font_source_han_devices_16);
-LV_FONT_DECLARE(ui_font_source_han_devices_temp_72);
+LV_FONT_DECLARE(ui_font_source_han_devices_temp_84);
 LV_FONT_DECLARE(ui_font_remix_devices_28);
 LV_FONT_DECLARE(ui_font_remix_devices_56);
 #define UI_TEXT_FONT       (&ui_font_source_han_devices_16)
-#define UI_TEMP_FONT       (&ui_font_source_han_devices_temp_72)
+#define UI_TEMP_FONT       (&ui_font_source_han_devices_temp_84)
 #define UI_ICON_FONT       (&ui_font_remix_devices_28)
 #define UI_ICON_LARGE_FONT (&ui_font_remix_devices_56)
 #else
@@ -63,15 +64,20 @@ typedef struct {
 typedef struct {
     lv_obj_t *power_btn;
     lv_obj_t *power_icon;
-    lv_obj_t *mode_dropdown;
+    lv_obj_t *mode_btn;
+    lv_obj_t *mode_icon;
+    lv_obj_t *mode_overlay;
+    lv_obj_t *mode_option_btn[4];
     lv_obj_t *swing_btn;
     lv_obj_t *swing_icon;
     lv_obj_t *temp_label;
     lv_obj_t *temp_gesture;
+    lv_obj_t *fan_panel;
     lv_obj_t *fan_value_label;
     lv_obj_t *fan_slider;
     lv_obj_t *fan_auto_label;
     lv_obj_t *feature_btn[4];
+    bool mode_overlay_open;
 } ui_aircon_view_t;
 
 enum {
@@ -90,6 +96,10 @@ static const ui_device_placeholder_t s_pages[] = {
 
 static const char *s_feature_names[4] = {
     "睡眠", "ECO", "干燥", "辅热"
+};
+
+static const char *s_mode_glyphs[4] = {
+    RI_COOL, RI_HEAT, RI_FAN, RI_DRY
 };
 
 static lv_obj_t *s_root = NULL;
@@ -188,7 +198,7 @@ static lv_obj_t *create_icon_button(lv_obj_t *parent,
     lv_obj_remove_style_all(btn);
     lv_obj_set_pos(btn, x, y);
     lv_obj_set_size(btn, w, h);
-    style_remote_control(btn, 21);
+    style_remote_control(btn, h / 2);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     if (checkable) lv_obj_add_flag(btn, LV_OBJ_FLAG_CHECKABLE);
@@ -213,7 +223,7 @@ static lv_obj_t *create_text_button(lv_obj_t *parent,
     lv_obj_remove_style_all(btn);
     lv_obj_set_pos(btn, x, y);
     lv_obj_set_size(btn, w, h);
-    style_remote_control(btn, 22);
+    style_remote_control(btn, h / 2);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CHECKABLE);
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -225,29 +235,13 @@ static lv_obj_t *create_text_button(lv_obj_t *parent,
     return btn;
 }
 
-static void style_mode_dropdown(lv_obj_t *dropdown)
+static void close_mode_overlays(void)
 {
-    style_remote_control(dropdown, 21);
-    lv_obj_set_style_text_font(dropdown, UI_ICON_FONT, LV_PART_MAIN);
-    lv_obj_set_style_text_align(dropdown, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(dropdown, 0, LV_PART_MAIN);
-    lv_dropdown_set_symbol(dropdown, NULL);
-}
-
-static void style_mode_list(lv_obj_t *list)
-{
-    if (list == NULL) return;
-    lv_obj_set_style_bg_color(list, COLOR_BUTTON, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(list, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(list, COLOR_BORDER, LV_PART_MAIN);
-    lv_obj_set_style_radius(list, 18, LV_PART_MAIN);
-    lv_obj_set_style_text_font(list, UI_ICON_FONT, LV_PART_MAIN);
-    lv_obj_set_style_text_color(list, COLOR_FG, LV_PART_MAIN);
-    lv_obj_set_style_text_align(list, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(list, COLOR_CHECKED, LV_PART_SELECTED);
-    lv_obj_set_style_text_color(list, COLOR_FG, LV_PART_SELECTED);
-    lv_obj_set_style_pad_ver(list, 8, LV_PART_MAIN);
+    for (size_t i = 0; i < s_aircon_view_count; ++i) {
+        ui_aircon_view_t *v = &s_aircon_views[i];
+        v->mode_overlay_open = false;
+        set_hidden(v->mode_overlay, true);
+    }
 }
 
 static void update_aircon_views(void)
@@ -264,20 +258,23 @@ static void update_aircon_views(void)
 
         set_checked(v->power_btn, s_power_on);
         set_checked(v->swing_btn, s_swing_on);
-        for (int j = 0; j < 4; ++j) set_checked(v->feature_btn[j], s_features[j]);
+        for (int j = 0; j < 4; ++j) {
+            set_checked(v->feature_btn[j], s_features[j]);
+            set_checked(v->mode_option_btn[j], j == s_mode);
+        }
 
-        set_enabled(v->mode_dropdown, s_power_on);
+        set_enabled(v->mode_btn, s_power_on);
         set_enabled(v->swing_btn, s_power_on);
         set_enabled(v->temp_gesture, s_power_on);
         set_enabled(v->fan_slider, s_power_on);
         set_enabled(v->fan_auto_label, s_power_on);
         for (int j = 0; j < 4; ++j) set_enabled(v->feature_btn[j], s_power_on);
 
-        lv_dropdown_set_selected(v->mode_dropdown, s_mode);
+        lv_label_set_text(v->mode_icon, s_mode_glyphs[s_mode]);
         lv_slider_set_value(v->fan_slider, s_fan_speed, LV_ANIM_OFF);
 
-        /* Power remains the only bright control when the air conditioner is off. */
         lv_obj_set_style_text_color(v->power_icon, COLOR_POWER, 0);
+        lv_obj_set_style_text_color(v->mode_icon, s_power_on ? COLOR_FG : COLOR_DIM, 0);
 
         if (s_power_on) {
             lv_label_set_text(v->temp_label, temp_text);
@@ -289,6 +286,8 @@ static void update_aircon_views(void)
             lv_obj_set_style_text_font(v->temp_label, UI_ICON_LARGE_FONT, 0);
             lv_obj_set_style_text_color(v->temp_label, COLOR_DIM, 0);
             lv_obj_set_style_text_color(v->swing_icon, COLOR_DIM, 0);
+            v->mode_overlay_open = false;
+            set_hidden(v->mode_overlay, true);
         }
 
         if (s_fan_auto) {
@@ -312,6 +311,7 @@ static void power_event_cb(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     s_power_on = !s_power_on;
     s_fan_value_visible = false;
+    if (!s_power_on) close_mode_overlays();
     update_aircon_views();
     note_activity();
 }
@@ -334,22 +334,28 @@ static void feature_event_cb(lv_event_t *e)
     note_activity();
 }
 
-static void mode_event_cb(lv_event_t *e)
+static void mode_trigger_event_cb(lv_event_t *e)
 {
-    lv_obj_t *dropdown = lv_event_get_target_obj(e);
-    lv_event_code_t code = lv_event_get_code(e);
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !s_power_on) return;
+    ui_aircon_view_t *view = (ui_aircon_view_t *)lv_event_get_user_data(e);
+    if (view == NULL) return;
 
-    if (code == LV_EVENT_CLICKED) {
-        style_mode_list(lv_dropdown_get_list(dropdown));
-        note_activity();
-        return;
-    }
+    bool open = !view->mode_overlay_open;
+    close_mode_overlays();
+    view->mode_overlay_open = open;
+    set_hidden(view->mode_overlay, !open);
+    note_activity();
+}
 
-    if (code == LV_EVENT_VALUE_CHANGED && !s_updating_views && s_power_on) {
-        s_mode = (uint8_t)lv_dropdown_get_selected(dropdown);
-        update_aircon_views();
-        note_activity();
-    }
+static void mode_option_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !s_power_on) return;
+    intptr_t index = (intptr_t)lv_event_get_user_data(e);
+    if (index < 0 || index >= 4) return;
+    s_mode = (uint8_t)index;
+    close_mode_overlays();
+    update_aircon_views();
+    note_activity();
 }
 
 static void temp_event_cb(lv_event_t *e)
@@ -493,6 +499,7 @@ static void pager_event_cb(lv_event_t *e)
         note_activity();
     }
 
+    if (code == LV_EVENT_SCROLL_BEGIN && s_power_on) close_mode_overlays();
     if (code == LV_EVENT_SCROLL_END) normalize_loop_position();
 }
 
@@ -519,6 +526,39 @@ static void build_placeholder(lv_obj_t *parent, const char *title)
     lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
 }
 
+static void build_mode_overlay(ui_aircon_view_t *v, lv_obj_t *page)
+{
+    v->mode_overlay = lv_obj_create(page);
+    lv_obj_remove_style_all(v->mode_overlay);
+    lv_obj_set_pos(v->mode_overlay, 174, 53);
+    lv_obj_set_size(v->mode_overlay, 292, 66);
+    lv_obj_set_style_radius(v->mode_overlay, 26, 0);
+    lv_obj_set_style_bg_color(v->mode_overlay, COLOR_OVERLAY, 0);
+    lv_obj_set_style_bg_opa(v->mode_overlay, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(v->mode_overlay, 1, 0);
+    lv_obj_set_style_border_color(v->mode_overlay, COLOR_BORDER, 0);
+    lv_obj_set_style_border_opa(v->mode_overlay, LV_OPA_80, 0);
+    lv_obj_clear_flag(v->mode_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    v->mode_overlay_open = false;
+
+    for (int i = 0; i < 4; ++i) {
+        v->mode_option_btn[i] = create_icon_button(v->mode_overlay,
+                                                   s_mode_glyphs[i],
+                                                   8 + i * 70,
+                                                   10,
+                                                   56,
+                                                   46,
+                                                   false,
+                                                   NULL);
+        lv_obj_add_event_cb(v->mode_option_btn[i],
+                            mode_option_event_cb,
+                            LV_EVENT_CLICKED,
+                            (void *)(intptr_t)i);
+    }
+
+    set_hidden(v->mode_overlay, true);
+}
+
 static void build_aircon_page(lv_obj_t *parent)
 {
     if (s_aircon_view_count >= UI_AIRCON_VIEW_MAX) return;
@@ -526,36 +566,30 @@ static void build_aircon_page(lv_obj_t *parent)
     ui_aircon_view_t *v = &s_aircon_views[s_aircon_view_count++];
     lv_obj_t *page = create_page(parent);
 
-    /* Left column: icon-only controls, clear of the shared 56 px back rail. */
-    v->power_btn = create_icon_button(page, RI_POWER, 66, 13, 112, 42, false, &v->power_icon);
+    /* Narrower left controls balance the 2x2 function cluster on the right. */
+    v->power_btn = create_icon_button(page, RI_POWER, 68, 15, 92, 38, false, &v->power_icon);
     lv_obj_set_style_text_color(v->power_icon, COLOR_POWER, 0);
     lv_obj_add_event_cb(v->power_btn, power_event_cb, LV_EVENT_CLICKED, NULL);
 
-    v->mode_dropdown = lv_dropdown_create(page);
-    lv_obj_set_pos(v->mode_dropdown, 66, 65);
-    lv_obj_set_size(v->mode_dropdown, 112, 42);
-    lv_dropdown_set_options_static(v->mode_dropdown, MODE_OPTIONS);
-    lv_dropdown_set_selected(v->mode_dropdown, s_mode);
-    style_mode_dropdown(v->mode_dropdown);
-    lv_obj_add_event_cb(v->mode_dropdown, mode_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_event_cb(v->mode_dropdown, mode_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    v->mode_btn = create_icon_button(page, RI_COOL, 68, 67, 92, 38, false, &v->mode_icon);
+    lv_obj_add_event_cb(v->mode_btn, mode_trigger_event_cb, LV_EVENT_CLICKED, v);
 
-    v->swing_btn = create_icon_button(page, RI_SWING, 66, 117, 112, 42, true, &v->swing_icon);
+    v->swing_btn = create_icon_button(page, RI_SWING, 68, 119, 92, 38, true, &v->swing_icon);
     lv_obj_add_event_cb(v->swing_btn, swing_event_cb, LV_EVENT_CLICKED, NULL);
 
-    /* Center: temperature is the dominant element and owns vertical adjustment. */
+    /* Temperature and fan form one centered control group. */
     v->temp_label = lv_label_create(page);
-    lv_obj_set_width(v->temp_label, 260);
+    lv_obj_set_width(v->temp_label, 292);
     lv_obj_set_style_text_align(v->temp_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(v->temp_label, UI_TEMP_FONT, 0);
     lv_obj_set_style_text_color(v->temp_label, COLOR_FG, 0);
-    lv_obj_set_pos(v->temp_label, 190, 10);
+    lv_obj_set_pos(v->temp_label, 174, -2);
     lv_obj_clear_flag(v->temp_label, LV_OBJ_FLAG_CLICKABLE);
 
     v->temp_gesture = lv_obj_create(page);
     lv_obj_remove_style_all(v->temp_gesture);
-    lv_obj_set_pos(v->temp_gesture, 190, 4);
-    lv_obj_set_size(v->temp_gesture, 260, 112);
+    lv_obj_set_pos(v->temp_gesture, 174, 0);
+    lv_obj_set_size(v->temp_gesture, 292, 122);
     lv_obj_set_style_bg_opa(v->temp_gesture, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(v->temp_gesture, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(v->temp_gesture, LV_OBJ_FLAG_SCROLLABLE);
@@ -564,23 +598,34 @@ static void build_aircon_page(lv_obj_t *parent)
     lv_obj_add_event_cb(v->temp_gesture, temp_event_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(v->temp_gesture, temp_event_cb, LV_EVENT_PRESS_LOST, NULL);
 
-    /* Fan value only appears while dragging. */
-    v->fan_value_label = lv_label_create(page);
-    lv_obj_set_width(v->fan_value_label, 44);
-    lv_obj_set_pos(v->fan_value_label, 298, 111);
+    v->fan_panel = lv_obj_create(page);
+    lv_obj_remove_style_all(v->fan_panel);
+    lv_obj_set_pos(v->fan_panel, 210, 126);
+    lv_obj_set_size(v->fan_panel, 220, 34);
+    lv_obj_set_style_radius(v->fan_panel, 17, 0);
+    lv_obj_set_style_bg_color(v->fan_panel, COLOR_FAN_PANEL, 0);
+    lv_obj_set_style_bg_opa(v->fan_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(v->fan_panel, 1, 0);
+    lv_obj_set_style_border_color(v->fan_panel, COLOR_DISABLED_BR, 0);
+    lv_obj_set_style_border_opa(v->fan_panel, LV_OPA_60, 0);
+    lv_obj_clear_flag(v->fan_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    v->fan_value_label = lv_label_create(v->fan_panel);
+    lv_obj_set_width(v->fan_value_label, 40);
+    lv_obj_set_pos(v->fan_value_label, 90, 0);
     lv_obj_set_style_text_align(v->fan_value_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(v->fan_value_label, UI_TEXT_FONT, 0);
     lv_obj_set_style_text_color(v->fan_value_label, COLOR_FG, 0);
     lv_obj_clear_flag(v->fan_value_label, LV_OBJ_FLAG_CLICKABLE);
 
-    v->fan_slider = lv_slider_create(page);
-    lv_obj_set_pos(v->fan_slider, 218, 140);
-    lv_obj_set_size(v->fan_slider, 212, 10);
+    v->fan_slider = lv_slider_create(v->fan_panel);
+    lv_obj_set_pos(v->fan_slider, 14, 20);
+    lv_obj_set_size(v->fan_slider, 192, 8);
     lv_slider_set_range(v->fan_slider, FAN_MIN, FAN_MAX);
     lv_slider_set_value(v->fan_slider, s_fan_speed, LV_ANIM_OFF);
-    lv_obj_set_style_radius(v->fan_slider, 5, LV_PART_MAIN);
+    lv_obj_set_style_radius(v->fan_slider, 4, LV_PART_MAIN);
     lv_obj_set_style_bg_color(v->fan_slider, COLOR_BORDER, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(v->fan_slider, LV_OPA_55, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(v->fan_slider, LV_OPA_50, LV_PART_MAIN);
     lv_obj_set_style_bg_color(v->fan_slider, COLOR_FG, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(v->fan_slider, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(v->fan_slider, COLOR_FG, LV_PART_KNOB);
@@ -595,20 +640,21 @@ static void build_aircon_page(lv_obj_t *parent)
     lv_obj_add_event_cb(v->fan_slider, fan_event_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(v->fan_slider, fan_event_cb, LV_EVENT_PRESS_LOST, NULL);
 
-    v->fan_auto_label = lv_label_create(page);
+    v->fan_auto_label = lv_label_create(v->fan_panel);
     lv_label_set_text(v->fan_auto_label, "AUTO");
     lv_obj_set_style_text_font(v->fan_auto_label, UI_TEXT_FONT, 0);
     lv_obj_set_style_text_color(v->fan_auto_label, COLOR_FG, 0);
-    lv_obj_set_width(v->fan_auto_label, 212);
+    lv_obj_set_size(v->fan_auto_label, 220, 34);
+    lv_obj_set_pos(v->fan_auto_label, 0, 0);
     lv_obj_set_style_text_align(v->fan_auto_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(v->fan_auto_label, 218, 132);
+    lv_obj_set_style_pad_top(v->fan_auto_label, 8, 0);
     lv_obj_add_flag(v->fan_auto_label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(v->fan_auto_label, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(v->fan_auto_label, fan_auto_event_cb, LV_EVENT_CLICKED, NULL);
 
-    /* Right column follows the remote page's rounded gradient button language. */
-    const int32_t right_x[2] = { 470, 552 };
-    const int32_t right_y[2] = { 31, 95 };
+    /* Slightly flatter right cluster keeps the page from feeling right-heavy. */
+    const int32_t right_x[2] = { 478, 558 };
+    const int32_t right_y[2] = { 37, 93 };
     for (int i = 0; i < 4; ++i) {
         int col = i & 1;
         int row = i >> 1;
@@ -616,14 +662,16 @@ static void build_aircon_page(lv_obj_t *parent)
                                                s_feature_names[i],
                                                right_x[col],
                                                right_y[row],
-                                               72,
-                                               46);
+                                               74,
+                                               42);
         lv_obj_add_event_cb(v->feature_btn[i],
                             feature_event_cb,
                             LV_EVENT_CLICKED,
                             (void *)(intptr_t)i);
     }
 
+    /* Built last so the four-mode selector truly floats above page content. */
+    build_mode_overlay(v, page);
     update_aircon_views();
 }
 
