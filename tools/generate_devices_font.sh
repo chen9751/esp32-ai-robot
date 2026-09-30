@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_UI="$ROOT_DIR/components/ui/ui_font_source_han_devices_16.c"
-OUT_TEMP="$ROOT_DIR/components/ui/ui_font_source_han_devices_temp_72.c"
+OUT_TEMP="$ROOT_DIR/components/ui/ui_font_source_han_devices_temp_84.c"
 OUT_REMIX="$ROOT_DIR/components/ui/ui_font_remix_devices_28.c"
 OUT_REMIX_LARGE="$ROOT_DIR/components/ui/ui_font_remix_devices_56.c"
 TMP_DIR="$(mktemp -d)"
@@ -44,11 +44,11 @@ echo "Generating LVGL Devices temperature subset..."
 npx --yes lv_font_conv \
   --font "$SOURCE_HAN_FILE" \
   --symbols "$TEMP_SYMBOLS" \
-  --size 72 \
+  --size 84 \
   --bpp 4 \
   --format lvgl \
   --no-compress \
-  --lv-font-name ui_font_source_han_devices_temp_72 \
+  --lv-font-name ui_font_source_han_devices_temp_84 \
   --lv-include lvgl.h \
   -o "$OUT_TEMP"
 
