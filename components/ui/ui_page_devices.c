@@ -1,5 +1,7 @@
 #include "ui_page_devices.h"
 
+#include <stddef.h>
+
 #define UI_SCREEN_W 640
 #define UI_SCREEN_H 172
 
