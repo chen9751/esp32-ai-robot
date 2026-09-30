@@ -44,6 +44,15 @@ if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_lights_18.c")
     set(UI_LIGHTS_HAS_SOURCE_HAN TRUE)
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_16.c" AND
+   EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_devices_temp_44.c")
+    list(APPEND UI_SRCS
+        "ui_font_source_han_devices_16.c"
+        "ui_font_source_han_devices_temp_44.c"
+    )
+    set(UI_DEVICES_HAS_SOURCE_HAN TRUE)
+endif()
+
 idf_component_register(
     SRCS ${UI_SRCS}
     INCLUDE_DIRS "include"
@@ -56,4 +65,8 @@ endif()
 
 if(UI_LIGHTS_HAS_SOURCE_HAN)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_LIGHTS_HAS_SOURCE_HAN=1)
+endif()
+
+if(UI_DEVICES_HAS_SOURCE_HAN)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_DEVICES_HAS_SOURCE_HAN=1)
 endif()
