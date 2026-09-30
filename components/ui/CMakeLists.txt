@@ -8,6 +8,7 @@ set(UI_SRCS
     "ui_page_lights.c"
     "ui_lights_icons.c"
     "ui_lights_extra_icons.c"
+    "ui_page_devices.c"
     "ui_page_timer.c"
     "ui_page_alarm.c"
     "ui_page_settings.c"
