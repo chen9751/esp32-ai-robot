@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_UI="$ROOT_DIR/components/ui/ui_font_source_han_devices_16.c"
 OUT_TEMP="$ROOT_DIR/components/ui/ui_font_source_han_devices_temp_72.c"
 OUT_REMIX="$ROOT_DIR/components/ui/ui_font_remix_devices_28.c"
+OUT_REMIX_LARGE="$ROOT_DIR/components/ui/ui_font_remix_devices_56.c"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -20,6 +21,7 @@ TEMP_SYMBOLS='0123456789.°'
 # power=f126, snowflake=f512, sun=f1bf, windy=f2ca,
 # drop=ec6a, swing=ea62, temp-cold=f1f2.
 REMIX_SYMBOLS=$'\uF126\uF512\uF1BF\uF2CA\uEC6A\uEA62\uF1F2'
+REMIX_LARGE_SYMBOLS=$'\uF1F2'
 
 echo "Downloading Source Han Sans SC Normal..."
 curl -L --fail --retry 3 --silent --show-error "$SOURCE_HAN_URL" -o "$SOURCE_HAN_FILE"
@@ -62,6 +64,19 @@ npx --yes lv_font_conv \
   --lv-include lvgl.h \
   -o "$OUT_REMIX"
 
+echo "Generating large LVGL Devices thermometer icon..."
+npx --yes lv_font_conv \
+  --font "$REMIX_FILE" \
+  --symbols "$REMIX_LARGE_SYMBOLS" \
+  --size 56 \
+  --bpp 4 \
+  --format lvgl \
+  --no-compress \
+  --lv-font-name ui_font_remix_devices_56 \
+  --lv-include lvgl.h \
+  -o "$OUT_REMIX_LARGE"
+
 echo "Generated: $OUT_UI"
 echo "Generated: $OUT_TEMP"
 echo "Generated: $OUT_REMIX"
+echo "Generated: $OUT_REMIX_LARGE"
