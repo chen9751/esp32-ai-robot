@@ -7,6 +7,12 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 
+# Reserve two 5 MB application slots from the beginning so future OTA does
+# not require repartitioning a deployed device.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
 # LVGL/FreeRTOS timing used by the board runtime.
 CONFIG_FREERTOS_HZ=1000
 CONFIG_LV_OS_FREERTOS=y
