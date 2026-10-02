@@ -19,8 +19,9 @@ UI_SYMBOLS='睡眠干燥辅热ECOAUTO1234567'
 TEMP_SYMBOLS='0123456789.°'
 # Remix Icon v4.x code points:
 # power=f126, snowflake=f512, sun=f1bf, windy=f2ca,
-# drop=ec6a, swing=ea62, temp-cold=f1f2.
-REMIX_SYMBOLS=$'\uF126\uF512\uF1BF\uF2CA\uEC6A\uEA62\uF1F2'
+# drop=ec6a, swing=ea62, temp-cold=f1f2,
+# refresh=f064, stop-circle=f19f.
+REMIX_SYMBOLS=$'\uF126\uF512\uF1BF\uF2CA\uEC6A\uEA62\uF1F2\uF064\uF19F'
 # Large device controls additionally use:
 # expand-left-right=f323, pause=efd8, contract-left-right=f2ff,
 # arrow-up=ea76, arrow-down=ea4c.
