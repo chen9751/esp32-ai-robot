@@ -10,6 +10,7 @@
 #define PAGE_N 4
 #define AIRCON_VIEW_N 2
 #define CURTAIN_VIEW_N 1
+#define BATH_VIEW_N 1
 #define DRYING_VIEW_N 2
 
 #define BG      lv_color_hex(0x000000)
@@ -39,11 +40,24 @@
 #define DRYING_BOTTOM_MIN_Y 42
 #define DRYING_BOTTOM_MAX_Y 116
 
+#define BATH_CURRENT_COLOR lv_color_hex(0xA4AFBD)
+#define BATH_HIGH_BG       lv_color_hex(0x31547D)
+#define BATH_HIGH_BG2      lv_color_hex(0x223D5E)
+#define BATH_HIGH_BR       lv_color_hex(0xA5C4F3)
+#define BATH_STOP_BG       lv_color_hex(0x361313)
+#define BATH_STOP_BG2      lv_color_hex(0x651D19)
+#define BATH_STOP_BR       lv_color_hex(0xB9463E)
+
 #define TMIN 32
 #define TMAX 62
 #define TSTEP 12
 #define FMIN 1
 #define FMAX 7
+
+#define BATH_TMIN_X10 160
+#define BATH_TMAX_X10 310
+#define BATH_TSTEP_X10 5
+#define BATH_DRAG_STEP 12
 
 #define RI_POWER         "\xEF\x84\xA6" /* ri-shut-down-line U+F126 */
 #define RI_COOL          "\xEF\x94\x92" /* ri-snowflake-line U+F512 */
@@ -58,6 +72,11 @@
 #define RI_RACK_UP       "\xEE\xA9\xB6" /* ri-arrow-up-line U+EA76 */
 #define RI_RACK_DOWN     "\xEE\xA9\x8C" /* ri-arrow-down-line U+EA4C */
 #define RI_RACK_STOP     RI_CURTAIN_STOP
+#define RI_BATH_VENT     "\xEF\x81\xA4" /* ri-refresh-line U+F064 */
+#define RI_BATH_BLOW     RI_FAN
+#define RI_BATH_WARM     RI_HEAT
+#define RI_BATH_DRY      RI_DRY
+#define RI_BATH_STOP     "\xEF\x86\x9F" /* ri-stop-circle-line U+F19F */
 
 #if defined(UI_DEVICES_HAS_FONTS)
 LV_FONT_DECLARE(ui_font_source_han_devices_16);
@@ -89,6 +108,16 @@ typedef struct {
 } curtain_view_t;
 
 typedef struct {
+    lv_obj_t *temp;
+    digit_t d[3];
+    lv_obj_t *dot;
+    lv_obj_t *temp_gesture;
+    lv_obj_t *function_btn[4];
+    lv_obj_t *stop_btn;
+    lv_obj_t *stop_icon;
+} bath_view_t;
+
+typedef struct {
     lv_obj_t *top_bar;
     lv_obj_t *left_line;
     lv_obj_t *right_line;
@@ -100,12 +129,11 @@ typedef struct {
 
 enum { CURTAIN_ACTION_OPEN = 0, CURTAIN_ACTION_STOP, CURTAIN_ACTION_CLOSE };
 enum { DRYING_ACTION_UP = 0, DRYING_ACTION_DOWN, DRYING_ACTION_STOP };
+enum { BATH_VENT = 0, BATH_BLOW, BATH_WARM, BATH_DRY };
 
-static const char *page_names[4] = {
-    "AIR CONDITIONER", "CURTAIN", "BATH HEATER", "DRYING RACK"
-};
 static const char *feat_names[4] = { "睡眠", "ECO", "干燥", "辅热" };
 static const char *mode_icons[4] = { RI_COOL, RI_HEAT, RI_FAN, RI_DRY };
+static const char *bath_icons[4] = { RI_BATH_VENT, RI_BATH_BLOW, RI_BATH_WARM, RI_BATH_DRY };
 static const uint8_t masks[10] = {
     0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
 };
@@ -133,6 +161,14 @@ static curtain_view_t curtain_views[CURTAIN_VIEW_N];
 static size_t curtain_view_n;
 /* 0 = fully closed, 100 = fully open. */
 static int32_t curtain_open_pct = 58;
+
+static bath_view_t bath_views[BATH_VIEW_N];
+static size_t bath_view_n;
+static uint8_t bath_speed[3]; /* Ventilation, blower and warm air: 0 off, 1 low, 2 high. */
+static bool bath_dry_on;
+static int32_t bath_target_x10 = 260;
+static int32_t bath_current_x10 = 240;
+static int32_t bath_temp_y;
 
 static drying_view_t drying_views[DRYING_VIEW_N];
 static size_t drying_view_n;
@@ -248,7 +284,18 @@ static lv_obj_t *plain_bar(lv_obj_t *p, int x, int y, int w, int h, lv_color_t c
     return o;
 }
 
-/* ---------- Air conditioner ---------- */
+static lv_obj_t *page(lv_obj_t *p)
+{
+    lv_obj_t *o = lv_obj_create(p);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, W, H);
+    lv_obj_set_style_bg_color(o, BG, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    return o;
+}
+
+/* ---------- Shared seven-segment digits ---------- */
 
 static lv_obj_t *seg(lv_obj_t *p, int x, int y, int w, int h)
 {
@@ -289,6 +336,19 @@ static void set_digit(digit_t *d, uint8_t n, lv_color_t c)
                                 0);
     }
 }
+
+static void set_three_digit_temp(digit_t d[3], lv_obj_t *dot, int32_t temp_x10, lv_color_t c)
+{
+    if(temp_x10 < 0) temp_x10 = 0;
+    if(temp_x10 > 999) temp_x10 = 999;
+    int32_t whole = temp_x10 / 10;
+    set_digit(&d[0], (uint8_t)((whole / 10) % 10), c);
+    set_digit(&d[1], (uint8_t)(whole % 10), c);
+    set_digit(&d[2], (uint8_t)(temp_x10 % 10), c);
+    lv_obj_set_style_bg_color(dot, c, 0);
+}
+
+/* ---------- Air conditioner ---------- */
 
 static void temp_refresh(aircon_view_t *v)
 {
@@ -429,28 +489,6 @@ static void slider_cb(lv_event_t *e)
     }
     if(c == LV_EVENT_PRESSED || c == LV_EVENT_PRESSING || c == LV_EVENT_VALUE_CHANGED ||
        c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) activity();
-}
-
-static lv_obj_t *page(lv_obj_t *p)
-{
-    lv_obj_t *o = lv_obj_create(p);
-    lv_obj_remove_style_all(o);
-    lv_obj_set_size(o, W, H);
-    lv_obj_set_style_bg_color(o, BG, 0);
-    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-    return o;
-}
-
-static void placeholder(lv_obj_t *p, const char *t)
-{
-    lv_obj_t *o = page(p);
-    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *l = lv_label_create(o);
-    lv_label_set_text(l, t);
-    lv_obj_set_style_text_color(l, FG, 0);
-    lv_obj_align(l, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
 }
 
 static void card_style(lv_obj_t *o)
@@ -634,6 +672,175 @@ void ui_page_devices_set_curtain_position(uint8_t percent)
     curtain_stop_animation(); curtain_open_pct = clamp_pct(percent); curtain_apply_position();
 }
 
+/* ---------- Bath heater ---------- */
+
+static bool bath_active(void)
+{
+    return bath_speed[0] || bath_speed[1] || bath_speed[2] || bath_dry_on;
+}
+
+static void bath_style_level(lv_obj_t *button, uint8_t level)
+{
+    lv_obj_set_style_bg_color(button, BTN, 0);
+    lv_obj_set_style_bg_grad_color(button, BTN2, 0);
+    lv_obj_set_style_border_color(button, BR, 0);
+    lv_obj_set_style_border_width(button, 1, 0);
+    lv_obj_set_style_border_opa(button, LV_OPA_70, 0);
+    if(level == 1) {
+        lv_obj_set_style_bg_color(button, CHECK, 0);
+        lv_obj_set_style_bg_grad_color(button, PRESS, 0);
+        lv_obj_set_style_border_color(button, BR_ON, 0);
+        lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
+    } else if(level >= 2) {
+        lv_obj_set_style_bg_color(button, BATH_HIGH_BG, 0);
+        lv_obj_set_style_bg_grad_color(button, BATH_HIGH_BG2, 0);
+        lv_obj_set_style_border_color(button, BATH_HIGH_BR, 0);
+        lv_obj_set_style_border_width(button, 2, 0);
+        lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
+    }
+}
+
+static void refresh_bath(void)
+{
+    bool active = bath_active();
+    int32_t display_x10 = active ? bath_target_x10 : bath_current_x10;
+    lv_color_t color = active ? FG : BATH_CURRENT_COLOR;
+
+    for(size_t i = 0; i < bath_view_n; ++i) {
+        bath_view_t *v = &bath_views[i];
+        set_three_digit_temp(v->d, v->dot, display_x10, color);
+        enabled(v->temp_gesture, active);
+        bath_style_level(v->function_btn[BATH_VENT], bath_speed[0]);
+        bath_style_level(v->function_btn[BATH_BLOW], bath_speed[1]);
+        bath_style_level(v->function_btn[BATH_WARM], bath_speed[2]);
+        bath_style_level(v->function_btn[BATH_DRY], bath_dry_on ? 1 : 0);
+    }
+}
+
+static void bath_function_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    intptr_t fn = (intptr_t)lv_event_get_user_data(e);
+    if(fn < 0 || fn > 3) return;
+
+    if(fn == BATH_DRY) {
+        bath_dry_on = !bath_dry_on;
+    } else {
+        uint8_t *level = &bath_speed[fn];
+        if(*level == 0) *level = 1;
+        else *level = (*level == 1) ? 2 : 1;
+    }
+    refresh_bath();
+    activity();
+}
+
+static void bath_stop_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    bath_speed[0] = bath_speed[1] = bath_speed[2] = 0;
+    bath_dry_on = false;
+    refresh_bath();
+    activity();
+}
+
+static void bath_temp_cb(lv_event_t *e)
+{
+    if(!bath_active()) return;
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if(!indev) return;
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+
+    if(code == LV_EVENT_PRESSED) {
+        bath_temp_y = p.y;
+        activity();
+        return;
+    }
+    if(code == LV_EVENT_PRESSING) {
+        int32_t dy = p.y - bath_temp_y;
+        bool changed = false;
+        while(dy <= -BATH_DRAG_STEP && bath_target_x10 < BATH_TMAX_X10) {
+            bath_target_x10 += BATH_TSTEP_X10;
+            bath_temp_y -= BATH_DRAG_STEP;
+            dy += BATH_DRAG_STEP;
+            changed = true;
+        }
+        while(dy >= BATH_DRAG_STEP && bath_target_x10 > BATH_TMIN_X10) {
+            bath_target_x10 -= BATH_TSTEP_X10;
+            bath_temp_y += BATH_DRAG_STEP;
+            dy -= BATH_DRAG_STEP;
+            changed = true;
+        }
+        if(changed) refresh_bath();
+        activity();
+        return;
+    }
+    if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) activity();
+}
+
+static void build_bath(lv_obj_t *p)
+{
+    if(bath_view_n >= BATH_VIEW_N) return;
+    bath_view_t *v = &bath_views[bath_view_n++];
+    lv_obj_t *pg = page(p);
+
+    v->temp = lv_obj_create(pg);
+    lv_obj_remove_style_all(v->temp);
+    lv_obj_set_pos(v->temp, 92, 37);
+    lv_obj_set_size(v->temp, 145, 100);
+    lv_obj_clear_flag(v->temp, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    build_digit(v->temp, &v->d[0], 0);
+    build_digit(v->temp, &v->d[1], 45);
+    build_digit(v->temp, &v->d[2], 103);
+    v->dot = plain_bar(v->temp, 92, 86, 8, 8, FG);
+    lv_obj_set_style_radius(v->dot, LV_RADIUS_CIRCLE, 0);
+
+    v->temp_gesture = lv_obj_create(pg);
+    lv_obj_remove_style_all(v->temp_gesture);
+    lv_obj_set_pos(v->temp_gesture, 68, 20);
+    lv_obj_set_size(v->temp_gesture, 194, 134);
+    lv_obj_set_style_bg_opa(v->temp_gesture, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(v->temp_gesture, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(v->temp_gesture, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(v->temp_gesture, bath_temp_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(v->temp_gesture, bath_temp_cb, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(v->temp_gesture, bath_temp_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(v->temp_gesture, bath_temp_cb, LV_EVENT_PRESS_LOST, NULL);
+
+    const int bx[2] = { 370, 466 };
+    const int by[2] = { 20, 72 };
+    for(int i = 0; i < 4; ++i) {
+        int col = i & 1;
+        int row = i >> 1;
+        v->function_btn[i] = ibtn(pg, bath_icons[i], bx[col], by[row], 82, 42, false, NULL);
+        lv_obj_set_style_radius(v->function_btn[i], 16, 0);
+        lv_obj_add_event_cb(v->function_btn[i], bath_function_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    }
+
+    v->stop_btn = ibtn(pg, RI_BATH_STOP, 370, 124, 178, 34, false, &v->stop_icon);
+    lv_obj_set_style_radius(v->stop_btn, 16, 0);
+    lv_obj_set_style_bg_color(v->stop_btn, BATH_STOP_BG, 0);
+    lv_obj_set_style_bg_grad_color(v->stop_btn, BATH_STOP_BG2, 0);
+    lv_obj_set_style_border_color(v->stop_btn, BATH_STOP_BR, 0);
+    lv_obj_set_style_border_opa(v->stop_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(v->stop_icon, POWER, 0);
+    lv_obj_set_style_bg_color(v->stop_btn, lv_color_hex(0x74231D), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_grad_color(v->stop_btn, lv_color_hex(0x8A2C24), LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(v->stop_btn, lv_color_hex(0xE1645A), LV_STATE_PRESSED);
+    lv_obj_add_event_cb(v->stop_btn, bath_stop_cb, LV_EVENT_CLICKED, NULL);
+
+    refresh_bath();
+}
+
+void ui_page_devices_set_bath_current_temperature(int16_t temperature_x10)
+{
+    if(temperature_x10 < 0) temperature_x10 = 0;
+    if(temperature_x10 > 999) temperature_x10 = 999;
+    bath_current_x10 = temperature_x10;
+    if(!bath_active()) refresh_bath();
+}
+
 /* ---------- Drying rack ---------- */
 
 static void drying_apply_position(void)
@@ -642,7 +849,6 @@ static void drying_apply_position(void)
     int32_t bottom_y = DRYING_BOTTOM_MIN_Y + (travel * drying_position_pct) / 100;
     int32_t line_h = bottom_y - DRYING_VERTICAL_Y + 2;
     if(line_h < 6) line_h = 6;
-
     for(size_t i = 0; i < drying_view_n; ++i) {
         drying_view_t *v = &drying_views[i];
         lv_obj_set_height(v->left_line, line_h);
@@ -696,13 +902,9 @@ static void build_drying(lv_obj_t *p)
     if(drying_view_n >= DRYING_VIEW_N) return;
     drying_view_t *v = &drying_views[drying_view_n++];
     lv_obj_t *pg = page(p);
-
     v->up_button = drying_button(pg, RI_RACK_UP, 76, 24, 96, 56, DRYING_ACTION_UP);
     v->down_button = drying_button(pg, RI_RACK_DOWN, 76, 92, 96, 56, DRYING_ACTION_DOWN);
     v->stop_button = drying_button(pg, RI_RACK_STOP, 468, 24, 112, 124, DRYING_ACTION_STOP);
-
-    /* Minimal rack status graphic: fixed short top bar, two hanging lines,
-     * and a wider moving bottom rail. */
     v->top_bar = plain_bar(pg, 288, DRYING_TOP_Y, 64, 6, DRYING_LINE_DIM);
     v->left_line = plain_bar(pg, 303, DRYING_VERTICAL_Y, 5, 12, DRYING_LINE_DIM);
     v->right_line = plain_bar(pg, 332, DRYING_VERTICAL_Y, 5, 12, DRYING_LINE_DIM);
@@ -742,7 +944,7 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
                                 void *ud)
 {
     acb = cb; aud = ud; wrapping = false; updating = false;
-    aircon_view_n = 0; curtain_view_n = 0; drying_view_n = 0;
+    aircon_view_n = 0; curtain_view_n = 0; bath_view_n = 0; drying_view_n = 0;
 
     root = lv_obj_create(parent); lv_obj_remove_style_all(root);
     lv_obj_set_size(root, W, H); lv_obj_set_style_bg_color(root, BG, 0);
@@ -756,12 +958,12 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
     lv_obj_set_flex_flow(pager, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(pager, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
-    build_drying(pager);              /* loop clone before Air Conditioner */
+    build_drying(pager);
     build_aircon(pager);
     build_curtain(pager);
-    placeholder(pager, page_names[2]);
+    build_bath(pager);
     build_drying(pager);
-    build_aircon(pager);              /* loop clone after Drying Rack */
+    build_aircon(pager);
 
     lv_obj_add_event_cb(pager, pager_cb, LV_EVENT_ALL, NULL);
     lv_obj_scroll_to_x(pager, W, LV_ANIM_OFF);
@@ -772,6 +974,6 @@ void ui_page_devices_stop(void)
 {
     curtain_stop_animation(); drying_stop_animation();
     root = NULL; pager = NULL; wrapping = false; updating = false;
-    aircon_view_n = 0; curtain_view_n = 0; drying_view_n = 0;
+    aircon_view_n = 0; curtain_view_n = 0; bath_view_n = 0; drying_view_n = 0;
     acb = NULL; aud = NULL;
 }
