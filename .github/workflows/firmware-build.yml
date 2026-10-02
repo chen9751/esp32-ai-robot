@@ -1,0 +1,36 @@
+name: ESP-IDF Firmware Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "main/**"
+      - "components/**"
+      - "sdkconfig.defaults"
+      - "CMakeLists.txt"
+      - ".github/workflows/firmware-build.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build ESP32-S3 firmware with ESP-IDF 5.5.4
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          path: "."
+          command: idf.py build
