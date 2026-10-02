@@ -48,9 +48,19 @@
 
 #define BOARD_POWER_SYS_OUT_PIN         GPIO_NUM_16
 
-/* Keep the LVGL draw buffers small and DMA capable; rotation is handled by
- * esp_lvgl_port in software. 64 native rows matches Waveshare's example. */
-#define BOARD_LVGL_DRAW_BUF_PIXELS       (BOARD_LCD_NATIVE_H_RES * 64)
+/*
+ * The AXS15231B QSPI path used by Waveshare expects complete, sequential
+ * native-frame writes. LVGL therefore renders a full logical frame in PSRAM,
+ * rotates it to the native 172x640 layout, then the board driver feeds it to
+ * the SPI DMA engine in 64-row strips. This mirrors Waveshare's verified V2
+ * LVGL v9 implementation and avoids partial-refresh line corruption.
+ */
+#define BOARD_LCD_BYTES_PER_PIXEL       2
+#define BOARD_LCD_FRAME_PIXELS          (BOARD_LCD_NATIVE_H_RES * BOARD_LCD_NATIVE_V_RES)
+#define BOARD_LCD_FRAME_BYTES           (BOARD_LCD_FRAME_PIXELS * BOARD_LCD_BYTES_PER_PIXEL)
+#define BOARD_LCD_DMA_ROWS              64
+#define BOARD_LCD_DMA_BYTES             (BOARD_LCD_NATIVE_H_RES * BOARD_LCD_DMA_ROWS * BOARD_LCD_BYTES_PER_PIXEL)
+#define BOARD_LCD_DMA_CHUNKS            (BOARD_LCD_NATIVE_V_RES / BOARD_LCD_DMA_ROWS)
 
 /*
  * AXS15231B reports the V2 touch panel in its raw 640 x 172 orientation.
