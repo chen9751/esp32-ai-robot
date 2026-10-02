@@ -10,6 +10,7 @@
 #define PAGE_N 4
 #define AIRCON_VIEW_N 2
 #define CURTAIN_VIEW_N 1
+#define DRYING_VIEW_N 2
 
 #define BG      lv_color_hex(0x000000)
 #define BTN     lv_color_hex(0x111824)
@@ -25,11 +26,18 @@
 #define DIS_BG  lv_color_hex(0x090D14)
 #define DIS_BR  lv_color_hex(0x263142)
 #define POWER   lv_color_hex(0xFF604F)
+
 #define CURTAIN_SHADE_OUTER lv_color_hex(0x394553)
 #define CURTAIN_SHADE_INNER lv_color_hex(0x667587)
-
 #define CURTAIN_OPEN_EDGE_W 18
 #define CURTAIN_CLOSED_GAP 12
+
+#define DRYING_LINE_DIM    lv_color_hex(0x526071)
+#define DRYING_LINE_BRIGHT lv_color_hex(0xAEBBCC)
+#define DRYING_TOP_Y 24
+#define DRYING_VERTICAL_Y 32
+#define DRYING_BOTTOM_MIN_Y 42
+#define DRYING_BOTTOM_MAX_Y 116
 
 #define TMIN 32
 #define TMAX 62
@@ -47,6 +55,9 @@
 #define RI_CURTAIN_OPEN  "\xEF\x8C\xA3" /* ri-expand-left-right-line U+F323 */
 #define RI_CURTAIN_STOP  "\xEE\xBF\x98" /* ri-pause-line U+EFD8 */
 #define RI_CURTAIN_CLOSE "\xEF\x8B\xBF" /* ri-contract-left-right-line U+F2FF */
+#define RI_RACK_UP       "\xEE\xA9\xB6" /* ri-arrow-up-line U+EA76 */
+#define RI_RACK_DOWN     "\xEE\xA9\x8C" /* ri-arrow-down-line U+EA4C */
+#define RI_RACK_STOP     RI_CURTAIN_STOP
 
 #if defined(UI_DEVICES_HAS_FONTS)
 LV_FONT_DECLARE(ui_font_source_han_devices_16);
@@ -61,38 +72,14 @@ LV_FONT_DECLARE(ui_font_remix_devices_56);
 #define ILF LV_FONT_DEFAULT
 #endif
 
-typedef struct {
-    lv_obj_t *seg[7];
-} digit_t;
-
-typedef enum {
-    CENTER_TEMP,
-    CENTER_MODE,
-    CENTER_FAN,
-} center_t;
+typedef struct { lv_obj_t *seg[7]; } digit_t;
+typedef enum { CENTER_TEMP, CENTER_MODE, CENTER_FAN } center_t;
 
 typedef struct {
-    lv_obj_t *power;
-    lv_obj_t *power_i;
-    lv_obj_t *mode;
-    lv_obj_t *mode_i;
-    lv_obj_t *swing;
-    lv_obj_t *swing_i;
-    lv_obj_t *fan;
-    lv_obj_t *fan_i;
-    lv_obj_t *card;
-    lv_obj_t *temp;
+    lv_obj_t *power, *power_i, *mode, *mode_i, *swing, *swing_i, *fan, *fan_i;
+    lv_obj_t *card, *temp, *dot, *off_i, *temp_g;
     digit_t d[3];
-    lv_obj_t *dot;
-    lv_obj_t *off_i;
-    lv_obj_t *temp_g;
-    lv_obj_t *mode_p;
-    lv_obj_t *mode_b[4];
-    lv_obj_t *fan_p;
-    lv_obj_t *fan_v;
-    lv_obj_t *slider;
-    lv_obj_t *auto_b;
-    lv_obj_t *feat[4];
+    lv_obj_t *mode_p, *mode_b[4], *fan_p, *fan_v, *slider, *auto_b, *feat[4];
 } aircon_view_t;
 
 typedef struct {
@@ -101,23 +88,26 @@ typedef struct {
     lv_obj_t *button[3];
 } curtain_view_t;
 
-enum {
-    CURTAIN_ACTION_OPEN = 0,
-    CURTAIN_ACTION_STOP,
-    CURTAIN_ACTION_CLOSE,
-};
+typedef struct {
+    lv_obj_t *top_bar;
+    lv_obj_t *left_line;
+    lv_obj_t *right_line;
+    lv_obj_t *bottom_bar;
+    lv_obj_t *up_button;
+    lv_obj_t *down_button;
+    lv_obj_t *stop_button;
+} drying_view_t;
+
+enum { CURTAIN_ACTION_OPEN = 0, CURTAIN_ACTION_STOP, CURTAIN_ACTION_CLOSE };
+enum { DRYING_ACTION_UP = 0, DRYING_ACTION_DOWN, DRYING_ACTION_STOP };
 
 static const char *page_names[4] = {
-    "AIR CONDITIONER",
-    "CURTAIN",
-    "BATH HEATER",
-    "DRYING RACK",
+    "AIR CONDITIONER", "CURTAIN", "BATH HEATER", "DRYING RACK"
 };
 static const char *feat_names[4] = { "睡眠", "ECO", "干燥", "辅热" };
 static const char *mode_icons[4] = { RI_COOL, RI_HEAT, RI_FAN, RI_DRY };
 static const uint8_t masks[10] = {
-    0x3F, 0x06, 0x5B, 0x4F, 0x66,
-    0x6D, 0x7D, 0x07, 0x7F, 0x6F,
+    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
 };
 
 static lv_obj_t *root;
@@ -143,6 +133,11 @@ static curtain_view_t curtain_views[CURTAIN_VIEW_N];
 static size_t curtain_view_n;
 /* 0 = fully closed, 100 = fully open. */
 static int32_t curtain_open_pct = 58;
+
+static drying_view_t drying_views[DRYING_VIEW_N];
+static size_t drying_view_n;
+/* 0 = top, 100 = lowest visual position. */
+static int32_t drying_position_pct = 56;
 
 static void activity(void)
 {
@@ -192,14 +187,9 @@ static void style_btn(lv_obj_t *o, int r)
     lv_obj_set_style_text_color(o, DIM, LV_STATE_DISABLED);
 }
 
-static lv_obj_t *ibtn(lv_obj_t *p,
-                      const char *g,
-                      int x,
-                      int y,
-                      int w,
-                      int h,
-                      bool ck,
-                      lv_obj_t **io)
+static lv_obj_t *icon_button(lv_obj_t *p, const char *g, int x, int y,
+                             int w, int h, bool checkable,
+                             const lv_font_t *font, lv_obj_t **icon_out)
 {
     lv_obj_t *b = lv_obj_create(p);
     lv_obj_remove_style_all(b);
@@ -208,24 +198,25 @@ static lv_obj_t *ibtn(lv_obj_t *p,
     style_btn(b, 18);
     lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
-    if(ck) lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);
+    if(checkable) lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);
 
     lv_obj_t *i = lv_label_create(b);
     lv_label_set_text(i, g);
-    lv_obj_set_style_text_font(i, IF, 0);
+    lv_obj_set_style_text_font(i, font, 0);
     lv_obj_set_style_text_color(i, FG, 0);
     lv_obj_center(i);
     lv_obj_clear_flag(i, LV_OBJ_FLAG_CLICKABLE);
-    if(io) *io = i;
+    if(icon_out) *icon_out = i;
     return b;
 }
 
-static lv_obj_t *tbtn(lv_obj_t *p,
-                      const char *t,
-                      int x,
-                      int y,
-                      int w,
-                      int h)
+static lv_obj_t *ibtn(lv_obj_t *p, const char *g, int x, int y,
+                      int w, int h, bool ck, lv_obj_t **io)
+{
+    return icon_button(p, g, x, y, w, h, ck, IF, io);
+}
+
+static lv_obj_t *tbtn(lv_obj_t *p, const char *t, int x, int y, int w, int h)
 {
     lv_obj_t *b = lv_obj_create(p);
     lv_obj_remove_style_all(b);
@@ -243,6 +234,21 @@ static lv_obj_t *tbtn(lv_obj_t *p,
     lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
     return b;
 }
+
+static lv_obj_t *plain_bar(lv_obj_t *p, int x, int y, int w, int h, lv_color_t color)
+{
+    lv_obj_t *o = lv_obj_create(p);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_style_radius(o, h / 2, 0);
+    lv_obj_set_style_bg_color(o, color, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    return o;
+}
+
+/* ---------- Air conditioner ---------- */
 
 static lv_obj_t *seg(lv_obj_t *p, int x, int y, int w, int h)
 {
@@ -264,7 +270,6 @@ static void build_digit(lv_obj_t *p, digit_t *d, int x)
     lv_obj_set_pos(h, x, 0);
     lv_obj_set_size(h, 42, 98);
     lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-
     d->seg[0] = seg(h, 9, 2, 24, 6);
     d->seg[1] = seg(h, 34, 10, 6, 35);
     d->seg[2] = seg(h, 34, 53, 6, 35);
@@ -300,7 +305,6 @@ static void refresh_aircon(void)
     char ft[8];
     snprintf(ft, sizeof(ft), "%d", fan_speed);
     updating = true;
-
     for(size_t i = 0; i < aircon_view_n; ++i) {
         aircon_view_t *v = &aircon_views[i];
         bool sm = power_on && center == CENTER_MODE;
@@ -312,31 +316,26 @@ static void refresh_aircon(void)
         checked(v->swing, swing_on);
         checked(v->fan, sf);
         checked(v->auto_b, fan_auto);
-
         for(int j = 0; j < 4; ++j) {
             checked(v->feat[j], features[j]);
             checked(v->mode_b[j], mode_idx == (uint8_t)j);
             enabled(v->feat[j], power_on);
             enabled(v->mode_b[j], sm);
         }
-
         enabled(v->mode, power_on);
         enabled(v->swing, power_on);
         enabled(v->fan, power_on);
         enabled(v->temp_g, power_on && st);
         enabled(v->slider, sf);
         enabled(v->auto_b, sf);
-
         lv_label_set_text(v->mode_i, mode_icons[mode_idx]);
         lv_slider_set_value(v->slider, fan_speed, LV_ANIM_OFF);
         lv_obj_set_style_text_color(v->power_i, POWER, 0);
         lv_obj_set_style_text_color(v->mode_i, power_on ? FG : DIM, 0);
         lv_obj_set_style_text_color(v->swing_i, power_on ? FG : DIM, 0);
         lv_obj_set_style_text_color(v->fan_i, power_on ? FG : DIM, 0);
-
         temp_refresh(v);
         lv_label_set_text(v->fan_v, fan_auto ? "AUTO" : ft);
-
         hidden(v->temp, !st || !power_on);
         hidden(v->off_i, !st || power_on);
         hidden(v->temp_g, !st || !power_on);
@@ -344,7 +343,6 @@ static void refresh_aircon(void)
         hidden(v->mode_p, !sm);
         hidden(v->fan_p, !sf);
     }
-
     updating = false;
 }
 
@@ -353,32 +351,27 @@ static void power_cb(lv_event_t *e)
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     power_on = !power_on;
     if(!power_on) center = CENTER_TEMP;
-    refresh_aircon();
-    activity();
+    refresh_aircon(); activity();
 }
 
 static void mode_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
     center = center == CENTER_MODE ? CENTER_TEMP : CENTER_MODE;
-    refresh_aircon();
-    activity();
+    refresh_aircon(); activity();
 }
 
 static void swing_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
-    swing_on = !swing_on;
-    refresh_aircon();
-    activity();
+    swing_on = !swing_on; refresh_aircon(); activity();
 }
 
 static void fan_btn_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
     center = center == CENTER_FAN ? CENTER_TEMP : CENTER_FAN;
-    refresh_aircon();
-    activity();
+    refresh_aircon(); activity();
 }
 
 static void feat_cb(lv_event_t *e)
@@ -386,9 +379,7 @@ static void feat_cb(lv_event_t *e)
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
     intptr_t n = (intptr_t)lv_event_get_user_data(e);
     if(n < 0 || n > 3) return;
-    features[n] = !features[n];
-    refresh_aircon();
-    activity();
+    features[n] = !features[n]; refresh_aircon(); activity();
 }
 
 static void mode_opt_cb(lv_event_t *e)
@@ -396,10 +387,8 @@ static void mode_opt_cb(lv_event_t *e)
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
     intptr_t n = (intptr_t)lv_event_get_user_data(e);
     if(n < 0 || n > 3) return;
-    mode_idx = (uint8_t)n;
-    center = CENTER_TEMP;
-    refresh_aircon();
-    activity();
+    mode_idx = (uint8_t)n; center = CENTER_TEMP;
+    refresh_aircon(); activity();
 }
 
 static void temp_cb(lv_event_t *e)
@@ -407,71 +396,39 @@ static void temp_cb(lv_event_t *e)
     if(!power_on || center != CENTER_TEMP) return;
     lv_indev_t *i = lv_event_get_indev(e);
     if(!i) return;
-
     lv_event_code_t c = lv_event_get_code(e);
-    lv_point_t p;
-    lv_indev_get_point(i, &p);
-
-    if(c == LV_EVENT_PRESSED) {
-        temp_y = p.y;
-        activity();
-        return;
-    }
-
+    lv_point_t p; lv_indev_get_point(i, &p);
+    if(c == LV_EVENT_PRESSED) { temp_y = p.y; activity(); return; }
     if(c == LV_EVENT_PRESSING) {
-        int32_t dy = p.y - temp_y;
-        bool ch = false;
+        int32_t dy = p.y - temp_y; bool ch = false;
         while(dy <= -TSTEP && temp2 < TMAX) {
-            ++temp2;
-            temp_y -= TSTEP;
-            dy += TSTEP;
-            ch = true;
+            ++temp2; temp_y -= TSTEP; dy += TSTEP; ch = true;
         }
         while(dy >= TSTEP && temp2 > TMIN) {
-            --temp2;
-            temp_y += TSTEP;
-            dy -= TSTEP;
-            ch = true;
+            --temp2; temp_y += TSTEP; dy -= TSTEP; ch = true;
         }
-        if(ch) refresh_aircon();
-        activity();
-        return;
+        if(ch) refresh_aircon(); activity(); return;
     }
-
     if(c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) activity();
 }
 
 static void auto_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_LONG_PRESSED ||
-       !power_on || center != CENTER_FAN) {
-        return;
-    }
-    fan_auto = true;
-    refresh_aircon();
-    activity();
+       !power_on || center != CENTER_FAN) return;
+    fan_auto = true; refresh_aircon(); activity();
 }
 
 static void slider_cb(lv_event_t *e)
 {
     if(!power_on || updating || center != CENTER_FAN) return;
     lv_event_code_t c = lv_event_get_code(e);
-
-    if(c == LV_EVENT_PRESSED ||
-       c == LV_EVENT_PRESSING ||
-       c == LV_EVENT_VALUE_CHANGED) {
+    if(c == LV_EVENT_PRESSED || c == LV_EVENT_PRESSING || c == LV_EVENT_VALUE_CHANGED) {
         fan_speed = lv_slider_get_value((lv_obj_t *)lv_event_get_target(e));
-        fan_auto = false;
-        refresh_aircon();
+        fan_auto = false; refresh_aircon();
     }
-
-    if(c == LV_EVENT_PRESSED ||
-       c == LV_EVENT_PRESSING ||
-       c == LV_EVENT_VALUE_CHANGED ||
-       c == LV_EVENT_RELEASED ||
-       c == LV_EVENT_PRESS_LOST) {
-        activity();
-    }
+    if(c == LV_EVENT_PRESSED || c == LV_EVENT_PRESSING || c == LV_EVENT_VALUE_CHANGED ||
+       c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) activity();
 }
 
 static lv_obj_t *page(lv_obj_t *p)
@@ -489,7 +446,6 @@ static void placeholder(lv_obj_t *p, const char *t)
 {
     lv_obj_t *o = page(p);
     lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
-
     lv_obj_t *l = lv_label_create(o);
     lv_label_set_text(l, t);
     lv_obj_set_style_text_color(l, FG, 0);
@@ -512,134 +468,82 @@ static void card_style(lv_obj_t *o)
 static void build_aircon(lv_obj_t *p)
 {
     if(aircon_view_n >= AIRCON_VIEW_N) return;
-
     aircon_view_t *v = &aircon_views[aircon_view_n++];
     lv_obj_t *pg = page(p);
-    const int lx[2] = { 68, 148 };
-    const int rx[2] = { 420, 500 };
-    const int yy[2] = { 33, 97 };
-    const int bw = 72;
-    const int bh = 42;
+    const int lx[2] = { 68, 148 }, rx[2] = { 420, 500 }, yy[2] = { 33, 97 };
+    const int bw = 72, bh = 42;
 
     v->power = ibtn(pg, RI_POWER, lx[0], yy[0], bw, bh, false, &v->power_i);
     lv_obj_set_style_text_color(v->power_i, POWER, 0);
     lv_obj_add_event_cb(v->power, power_cb, LV_EVENT_CLICKED, NULL);
-
     v->mode = ibtn(pg, mode_icons[mode_idx], lx[1], yy[0], bw, bh, false, &v->mode_i);
     lv_obj_add_event_cb(v->mode, mode_cb, LV_EVENT_CLICKED, NULL);
-
     v->swing = ibtn(pg, RI_SWING, lx[0], yy[1], bw, bh, true, &v->swing_i);
     lv_obj_add_event_cb(v->swing, swing_cb, LV_EVENT_CLICKED, NULL);
-
     v->fan = ibtn(pg, RI_FAN, lx[1], yy[1], bw, bh, false, &v->fan_i);
     lv_obj_add_event_cb(v->fan, fan_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    v->temp = lv_obj_create(pg);
-    lv_obj_remove_style_all(v->temp);
-    lv_obj_set_pos(v->temp, 248, 37);
-    lv_obj_set_size(v->temp, 145, 100);
+    v->temp = lv_obj_create(pg); lv_obj_remove_style_all(v->temp);
+    lv_obj_set_pos(v->temp, 248, 37); lv_obj_set_size(v->temp, 145, 100);
     lv_obj_clear_flag(v->temp, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    build_digit(v->temp, &v->d[0], 0);
-    build_digit(v->temp, &v->d[1], 45);
-    build_digit(v->temp, &v->d[2], 103);
-
-    v->dot = lv_obj_create(v->temp);
-    lv_obj_remove_style_all(v->dot);
-    lv_obj_set_pos(v->dot, 92, 86);
-    lv_obj_set_size(v->dot, 8, 8);
+    build_digit(v->temp, &v->d[0], 0); build_digit(v->temp, &v->d[1], 45); build_digit(v->temp, &v->d[2], 103);
+    v->dot = plain_bar(v->temp, 92, 86, 8, 8, FG);
     lv_obj_set_style_radius(v->dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(v->dot, LV_OPA_COVER, 0);
 
-    v->off_i = lv_label_create(pg);
-    lv_label_set_text(v->off_i, RI_THERM);
-    lv_obj_set_style_text_font(v->off_i, ILF, 0);
-    lv_obj_set_style_text_color(v->off_i, DIM, 0);
-    lv_obj_set_width(v->off_i, 184);
-    lv_obj_set_style_text_align(v->off_i, LV_TEXT_ALIGN_CENTER, 0);
+    v->off_i = lv_label_create(pg); lv_label_set_text(v->off_i, RI_THERM);
+    lv_obj_set_style_text_font(v->off_i, ILF, 0); lv_obj_set_style_text_color(v->off_i, DIM, 0);
+    lv_obj_set_width(v->off_i, 184); lv_obj_set_style_text_align(v->off_i, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_pos(v->off_i, 228, 58);
 
-    v->temp_g = lv_obj_create(pg);
-    lv_obj_remove_style_all(v->temp_g);
-    lv_obj_set_pos(v->temp_g, 228, 20);
-    lv_obj_set_size(v->temp_g, 184, 134);
+    v->temp_g = lv_obj_create(pg); lv_obj_remove_style_all(v->temp_g);
+    lv_obj_set_pos(v->temp_g, 228, 20); lv_obj_set_size(v->temp_g, 184, 134);
     lv_obj_set_style_bg_opa(v->temp_g, LV_OPA_TRANSP, 0);
-    lv_obj_add_flag(v->temp_g, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(v->temp_g, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(v->temp_g, LV_OBJ_FLAG_CLICKABLE); lv_obj_clear_flag(v->temp_g, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(v->temp_g, temp_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(v->temp_g, temp_cb, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(v->temp_g, temp_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(v->temp_g, temp_cb, LV_EVENT_PRESS_LOST, NULL);
 
-    v->card = lv_obj_create(pg);
-    lv_obj_remove_style_all(v->card);
-    lv_obj_set_pos(v->card, 228, 25);
-    lv_obj_set_size(v->card, 184, 122);
-    card_style(v->card);
+    v->card = lv_obj_create(pg); lv_obj_remove_style_all(v->card);
+    lv_obj_set_pos(v->card, 228, 25); lv_obj_set_size(v->card, 184, 122); card_style(v->card);
     lv_obj_clear_flag(v->card, LV_OBJ_FLAG_SCROLLABLE);
 
-    v->mode_p = lv_obj_create(v->card);
-    lv_obj_remove_style_all(v->mode_p);
-    lv_obj_set_pos(v->mode_p, 9, 12);
-    lv_obj_set_size(v->mode_p, 166, 98);
+    v->mode_p = lv_obj_create(v->card); lv_obj_remove_style_all(v->mode_p);
+    lv_obj_set_pos(v->mode_p, 9, 12); lv_obj_set_size(v->mode_p, 166, 98);
     lv_obj_clear_flag(v->mode_p, LV_OBJ_FLAG_SCROLLABLE);
-
     for(int i = 0; i < 4; ++i) {
-        int c = i & 1;
-        int r = i >> 1;
-        v->mode_b[i] = ibtn(v->mode_p,
-                            mode_icons[i],
-                            c * 88,
-                            r * 56,
-                            78,
-                            42,
-                            false,
-                            NULL);
+        int c = i & 1, r = i >> 1;
+        v->mode_b[i] = ibtn(v->mode_p, mode_icons[i], c * 88, r * 56, 78, 42, false, NULL);
         lv_obj_set_style_radius(v->mode_b[i], 14, 0);
-        lv_obj_add_event_cb(v->mode_b[i],
-                            mode_opt_cb,
-                            LV_EVENT_CLICKED,
-                            (void *)(intptr_t)i);
+        lv_obj_add_event_cb(v->mode_b[i], mode_opt_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
-    v->fan_p = lv_obj_create(v->card);
-    lv_obj_remove_style_all(v->fan_p);
-    lv_obj_set_pos(v->fan_p, 8, 11);
-    lv_obj_set_size(v->fan_p, 168, 100);
+    v->fan_p = lv_obj_create(v->card); lv_obj_remove_style_all(v->fan_p);
+    lv_obj_set_pos(v->fan_p, 8, 11); lv_obj_set_size(v->fan_p, 168, 100);
     lv_obj_clear_flag(v->fan_p, LV_OBJ_FLAG_SCROLLABLE);
-
-    v->fan_v = lv_label_create(v->fan_p);
-    lv_obj_set_width(v->fan_v, 168);
+    v->fan_v = lv_label_create(v->fan_p); lv_obj_set_width(v->fan_v, 168);
     lv_obj_set_style_text_align(v->fan_v, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(v->fan_v, TF, 0);
-    lv_obj_set_style_text_color(v->fan_v, FG, 0);
-
-    v->slider = lv_slider_create(v->fan_p);
-    lv_obj_set_pos(v->slider, 10, 34);
-    lv_obj_set_size(v->slider, 148, 8);
+    lv_obj_set_style_text_font(v->fan_v, TF, 0); lv_obj_set_style_text_color(v->fan_v, FG, 0);
+    v->slider = lv_slider_create(v->fan_p); lv_obj_set_pos(v->slider, 10, 34); lv_obj_set_size(v->slider, 148, 8);
     lv_slider_set_range(v->slider, FMIN, FMAX);
     lv_obj_set_style_radius(v->slider, 4, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(v->slider, BR, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(v->slider, LV_OPA_50, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(v->slider, FG, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(v->slider, FG, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(v->slider, 4, LV_PART_KNOB);
-    lv_obj_add_event_cb(v->slider, slider_cb, LV_EVENT_ALL, NULL);
-
+    lv_obj_set_style_bg_color(v->slider, BR, LV_PART_MAIN); lv_obj_set_style_bg_opa(v->slider, LV_OPA_50, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(v->slider, FG, LV_PART_INDICATOR); lv_obj_set_style_bg_color(v->slider, FG, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(v->slider, 4, LV_PART_KNOB); lv_obj_add_event_cb(v->slider, slider_cb, LV_EVENT_ALL, NULL);
     v->auto_b = tbtn(v->fan_p, "AUTO", 44, 60, 80, 28);
-    lv_obj_clear_flag(v->auto_b, LV_OBJ_FLAG_CHECKABLE);
-    lv_obj_add_event_cb(v->auto_b, auto_cb, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_clear_flag(v->auto_b, LV_OBJ_FLAG_CHECKABLE); lv_obj_add_event_cb(v->auto_b, auto_cb, LV_EVENT_LONG_PRESSED, NULL);
 
     for(int i = 0; i < 4; ++i) {
-        int c = i & 1;
-        int r = i >> 1;
+        int c = i & 1, r = i >> 1;
         v->feat[i] = tbtn(pg, feat_names[i], rx[c], yy[r], bw, bh);
         lv_obj_add_event_cb(v->feat[i], feat_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
-
     refresh_aircon();
 }
 
-static int32_t clamp_curtain_pct(int32_t percent)
+/* ---------- Curtain ---------- */
+
+static int32_t clamp_pct(int32_t percent)
 {
     if(percent < 0) return 0;
     if(percent > 100) return 100;
@@ -652,7 +556,6 @@ static void curtain_apply_position(void)
     const int32_t travel = max_panel_w - CURTAIN_OPEN_EDGE_W;
     int32_t closed = 100 - curtain_open_pct;
     int32_t panel_w = CURTAIN_OPEN_EDGE_W + (travel * closed) / 100;
-
     for(size_t i = 0; i < curtain_view_n; ++i) {
         curtain_view_t *v = &curtain_views[i];
         lv_obj_set_width(v->left_shade, panel_w);
@@ -663,9 +566,7 @@ static void curtain_apply_position(void)
 
 static void curtain_anim_exec(void *var, int32_t value)
 {
-    int32_t *percent = (int32_t *)var;
-    *percent = clamp_curtain_pct(value);
-    curtain_apply_position();
+    *(int32_t *)var = clamp_pct(value); curtain_apply_position();
 }
 
 static void curtain_stop_animation(void)
@@ -675,114 +576,151 @@ static void curtain_stop_animation(void)
 
 static void curtain_start_animation(int32_t target)
 {
-    target = clamp_curtain_pct(target);
-    curtain_stop_animation();
+    target = clamp_pct(target); curtain_stop_animation();
     if(target == curtain_open_pct) return;
-
-    int32_t distance = target > curtain_open_pct
-                           ? target - curtain_open_pct
-                           : curtain_open_pct - target;
-    uint32_t duration = 500u + (uint32_t)distance * 45u;
-
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, &curtain_open_pct);
-    lv_anim_set_exec_cb(&a, curtain_anim_exec);
-    lv_anim_set_values(&a, curtain_open_pct, target);
-    lv_anim_set_duration(&a, duration);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-    lv_anim_start(&a);
+    int32_t d = target > curtain_open_pct ? target - curtain_open_pct : curtain_open_pct - target;
+    lv_anim_t a; lv_anim_init(&a); lv_anim_set_var(&a, &curtain_open_pct);
+    lv_anim_set_exec_cb(&a, curtain_anim_exec); lv_anim_set_values(&a, curtain_open_pct, target);
+    lv_anim_set_duration(&a, 500u + (uint32_t)d * 45u);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out); lv_anim_start(&a);
 }
 
 static void curtain_action_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    intptr_t action = (intptr_t)lv_event_get_user_data(e);
-
-    if(action == CURTAIN_ACTION_OPEN) {
-        curtain_start_animation(100);
-    } else if(action == CURTAIN_ACTION_STOP) {
-        curtain_stop_animation();
-    } else if(action == CURTAIN_ACTION_CLOSE) {
-        curtain_start_animation(0);
-    }
-
+    intptr_t a = (intptr_t)lv_event_get_user_data(e);
+    if(a == CURTAIN_ACTION_OPEN) curtain_start_animation(100);
+    else if(a == CURTAIN_ACTION_STOP) curtain_stop_animation();
+    else if(a == CURTAIN_ACTION_CLOSE) curtain_start_animation(0);
     activity();
 }
 
-static lv_obj_t *curtain_button(lv_obj_t *parent,
-                                const char *icon,
-                                int32_t x,
-                                intptr_t action)
+static lv_obj_t *curtain_button(lv_obj_t *parent, const char *icon, int32_t x, intptr_t action)
 {
-    lv_obj_t *button = lv_obj_create(parent);
-    lv_obj_remove_style_all(button);
-    lv_obj_set_pos(button, x, 36);
-    lv_obj_set_size(button, 132, 100);
-    style_btn(button, 24);
-    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, icon);
-    lv_obj_set_style_text_font(label, ILF, 0);
-    lv_obj_set_style_text_color(label, FG, 0);
-    lv_obj_center(label);
-    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_add_event_cb(button,
-                        curtain_action_cb,
-                        LV_EVENT_CLICKED,
-                        (void *)action);
-    return button;
+    lv_obj_t *b = icon_button(parent, icon, x, 36, 132, 100, false, ILF, NULL);
+    lv_obj_set_style_radius(b, 24, 0);
+    lv_obj_add_event_cb(b, curtain_action_cb, LV_EVENT_CLICKED, (void *)action);
+    return b;
 }
 
 static void build_curtain(lv_obj_t *p)
 {
     if(curtain_view_n >= CURTAIN_VIEW_N) return;
-
     curtain_view_t *v = &curtain_views[curtain_view_n++];
     lv_obj_t *pg = page(p);
 
-    v->left_shade = lv_obj_create(pg);
-    lv_obj_remove_style_all(v->left_shade);
-    lv_obj_set_pos(v->left_shade, 0, 0);
-    lv_obj_set_height(v->left_shade, H);
+    v->left_shade = lv_obj_create(pg); lv_obj_remove_style_all(v->left_shade);
+    lv_obj_set_pos(v->left_shade, 0, 0); lv_obj_set_height(v->left_shade, H);
     lv_obj_set_style_bg_color(v->left_shade, CURTAIN_SHADE_OUTER, 0);
     lv_obj_set_style_bg_grad_color(v->left_shade, CURTAIN_SHADE_INNER, 0);
-    lv_obj_set_style_bg_grad_dir(v->left_shade, LV_GRAD_DIR_HOR, 0);
-    lv_obj_set_style_bg_opa(v->left_shade, LV_OPA_40, 0);
+    lv_obj_set_style_bg_grad_dir(v->left_shade, LV_GRAD_DIR_HOR, 0); lv_obj_set_style_bg_opa(v->left_shade, LV_OPA_40, 0);
     lv_obj_clear_flag(v->left_shade, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
-    v->right_shade = lv_obj_create(pg);
-    lv_obj_remove_style_all(v->right_shade);
-    lv_obj_set_pos(v->right_shade, W, 0);
-    lv_obj_set_height(v->right_shade, H);
+    v->right_shade = lv_obj_create(pg); lv_obj_remove_style_all(v->right_shade);
+    lv_obj_set_pos(v->right_shade, W, 0); lv_obj_set_height(v->right_shade, H);
     lv_obj_set_style_bg_color(v->right_shade, CURTAIN_SHADE_INNER, 0);
     lv_obj_set_style_bg_grad_color(v->right_shade, CURTAIN_SHADE_OUTER, 0);
-    lv_obj_set_style_bg_grad_dir(v->right_shade, LV_GRAD_DIR_HOR, 0);
-    lv_obj_set_style_bg_opa(v->right_shade, LV_OPA_40, 0);
+    lv_obj_set_style_bg_grad_dir(v->right_shade, LV_GRAD_DIR_HOR, 0); lv_obj_set_style_bg_opa(v->right_shade, LV_OPA_40, 0);
     lv_obj_clear_flag(v->right_shade, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     v->button[0] = curtain_button(pg, RI_CURTAIN_OPEN, 82, CURTAIN_ACTION_OPEN);
     v->button[1] = curtain_button(pg, RI_CURTAIN_STOP, 254, CURTAIN_ACTION_STOP);
     v->button[2] = curtain_button(pg, RI_CURTAIN_CLOSE, 426, CURTAIN_ACTION_CLOSE);
-
     curtain_apply_position();
 }
 
 void ui_page_devices_set_curtain_position(uint8_t percent)
 {
-    curtain_stop_animation();
-    curtain_open_pct = clamp_curtain_pct(percent);
-    curtain_apply_position();
+    curtain_stop_animation(); curtain_open_pct = clamp_pct(percent); curtain_apply_position();
 }
+
+/* ---------- Drying rack ---------- */
+
+static void drying_apply_position(void)
+{
+    int32_t travel = DRYING_BOTTOM_MAX_Y - DRYING_BOTTOM_MIN_Y;
+    int32_t bottom_y = DRYING_BOTTOM_MIN_Y + (travel * drying_position_pct) / 100;
+    int32_t line_h = bottom_y - DRYING_VERTICAL_Y + 2;
+    if(line_h < 6) line_h = 6;
+
+    for(size_t i = 0; i < drying_view_n; ++i) {
+        drying_view_t *v = &drying_views[i];
+        lv_obj_set_height(v->left_line, line_h);
+        lv_obj_set_height(v->right_line, line_h);
+        lv_obj_set_y(v->bottom_bar, bottom_y);
+    }
+}
+
+static void drying_anim_exec(void *var, int32_t value)
+{
+    *(int32_t *)var = clamp_pct(value); drying_apply_position();
+}
+
+static void drying_stop_animation(void)
+{
+    lv_anim_delete(&drying_position_pct, drying_anim_exec);
+}
+
+static void drying_start_animation(int32_t target)
+{
+    target = clamp_pct(target); drying_stop_animation();
+    if(target == drying_position_pct) return;
+    int32_t d = target > drying_position_pct ? target - drying_position_pct : drying_position_pct - target;
+    lv_anim_t a; lv_anim_init(&a); lv_anim_set_var(&a, &drying_position_pct);
+    lv_anim_set_exec_cb(&a, drying_anim_exec); lv_anim_set_values(&a, drying_position_pct, target);
+    lv_anim_set_duration(&a, 450u + (uint32_t)d * 34u);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out); lv_anim_start(&a);
+}
+
+static void drying_action_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    intptr_t action = (intptr_t)lv_event_get_user_data(e);
+    if(action == DRYING_ACTION_UP) drying_start_animation(0);
+    else if(action == DRYING_ACTION_DOWN) drying_start_animation(100);
+    else if(action == DRYING_ACTION_STOP) drying_stop_animation();
+    activity();
+}
+
+static lv_obj_t *drying_button(lv_obj_t *parent, const char *icon,
+                               int x, int y, int w, int h, intptr_t action)
+{
+    lv_obj_t *b = icon_button(parent, icon, x, y, w, h, false, ILF, NULL);
+    lv_obj_set_style_radius(b, 22, 0);
+    lv_obj_add_event_cb(b, drying_action_cb, LV_EVENT_CLICKED, (void *)action);
+    return b;
+}
+
+static void build_drying(lv_obj_t *p)
+{
+    if(drying_view_n >= DRYING_VIEW_N) return;
+    drying_view_t *v = &drying_views[drying_view_n++];
+    lv_obj_t *pg = page(p);
+
+    v->up_button = drying_button(pg, RI_RACK_UP, 76, 24, 96, 56, DRYING_ACTION_UP);
+    v->down_button = drying_button(pg, RI_RACK_DOWN, 76, 92, 96, 56, DRYING_ACTION_DOWN);
+    v->stop_button = drying_button(pg, RI_RACK_STOP, 468, 24, 112, 124, DRYING_ACTION_STOP);
+
+    /* Minimal rack status graphic: fixed short top bar, two hanging lines,
+     * and a wider moving bottom rail. */
+    v->top_bar = plain_bar(pg, 288, DRYING_TOP_Y, 64, 6, DRYING_LINE_DIM);
+    v->left_line = plain_bar(pg, 303, DRYING_VERTICAL_Y, 5, 12, DRYING_LINE_DIM);
+    v->right_line = plain_bar(pg, 332, DRYING_VERTICAL_Y, 5, 12, DRYING_LINE_DIM);
+    v->bottom_bar = plain_bar(pg, 244, DRYING_BOTTOM_MIN_Y, 152, 7, DRYING_LINE_BRIGHT);
+    drying_apply_position();
+}
+
+void ui_page_devices_set_drying_rack_position(uint8_t percent)
+{
+    drying_stop_animation(); drying_position_pct = clamp_pct(percent); drying_apply_position();
+}
+
+/* ---------- Pager ---------- */
 
 static void normalize(void)
 {
     if(!pager || wrapping) return;
-    int32_t x = lv_obj_get_scroll_x(pager);
-    wrapping = true;
+    int32_t x = lv_obj_get_scroll_x(pager); wrapping = true;
     if(x <= 0) lv_obj_scroll_to_x(pager, PAGE_N * W, LV_ANIM_OFF);
     else if(x >= (PAGE_N + 1) * W) lv_obj_scroll_to_x(pager, W, LV_ANIM_OFF);
     wrapping = false;
@@ -791,18 +729,10 @@ static void normalize(void)
 static void pager_cb(lv_event_t *e)
 {
     lv_event_code_t c = lv_event_get_code(e);
-    if(c == LV_EVENT_PRESSED ||
-       c == LV_EVENT_PRESSING ||
-       c == LV_EVENT_SCROLL_BEGIN ||
-       c == LV_EVENT_SCROLL ||
-       c == LV_EVENT_SCROLL_END ||
-       c == LV_EVENT_RELEASED) {
-        activity();
-    }
-
+    if(c == LV_EVENT_PRESSED || c == LV_EVENT_PRESSING || c == LV_EVENT_SCROLL_BEGIN ||
+       c == LV_EVENT_SCROLL || c == LV_EVENT_SCROLL_END || c == LV_EVENT_RELEASED) activity();
     if(c == LV_EVENT_SCROLL_BEGIN && power_on && center != CENTER_TEMP) {
-        center = CENTER_TEMP;
-        refresh_aircon();
+        center = CENTER_TEMP; refresh_aircon();
     }
     if(c == LV_EVENT_SCROLL_END) normalize();
 }
@@ -811,41 +741,27 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
                                 ui_devices_activity_cb_t cb,
                                 void *ud)
 {
-    acb = cb;
-    aud = ud;
-    wrapping = false;
-    updating = false;
-    aircon_view_n = 0;
-    curtain_view_n = 0;
+    acb = cb; aud = ud; wrapping = false; updating = false;
+    aircon_view_n = 0; curtain_view_n = 0; drying_view_n = 0;
 
-    root = lv_obj_create(parent);
-    lv_obj_remove_style_all(root);
-    lv_obj_set_size(root, W, H);
-    lv_obj_set_style_bg_color(root, BG, 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    root = lv_obj_create(parent); lv_obj_remove_style_all(root);
+    lv_obj_set_size(root, W, H); lv_obj_set_style_bg_color(root, BG, 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0); lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
-    pager = lv_obj_create(root);
-    lv_obj_remove_style_all(pager);
-    lv_obj_set_size(pager, W, H);
-    lv_obj_set_style_bg_color(pager, BG, 0);
-    lv_obj_set_style_bg_opa(pager, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(pager, 0, 0);
-    lv_obj_set_scroll_dir(pager, LV_DIR_HOR);
-    lv_obj_set_scroll_snap_x(pager, LV_SCROLL_SNAP_CENTER);
+    pager = lv_obj_create(root); lv_obj_remove_style_all(pager);
+    lv_obj_set_size(pager, W, H); lv_obj_set_style_bg_color(pager, BG, 0);
+    lv_obj_set_style_bg_opa(pager, LV_OPA_COVER, 0); lv_obj_set_style_pad_all(pager, 0, 0);
+    lv_obj_set_scroll_dir(pager, LV_DIR_HOR); lv_obj_set_scroll_snap_x(pager, LV_SCROLL_SNAP_CENTER);
     lv_obj_add_flag(pager, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ONE);
     lv_obj_set_flex_flow(pager, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(pager,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(pager, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
-    placeholder(pager, page_names[3]);
+    build_drying(pager);              /* loop clone before Air Conditioner */
     build_aircon(pager);
     build_curtain(pager);
     placeholder(pager, page_names[2]);
-    placeholder(pager, page_names[3]);
-    build_aircon(pager);
+    build_drying(pager);
+    build_aircon(pager);              /* loop clone after Drying Rack */
 
     lv_obj_add_event_cb(pager, pager_cb, LV_EVENT_ALL, NULL);
     lv_obj_scroll_to_x(pager, W, LV_ANIM_OFF);
@@ -854,13 +770,8 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
 
 void ui_page_devices_stop(void)
 {
-    curtain_stop_animation();
-    root = NULL;
-    pager = NULL;
-    wrapping = false;
-    updating = false;
-    aircon_view_n = 0;
-    curtain_view_n = 0;
-    acb = NULL;
-    aud = NULL;
+    curtain_stop_animation(); drying_stop_animation();
+    root = NULL; pager = NULL; wrapping = false; updating = false;
+    aircon_view_n = 0; curtain_view_n = 0; drying_view_n = 0;
+    acb = NULL; aud = NULL;
 }
