@@ -264,13 +264,11 @@ static esp_err_t init_lvgl(void)
     lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
     lvgl_port_unlock();
 
+    /* esp_lvgl_port 2.4.x does not yet expose touch scaling. The V2 panel is
+     * already 1:1 after the native-coordinate transform above. */
     const lvgl_port_touch_cfg_t touch_cfg = {
         .disp = s_display,
         .handle = s_touch,
-        .scale = {
-            .x = 1.0f,
-            .y = 1.0f,
-        },
     };
     s_touch_indev = lvgl_port_add_touch(&touch_cfg);
     if (s_touch_indev == NULL) return ESP_ERR_NO_MEM;
