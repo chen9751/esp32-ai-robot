@@ -7,6 +7,8 @@
 
 #define CLOCK_GREEN              lv_color_hex(0x39FF14)
 #define CLOCK_STATUS             lv_color_hex(0xB8B8B8)
+#define CLOCK_LOW                lv_color_hex(0xFF5A5A)
+#define CLOCK_CHARGING           lv_color_hex(0x39FF14)
 #define PIXEL_SIZE               14
 #define PIXEL_STEP               18
 #define DIGIT_W                  ((5 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
@@ -19,6 +21,7 @@ static lv_timer_t *s_clock_timer = NULL;
 static lv_obj_t *s_parent = NULL;
 static int s_last_hour = -1;
 static int s_last_minute = -1;
+static ui_clock_battery_state_t s_battery_state = UI_CLOCK_BATTERY_NORMAL;
 
 static const uint8_t DIGIT_ROWS[10][7] = {
     { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E },
@@ -61,35 +64,60 @@ static void create_pixel(int32_t x, int32_t y)
 static lv_obj_t *create_status_rect(int32_t x,
                                     int32_t y,
                                     int32_t w,
-                                    int32_t h)
+                                    int32_t h,
+                                    lv_color_t color)
 {
     lv_obj_t *obj = lv_obj_create(s_parent);
     lv_obj_remove_style_all(obj);
     lv_obj_set_pos(obj, x, y);
     lv_obj_set_size(obj, w, h);
-    lv_obj_set_style_bg_color(obj, CLOCK_STATUS, 0);
+    lv_obj_set_style_bg_color(obj, color, 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     return obj;
 }
 
-static void draw_battery_icon(void)
+static void draw_battery_outline(int32_t x, int32_t y, lv_color_t color)
 {
-    /*
-     * Remix Icon: Device/battery-line.svg.
-     * The original 24x24 path is represented here as the same rectangular
-     * outline geometry so the clock page stays consistent with the project's
-     * Remix Icon visual language without bundling another complete font.
-     */
-    const int32_t x = UI_SCREEN_W - 42;
+    /* Remix Icon battery-line proportions, reduced for the clock status area. */
+    create_status_rect(x, y, 2, 16, color);
+    create_status_rect(x + 2, y, 22, 2, color);
+    create_status_rect(x + 2, y + 14, 22, 2, color);
+    create_status_rect(x + 24, y, 2, 16, color);
+    create_status_rect(x + 28, y + 4, 3, 8, color);
+}
+
+static void draw_low_battery_icon(void)
+{
+    const int32_t x = 14;
     const int32_t y = 12;
 
-    create_status_rect(x, y, 2, 16);
-    create_status_rect(x + 2, y, 22, 2);
-    create_status_rect(x + 2, y + 14, 22, 2);
-    create_status_rect(x + 24, y, 2, 16);
-    create_status_rect(x + 28, y + 4, 3, 8);
+    draw_battery_outline(x, y, CLOCK_LOW);
+    create_status_rect(x + 5, y + 5, 4, 6, CLOCK_LOW);
+}
+
+static void draw_charging_icon(void)
+{
+    const int32_t x = 14;
+    const int32_t y = 12;
+
+    draw_battery_outline(x, y, CLOCK_CHARGING);
+
+    /* Compact lightning bolt inside the battery body. */
+    create_status_rect(x + 12, y + 3, 3, 5, CLOCK_CHARGING);
+    create_status_rect(x + 9, y + 7, 6, 3, CLOCK_CHARGING);
+    create_status_rect(x + 10, y + 9, 3, 4, CLOCK_CHARGING);
+}
+
+static void draw_battery_status(void)
+{
+    if (s_battery_state == UI_CLOCK_BATTERY_LOW) {
+        draw_low_battery_icon();
+    }
+    else if (s_battery_state == UI_CLOCK_BATTERY_CHARGING) {
+        draw_charging_icon();
+    }
 }
 
 static void draw_digit(uint8_t digit, int32_t x, int32_t y)
@@ -173,12 +201,32 @@ static void redraw_clock(void)
     x += DIGIT_W + DIGIT_GAP;
     draw_digit((uint8_t)(minute % 10), x, y0);
 
-    draw_battery_icon();
+    draw_battery_status();
 }
 
 static void clock_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    redraw_clock();
+}
+
+void ui_page_clock_set_battery_state(ui_clock_battery_state_t state)
+{
+    if (state != UI_CLOCK_BATTERY_NORMAL &&
+        state != UI_CLOCK_BATTERY_LOW &&
+        state != UI_CLOCK_BATTERY_CHARGING) {
+        state = UI_CLOCK_BATTERY_NORMAL;
+    }
+
+    if (s_battery_state == state) {
+        return;
+    }
+
+    s_battery_state = state;
+
+    /* Force an immediate redraw even when the minute has not changed. */
+    s_last_hour = -1;
+    s_last_minute = -1;
     redraw_clock();
 }
 
