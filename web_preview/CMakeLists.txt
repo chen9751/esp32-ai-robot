@@ -47,8 +47,6 @@ add_executable(index
     ../components/ui/ui_icon_robot2.c
     ../components/ui/ui_page_standby.c
     ../components/ui/ui_page_clock.c
-    ../components/ui/ui_page_weather.c
-    ../components/ui/ui_page_calendar.c
     ../components/ui/ui_assets.c
     ../components/ui/ui_asset_remote.c
     ../components/ui/ui_asset_music.c
