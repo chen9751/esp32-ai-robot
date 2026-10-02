@@ -13,7 +13,8 @@ typedef void (*ui_devices_activity_cb_t)(void *user_data);
  * Air Conditioner -> Curtain -> Bath Heater -> Drying Rack.
  *
  * This module owns presentation and paging only. Device/HA transport logic
- * must remain outside the UI layer.
+ * must remain outside the UI layer. Temperature swipe controls internally
+ * direction-lock before changing values so horizontal paging stays isolated.
  *
  * Threading contract: all functions in this module that can touch live LVGL
  * objects must be called from the LVGL/UI thread (or while holding the same
