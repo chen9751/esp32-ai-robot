@@ -52,11 +52,19 @@
  * esp_lvgl_port in software. 64 native rows matches Waveshare's example. */
 #define BOARD_LVGL_DRAW_BUF_PIXELS       (BOARD_LCD_NATIVE_H_RES * 64)
 
-/* Initial touch transform for the project's 640x172 landscape orientation.
- * This is intentionally centralized: if the physical unit shows a mirrored
- * axis during the first hardware integration test, only these flags change. */
-#define BOARD_TOUCH_SWAP_XY             0
+/*
+ * AXS15231B reports the V2 touch panel in its raw 640 x 172 orientation.
+ * Waveshare's own V2 example maps it to the native LCD coordinates as:
+ *     native_x = raw_y
+ *     native_y = 640 - raw_x
+ * esp_lcd_touch applies mirror before swap, therefore mirror-X + swap-XY
+ * reproduces that mapping. LVGL 9.2 then applies the display's 90 degree
+ * rotation to produce the project's final 640 x 172 logical coordinates.
+ */
+#define BOARD_TOUCH_RAW_X_MAX           BOARD_LCD_NATIVE_V_RES
+#define BOARD_TOUCH_RAW_Y_MAX           BOARD_LCD_NATIVE_H_RES
+#define BOARD_TOUCH_SWAP_XY             1
 #define BOARD_TOUCH_MIRROR_X            1
-#define BOARD_TOUCH_MIRROR_Y            1
+#define BOARD_TOUCH_MIRROR_Y            0
 
 #define BOARD_BACKLIGHT_DEFAULT_PERCENT 60
