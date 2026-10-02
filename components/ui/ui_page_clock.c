@@ -1,12 +1,12 @@
 #include "ui_page_clock.h"
 
+#include <stddef.h>
 #include <time.h>
 
 #define UI_SCREEN_W              640
 #define UI_SCREEN_H              172
 
 #define CLOCK_GREEN              lv_color_hex(0x39FF14)
-#define CLOCK_STATUS             lv_color_hex(0xB8B8B8)
 #define CLOCK_LOW                lv_color_hex(0xFF5A5A)
 #define CLOCK_CHARGING           lv_color_hex(0x39FF14)
 #define PIXEL_SIZE               14
@@ -16,12 +16,24 @@
 #define DIGIT_GAP                12
 #define COLON_GAP                22
 #define COLON_W                  PIXEL_SIZE
+#define CLOCK_RECT_POOL_MAX      96
 
 static lv_timer_t *s_clock_timer = NULL;
 static lv_obj_t *s_parent = NULL;
 static int s_last_hour = -1;
 static int s_last_minute = -1;
 static ui_clock_battery_state_t s_battery_state = UI_CLOCK_BATTERY_NORMAL;
+
+/*
+ * The clock used to delete and recreate dozens of LVGL objects every minute.
+ * That looks fine in the web preview but creates avoidable heap churn on a
+ * device expected to stay on for weeks. Keep a small object pool instead:
+ * page entry allocates up to the high-water mark once, minute updates only
+ * reposition/show/hide existing rectangles.
+ */
+static lv_obj_t *s_rect_pool[CLOCK_RECT_POOL_MAX];
+static size_t s_rect_count = 0;
+static size_t s_rect_used = 0;
 
 static const uint8_t DIGIT_ROWS[10][7] = {
     { 0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E },
@@ -46,46 +58,77 @@ void ui_page_clock_stop(void)
     s_parent = NULL;
     s_last_hour = -1;
     s_last_minute = -1;
+    s_rect_count = 0;
+    s_rect_used = 0;
+    for (size_t i = 0; i < CLOCK_RECT_POOL_MAX; ++i) {
+        s_rect_pool[i] = NULL;
+    }
 }
 
-static void create_pixel(int32_t x, int32_t y)
+static lv_obj_t *use_rect(int32_t x,
+                          int32_t y,
+                          int32_t w,
+                          int32_t h,
+                          lv_color_t color,
+                          int32_t radius)
 {
-    lv_obj_t *pixel = lv_obj_create(s_parent);
-    lv_obj_remove_style_all(pixel);
-    lv_obj_set_size(pixel, PIXEL_SIZE, PIXEL_SIZE);
-    lv_obj_set_pos(pixel, x, y);
-    lv_obj_set_style_bg_color(pixel, CLOCK_GREEN, 0);
-    lv_obj_set_style_bg_opa(pixel, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(pixel, 2, 0);
-    lv_obj_clear_flag(pixel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(pixel, LV_OBJ_FLAG_SCROLLABLE);
-}
+    if (s_parent == NULL || s_rect_used >= CLOCK_RECT_POOL_MAX) {
+        return NULL;
+    }
 
-static lv_obj_t *create_status_rect(int32_t x,
-                                    int32_t y,
-                                    int32_t w,
-                                    int32_t h,
-                                    lv_color_t color)
-{
-    lv_obj_t *obj = lv_obj_create(s_parent);
-    lv_obj_remove_style_all(obj);
+    lv_obj_t *obj = NULL;
+    if (s_rect_used < s_rect_count) {
+        obj = s_rect_pool[s_rect_used];
+    }
+    else {
+        obj = lv_obj_create(s_parent);
+        if (obj == NULL) {
+            return NULL;
+        }
+        lv_obj_remove_style_all(obj);
+        lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+        s_rect_pool[s_rect_count++] = obj;
+    }
+
+    ++s_rect_used;
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_pos(obj, x, y);
     lv_obj_set_size(obj, w, h);
     lv_obj_set_style_bg_color(obj, color, 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(obj, radius, 0);
     return obj;
+}
+
+static void finish_rect_frame(void)
+{
+    for (size_t i = s_rect_used; i < s_rect_count; ++i) {
+        lv_obj_add_flag(s_rect_pool[i], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void draw_pixel(int32_t x, int32_t y)
+{
+    (void)use_rect(x, y, PIXEL_SIZE, PIXEL_SIZE, CLOCK_GREEN, 2);
+}
+
+static void draw_status_rect(int32_t x,
+                             int32_t y,
+                             int32_t w,
+                             int32_t h,
+                             lv_color_t color)
+{
+    (void)use_rect(x, y, w, h, color, 0);
 }
 
 static void draw_battery_outline(int32_t x, int32_t y, lv_color_t color)
 {
-    /* Remix Icon battery-line proportions, reduced for the clock status area. */
-    create_status_rect(x, y, 2, 16, color);
-    create_status_rect(x + 2, y, 22, 2, color);
-    create_status_rect(x + 2, y + 14, 22, 2, color);
-    create_status_rect(x + 24, y, 2, 16, color);
-    create_status_rect(x + 28, y + 4, 3, 8, color);
+    draw_status_rect(x, y, 2, 16, color);
+    draw_status_rect(x + 2, y, 22, 2, color);
+    draw_status_rect(x + 2, y + 14, 22, 2, color);
+    draw_status_rect(x + 24, y, 2, 16, color);
+    draw_status_rect(x + 28, y + 4, 3, 8, color);
 }
 
 static void draw_low_battery_icon(void)
@@ -94,7 +137,7 @@ static void draw_low_battery_icon(void)
     const int32_t y = 12;
 
     draw_battery_outline(x, y, CLOCK_LOW);
-    create_status_rect(x + 5, y + 5, 4, 6, CLOCK_LOW);
+    draw_status_rect(x + 5, y + 5, 4, 6, CLOCK_LOW);
 }
 
 static void draw_charging_icon(void)
@@ -103,11 +146,9 @@ static void draw_charging_icon(void)
     const int32_t y = 12;
 
     draw_battery_outline(x, y, CLOCK_CHARGING);
-
-    /* Compact lightning bolt inside the battery body. */
-    create_status_rect(x + 12, y + 3, 3, 5, CLOCK_CHARGING);
-    create_status_rect(x + 9, y + 7, 6, 3, CLOCK_CHARGING);
-    create_status_rect(x + 10, y + 9, 3, 4, CLOCK_CHARGING);
+    draw_status_rect(x + 12, y + 3, 3, 5, CLOCK_CHARGING);
+    draw_status_rect(x + 9, y + 7, 6, 3, CLOCK_CHARGING);
+    draw_status_rect(x + 10, y + 9, 3, 4, CLOCK_CHARGING);
 }
 
 static void draw_battery_status(void)
@@ -127,11 +168,11 @@ static void draw_digit(uint8_t digit, int32_t x, int32_t y)
     }
 
     for (int row = 0; row < 7; ++row) {
-        uint8_t bits = DIGIT_ROWS[digit][row];
+        const uint8_t bits = DIGIT_ROWS[digit][row];
         for (int col = 0; col < 5; ++col) {
             if (bits & (1u << (4 - col))) {
-                create_pixel(x + col * PIXEL_STEP,
-                             y + row * PIXEL_STEP);
+                draw_pixel(x + col * PIXEL_STEP,
+                           y + row * PIXEL_STEP);
             }
         }
     }
@@ -139,8 +180,8 @@ static void draw_digit(uint8_t digit, int32_t x, int32_t y)
 
 static void draw_colon(int32_t x, int32_t y)
 {
-    create_pixel(x, y + 2 * PIXEL_STEP);
-    create_pixel(x, y + 4 * PIXEL_STEP);
+    draw_pixel(x, y + 2 * PIXEL_STEP);
+    draw_pixel(x, y + 4 * PIXEL_STEP);
 }
 
 static void read_clock(int *hour12, int *minute)
@@ -154,7 +195,7 @@ static void read_clock(int *hour12, int *minute)
         return;
     }
 
-    int h = local_tm.tm_hour % 12;
+    const int h = local_tm.tm_hour % 12;
     *hour12 = (h == 0) ? 12 : h;
     *minute = local_tm.tm_min;
 }
@@ -175,7 +216,7 @@ static void redraw_clock(void)
 
     s_last_hour = hour12;
     s_last_minute = minute;
-    lv_obj_clean(s_parent);
+    s_rect_used = 0;
 
     const int hour_digits = (hour12 >= 10) ? 2 : 1;
     const int hour_w = hour_digits * DIGIT_W + (hour_digits - 1) * DIGIT_GAP;
@@ -202,6 +243,7 @@ static void redraw_clock(void)
     draw_digit((uint8_t)(minute % 10), x, y0);
 
     draw_battery_status();
+    finish_rect_frame();
 }
 
 static void clock_timer_cb(lv_timer_t *timer)
