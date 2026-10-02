@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 84 px
  * Bpp: 4
- * Opts: --font /tmp/tmp.nw2Ogq7Tck/SourceHanSansSC-Normal.otf --symbols 0123456789.° --size 84 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_devices_temp_84 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_devices_temp_84.c
+ * Opts: --font /tmp/tmp.yCxDQaq9nY/SourceHanSansSC-Normal.otf --symbols 0123456789.° --size 84 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_devices_temp_84 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_devices_temp_84.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
