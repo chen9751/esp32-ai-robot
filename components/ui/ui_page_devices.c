@@ -717,6 +717,12 @@ static void refresh_bath(void)
     }
 }
 
+static void bath_clear_modes(void)
+{
+    bath_speed[0] = bath_speed[1] = bath_speed[2] = 0;
+    bath_dry_on = false;
+}
+
 static void bath_function_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
@@ -724,12 +730,15 @@ static void bath_function_cb(lv_event_t *e)
     if(fn < 0 || fn > 3) return;
 
     if(fn == BATH_DRY) {
-        bath_dry_on = !bath_dry_on;
+        bool was_dry = bath_dry_on;
+        bath_clear_modes();
+        bath_dry_on = !was_dry;
     } else {
-        uint8_t *level = &bath_speed[fn];
-        if(*level == 0) *level = 1;
-        else *level = (*level == 1) ? 2 : 1;
+        uint8_t old_level = bath_speed[fn];
+        bath_clear_modes();
+        bath_speed[fn] = old_level == 0 ? 1 : (old_level == 1 ? 2 : 1);
     }
+
     refresh_bath();
     activity();
 }
@@ -737,8 +746,7 @@ static void bath_function_cb(lv_event_t *e)
 static void bath_stop_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    bath_speed[0] = bath_speed[1] = bath_speed[2] = 0;
-    bath_dry_on = false;
+    bath_clear_modes();
     refresh_bath();
     activity();
 }
@@ -808,18 +816,18 @@ static void build_bath(lv_obj_t *p)
     lv_obj_add_event_cb(v->temp_gesture, bath_temp_cb, LV_EVENT_RELEASED, NULL);
     lv_obj_add_event_cb(v->temp_gesture, bath_temp_cb, LV_EVENT_PRESS_LOST, NULL);
 
-    const int bx[2] = { 370, 466 };
-    const int by[2] = { 20, 72 };
+    const int bx[2] = { 336, 426 };
+    const int by[2] = { 34, 92 };
     for(int i = 0; i < 4; ++i) {
         int col = i & 1;
         int row = i >> 1;
-        v->function_btn[i] = ibtn(pg, bath_icons[i], bx[col], by[row], 82, 42, false, NULL);
+        v->function_btn[i] = ibtn(pg, bath_icons[i], bx[col], by[row], 80, 48, false, NULL);
         lv_obj_set_style_radius(v->function_btn[i], 16, 0);
         lv_obj_add_event_cb(v->function_btn[i], bath_function_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
 
-    v->stop_btn = ibtn(pg, RI_BATH_STOP, 370, 124, 178, 34, false, &v->stop_icon);
-    lv_obj_set_style_radius(v->stop_btn, 16, 0);
+    v->stop_btn = ibtn(pg, RI_BATH_STOP, 526, 34, 82, 106, false, &v->stop_icon);
+    lv_obj_set_style_radius(v->stop_btn, 20, 0);
     lv_obj_set_style_bg_color(v->stop_btn, BATH_STOP_BG, 0);
     lv_obj_set_style_bg_grad_color(v->stop_btn, BATH_STOP_BG2, 0);
     lv_obj_set_style_border_color(v->stop_btn, BATH_STOP_BR, 0);
