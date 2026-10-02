@@ -30,6 +30,10 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
  * `percent` is opening percentage: 0 = fully closed, 100 = fully open. */
 void ui_page_devices_set_curtain_position(uint8_t percent);
 
+/* Update the Drying Rack page from external device/HA state.
+ * `percent` is vertical travel: 0 = top, 100 = lowest visual position. */
+void ui_page_devices_set_drying_rack_position(uint8_t percent);
+
 void ui_page_devices_stop(void);
 
 #ifdef __cplusplus
