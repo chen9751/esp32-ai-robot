@@ -2,23 +2,33 @@
 #include "board_config.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
+#include "esp_io_expander.h"
+#include "esp_io_expander_tca9554.h"
 #include "esp_lcd_axs15231b.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
+#include "esp_lcd_touch.h"
 #include "esp_log.h"
-#include "esp_lvgl_port.h"
-#include "esp_io_expander.h"
-#include "esp_io_expander_tca9554.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 
 static const char *TAG = "board";
+
+#define LVGL_TICK_PERIOD_MS     5
+#define LVGL_TASK_MIN_DELAY_MS  5
+#define LVGL_TASK_MAX_DELAY_MS  100
+#define LVGL_TASK_STACK_SIZE    (8 * 1024)
+#define LVGL_TASK_PRIORITY      4
 
 static i2c_master_bus_handle_t s_system_i2c = NULL;
 static i2c_master_bus_handle_t s_touch_i2c = NULL;
@@ -30,13 +40,23 @@ static esp_lcd_touch_handle_t s_touch = NULL;
 static lv_display_t *s_display = NULL;
 static lv_indev_t *s_touch_indev = NULL;
 
+static SemaphoreHandle_t s_lvgl_mutex = NULL;
+static SemaphoreHandle_t s_flush_done = NULL;
+static esp_timer_handle_t s_lvgl_tick_timer = NULL;
+static TaskHandle_t s_lvgl_task = NULL;
+
+static uint8_t *s_frame_buffer_1 = NULL;
+static uint8_t *s_frame_buffer_2 = NULL;
+static uint8_t *s_rotate_buffer = NULL;
+static uint16_t *s_dma_buffer = NULL;
+
 static bool s_lvgl_started = false;
 static bool s_display_ready = false;
 static bool s_backlight_ready = false;
 static uint8_t s_backlight_percent = 0;
 
-/* Waveshare's V2 LVGL example performs a hardware reset through TCA9554 and
- * then sends only sleep-out/display-on as panel-specific init commands. */
+/* Waveshare's V2 example performs hardware reset through TCA9554 and then
+ * supplies sleep-out/display-on as the AXS15231B custom initialization list. */
 static const axs15231b_lcd_init_cmd_t s_lcd_init_cmds[] = {
     {0x11, NULL, 0, 100},
     {0x29, NULL, 0, 100},
@@ -111,11 +131,9 @@ static esp_err_t init_io_expander(void)
     err = esp_io_expander_set_dir(s_io_expander, outputs, IO_EXPANDER_OUTPUT);
     if (err != ESP_OK) return err;
 
-    /* Keep the panel dark while UI objects are being created. */
     err = esp_io_expander_set_level(s_io_expander, BOARD_EXIO_PIN_BL_EN, 0);
     if (err != ESP_OK) return err;
 
-    /* The battery-power example keeps SYS_EN asserted while the product is on. */
     err = esp_io_expander_set_level(s_io_expander, BOARD_EXIO_PIN_SYS_EN, 1);
     if (err != ESP_OK) return err;
 
@@ -141,6 +159,21 @@ static esp_err_t reset_lcd(void)
     return ESP_OK;
 }
 
+static bool lcd_color_transfer_done(esp_lcd_panel_io_handle_t panel_io,
+                                    esp_lcd_panel_io_event_data_t *edata,
+                                    void *user_ctx)
+{
+    (void)panel_io;
+    (void)edata;
+    (void)user_ctx;
+
+    BaseType_t high_task_awoken = pdFALSE;
+    if (s_flush_done != NULL) {
+        xSemaphoreGiveFromISR(s_flush_done, &high_task_awoken);
+    }
+    return high_task_awoken == pdTRUE;
+}
+
 static esp_err_t init_lcd_panel(void)
 {
     const spi_bus_config_t bus_cfg = AXS15231B_PANEL_BUS_QSPI_CONFIG(
@@ -149,13 +182,15 @@ static esp_err_t init_lcd_panel(void)
         BOARD_LCD_PIN_DATA1,
         BOARD_LCD_PIN_DATA2,
         BOARD_LCD_PIN_DATA3,
-        BOARD_LCD_NATIVE_H_RES * 64 * sizeof(uint16_t));
+        BOARD_LCD_DMA_BYTES);
 
     esp_err_t err = spi_bus_initialize(BOARD_LCD_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) return err;
 
     const esp_lcd_panel_io_spi_config_t io_cfg =
-        AXS15231B_PANEL_IO_QSPI_CONFIG(BOARD_LCD_PIN_CS, NULL, NULL);
+        AXS15231B_PANEL_IO_QSPI_CONFIG(BOARD_LCD_PIN_CS,
+                                      lcd_color_transfer_done,
+                                      NULL);
     err = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)BOARD_LCD_HOST,
                                    &io_cfg,
                                    &s_lcd_io);
@@ -197,8 +232,6 @@ static esp_err_t init_touch(void)
     if (err != ESP_OK) return err;
 
     const esp_lcd_touch_config_t touch_cfg = {
-        /* These maxima describe the controller's raw orientation. The flags
-         * below first map it into the LCD's native 172x640 coordinates. */
         .x_max = BOARD_TOUCH_RAW_X_MAX,
         .y_max = BOARD_TOUCH_RAW_Y_MAX,
         .rst_gpio_num = -1,
@@ -217,62 +250,209 @@ static esp_err_t init_touch(void)
     return esp_lcd_touch_new_i2c_axs15231b(s_touch_io, &touch_cfg, &s_touch);
 }
 
+static void lvgl_tick_cb(void *arg)
+{
+    (void)arg;
+    lv_tick_inc(LVGL_TICK_PERIOD_MS);
+}
+
+static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    (void)indev;
+
+    uint16_t x = 0;
+    uint16_t y = 0;
+    uint8_t point_count = 0;
+
+    esp_err_t err = esp_lcd_touch_read_data(s_touch);
+    if (err != ESP_OK) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+
+    const bool pressed = esp_lcd_touch_get_coordinates(s_touch,
+                                                        &x,
+                                                        &y,
+                                                        NULL,
+                                                        &point_count,
+                                                        1);
+    if (pressed && point_count > 0) {
+        /* x/y are native 172x640 here. LVGL 9.2 rotates pointer coordinates
+         * together with the associated display, yielding logical 640x172. */
+        data->point.x = x;
+        data->point.y = y;
+        data->state = LV_INDEV_STATE_PRESSED;
+    }
+    else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+}
+
+static void display_flush_cb(lv_display_t *display,
+                             const lv_area_t *area,
+                             uint8_t *color_map)
+{
+    if (s_lcd_panel == NULL || s_dma_buffer == NULL || s_rotate_buffer == NULL) {
+        lv_display_flush_ready(display);
+        return;
+    }
+
+    /* FULL render mode guarantees one complete logical frame. AXS15231B QSPI
+     * writes are sequential, so partial invalidated rectangles must never be
+     * sent directly to the panel. */
+    const int32_t logical_width = lv_area_get_width(area);
+    const int32_t logical_height = lv_area_get_height(area);
+    const uint32_t pixel_count = (uint32_t)logical_width * (uint32_t)logical_height;
+
+    lv_draw_sw_rgb565_swap(color_map, pixel_count);
+
+    lv_area_t native_area = *area;
+    lv_display_rotate_area(display, &native_area);
+
+    const lv_color_format_t color_format = lv_display_get_color_format(display);
+    const uint32_t source_stride = lv_draw_buf_width_to_stride(logical_width,
+                                                                color_format);
+    const uint32_t native_stride = lv_draw_buf_width_to_stride(
+        lv_area_get_width(&native_area), color_format);
+
+    lv_draw_sw_rotate(color_map,
+                      s_rotate_buffer,
+                      logical_width,
+                      logical_height,
+                      source_stride,
+                      native_stride,
+                      lv_display_get_rotation(display),
+                      color_format);
+
+    /* Drain a stale completion token if a previous aborted flush left one. */
+    while (xSemaphoreTake(s_flush_done, 0) == pdTRUE) {
+    }
+
+    const uint16_t *native_pixels = (const uint16_t *)s_rotate_buffer;
+    const size_t pixels_per_chunk = BOARD_LCD_DMA_BYTES / sizeof(uint16_t);
+
+    for (int chunk = 0; chunk < BOARD_LCD_DMA_CHUNKS; ++chunk) {
+        memcpy(s_dma_buffer,
+               native_pixels + ((size_t)chunk * pixels_per_chunk),
+               BOARD_LCD_DMA_BYTES);
+
+        const int y_start = chunk * BOARD_LCD_DMA_ROWS;
+        const int y_end = y_start + BOARD_LCD_DMA_ROWS;
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_lcd_panel,
+                                                   0,
+                                                   y_start,
+                                                   BOARD_LCD_NATIVE_H_RES,
+                                                   y_end,
+                                                   s_dma_buffer);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "LCD flush chunk %d failed: %s",
+                     chunk, esp_err_to_name(err));
+            break;
+        }
+
+        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
+            ESP_LOGE(TAG, "LCD flush chunk %d timed out", chunk);
+            break;
+        }
+    }
+
+    lv_display_flush_ready(display);
+}
+
+static void lvgl_task(void *arg)
+{
+    (void)arg;
+
+    for (;;) {
+        uint32_t delay_ms = LVGL_TASK_MAX_DELAY_MS;
+        if (board_display_lock(0)) {
+            delay_ms = lv_timer_handler();
+            board_display_unlock();
+        }
+
+        if (delay_ms < LVGL_TASK_MIN_DELAY_MS) {
+            delay_ms = LVGL_TASK_MIN_DELAY_MS;
+        }
+        else if (delay_ms > LVGL_TASK_MAX_DELAY_MS) {
+            delay_ms = LVGL_TASK_MAX_DELAY_MS;
+        }
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+}
+
 static esp_err_t init_lvgl(void)
 {
-    lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
-    /* UI pages and transitions create a fair number of LVGL objects. Keep a
-     * little more headroom than the port default without moving the task stack
-     * into PSRAM. */
-    port_cfg.task_stack = 8192;
-    port_cfg.task_priority = 4;
-    port_cfg.task_max_sleep_ms = 100;
+    s_lvgl_mutex = xSemaphoreCreateMutex();
+    s_flush_done = xSemaphoreCreateBinary();
+    if (s_lvgl_mutex == NULL || s_flush_done == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
 
-    esp_err_t err = lvgl_port_init(&port_cfg);
-    if (err != ESP_OK) return err;
-    s_lvgl_started = true;
+    s_frame_buffer_1 = heap_caps_malloc(BOARD_LCD_FRAME_BYTES,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_frame_buffer_2 = heap_caps_malloc(BOARD_LCD_FRAME_BYTES,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_rotate_buffer = heap_caps_malloc(BOARD_LCD_FRAME_BYTES,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_dma_buffer = heap_caps_malloc(BOARD_LCD_DMA_BYTES,
+                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (s_frame_buffer_1 == NULL ||
+        s_frame_buffer_2 == NULL ||
+        s_rotate_buffer == NULL ||
+        s_dma_buffer == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
 
-    const lvgl_port_display_cfg_t display_cfg = {
-        .io_handle = s_lcd_io,
-        .panel_handle = s_lcd_panel,
-        .buffer_size = BOARD_LVGL_DRAW_BUF_PIXELS,
-        .double_buffer = true,
-        .hres = BOARD_LCD_NATIVE_H_RES,
-        .vres = BOARD_LCD_NATIVE_V_RES,
-        .monochrome = false,
-        .rotation = {
-            .swap_xy = false,
-            .mirror_x = false,
-            .mirror_y = false,
-        },
-        .color_format = LV_COLOR_FORMAT_RGB565,
-        .flags = {
-            .buff_dma = true,
-            .buff_spiram = false,
-            .sw_rotate = true,
-            .swap_bytes = true,
-            .full_refresh = false,
-            .direct_mode = false,
-        },
-    };
+    lv_init();
 
-    s_display = lvgl_port_add_disp(&display_cfg);
+    s_display = lv_display_create(BOARD_LCD_NATIVE_H_RES,
+                                  BOARD_LCD_NATIVE_V_RES);
     if (s_display == NULL) return ESP_ERR_NO_MEM;
 
-    /* The physical panel remains 172x640; this is the single rotation point
-     * that exposes the project's 640x172 logical canvas to every UI page. */
-    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    lv_display_set_color_format(s_display, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_flush_cb(s_display, display_flush_cb);
+    lv_display_set_buffers(s_display,
+                           s_frame_buffer_1,
+                           s_frame_buffer_2,
+                           BOARD_LCD_FRAME_BYTES,
+                           LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
-    lvgl_port_unlock();
 
-    /* esp_lvgl_port 2.4.x does not yet expose touch scaling. The V2 panel is
-     * already 1:1 after the native-coordinate transform above. */
-    const lvgl_port_touch_cfg_t touch_cfg = {
-        .disp = s_display,
-        .handle = s_touch,
-    };
-    s_touch_indev = lvgl_port_add_touch(&touch_cfg);
+    s_touch_indev = lv_indev_create();
     if (s_touch_indev == NULL) return ESP_ERR_NO_MEM;
+    lv_indev_set_type(s_touch_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(s_touch_indev, touch_read_cb);
+    lv_indev_set_display(s_touch_indev, s_display);
 
+    const esp_timer_create_args_t tick_args = {
+        .callback = lvgl_tick_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "lvgl_tick",
+        .skip_unhandled_events = true,
+    };
+    esp_err_t err = esp_timer_create(&tick_args, &s_lvgl_tick_timer);
+    if (err != ESP_OK) return err;
+    err = esp_timer_start_periodic(s_lvgl_tick_timer,
+                                   LVGL_TICK_PERIOD_MS * 1000ULL);
+    if (err != ESP_OK) return err;
+
+    s_lvgl_started = true;
+    if (xTaskCreate(lvgl_task,
+                    "lvgl",
+                    LVGL_TASK_STACK_SIZE,
+                    NULL,
+                    LVGL_TASK_PRIORITY,
+                    &s_lvgl_task) != pdPASS) {
+        s_lvgl_started = false;
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG,
+             "LVGL full-frame runtime: 2x%u-byte render + %u-byte rotate + %u-byte DMA",
+             (unsigned)BOARD_LCD_FRAME_BYTES,
+             (unsigned)BOARD_LCD_FRAME_BYTES,
+             (unsigned)BOARD_LCD_DMA_BYTES);
     return ESP_OK;
 }
 
@@ -282,8 +462,10 @@ esp_err_t board_init(void)
 
     ESP_LOGI(TAG, "Waveshare ESP32-S3-Touch-LCD-3.49 V2 init");
     ESP_LOGI(TAG, "panel %dx%d -> UI %dx%d",
-             BOARD_LCD_NATIVE_H_RES, BOARD_LCD_NATIVE_V_RES,
-             BOARD_UI_H_RES, BOARD_UI_V_RES);
+             BOARD_LCD_NATIVE_H_RES,
+             BOARD_LCD_NATIVE_V_RES,
+             BOARD_UI_H_RES,
+             BOARD_UI_V_RES);
 
     esp_err_t err = init_backlight_pwm();
     if (err != ESP_OK) goto fail;
@@ -297,6 +479,13 @@ esp_err_t board_init(void)
     err = init_io_expander();
     if (err != ESP_OK) goto fail;
 
+    /* Create the transfer semaphore before panel IO registers its callback. */
+    s_flush_done = xSemaphoreCreateBinary();
+    if (s_flush_done == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+
     err = init_lcd_panel();
     if (err != ESP_OK) goto fail;
 
@@ -309,11 +498,87 @@ esp_err_t board_init(void)
     err = init_touch();
     if (err != ESP_OK) goto fail;
 
-    err = init_lvgl();
+    /* init_lvgl reuses the flush semaphore created before panel IO setup. */
+    s_lvgl_mutex = xSemaphoreCreateMutex();
+    if (s_lvgl_mutex == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+
+    s_frame_buffer_1 = heap_caps_malloc(BOARD_LCD_FRAME_BYTES,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_frame_buffer_2 = heap_caps_malloc(BOARD_LCD_FRAME_BYTES,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_rotate_buffer = heap_caps_malloc(BOARD_LCD_FRAME_BYTES,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_dma_buffer = heap_caps_malloc(BOARD_LCD_DMA_BYTES,
+                                    MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    if (s_frame_buffer_1 == NULL ||
+        s_frame_buffer_2 == NULL ||
+        s_rotate_buffer == NULL ||
+        s_dma_buffer == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+
+    lv_init();
+    s_display = lv_display_create(BOARD_LCD_NATIVE_H_RES,
+                                  BOARD_LCD_NATIVE_V_RES);
+    if (s_display == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+    lv_display_set_color_format(s_display, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_flush_cb(s_display, display_flush_cb);
+    lv_display_set_buffers(s_display,
+                           s_frame_buffer_1,
+                           s_frame_buffer_2,
+                           BOARD_LCD_FRAME_BYTES,
+                           LV_DISPLAY_RENDER_MODE_FULL);
+    lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
+
+    s_touch_indev = lv_indev_create();
+    if (s_touch_indev == NULL) {
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+    lv_indev_set_type(s_touch_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(s_touch_indev, touch_read_cb);
+    lv_indev_set_display(s_touch_indev, s_display);
+
+    const esp_timer_create_args_t tick_args = {
+        .callback = lvgl_tick_cb,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "lvgl_tick",
+        .skip_unhandled_events = true,
+    };
+    err = esp_timer_create(&tick_args, &s_lvgl_tick_timer);
+    if (err != ESP_OK) goto fail;
+    err = esp_timer_start_periodic(s_lvgl_tick_timer,
+                                   LVGL_TICK_PERIOD_MS * 1000ULL);
     if (err != ESP_OK) goto fail;
 
+    s_lvgl_started = true;
+    if (xTaskCreate(lvgl_task,
+                    "lvgl",
+                    LVGL_TASK_STACK_SIZE,
+                    NULL,
+                    LVGL_TASK_PRIORITY,
+                    &s_lvgl_task) != pdPASS) {
+        s_lvgl_started = false;
+        err = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+
     s_display_ready = true;
-    ESP_LOGI(TAG, "display/touch/LVGL runtime ready; backlight remains off");
+    ESP_LOGI(TAG,
+             "display/touch/LVGL ready: FULL render, 90deg software rotation; backlight off");
+    ESP_LOGI(TAG,
+             "LVGL buffers: 2x%u frame + %u rotate + %u DMA bytes",
+             (unsigned)BOARD_LCD_FRAME_BYTES,
+             (unsigned)BOARD_LCD_FRAME_BYTES,
+             (unsigned)BOARD_LCD_DMA_BYTES);
     return ESP_OK;
 
 fail:
@@ -329,13 +594,18 @@ bool board_display_ready(void)
 
 bool board_display_lock(uint32_t timeout_ms)
 {
-    if (!s_lvgl_started) return false;
-    return lvgl_port_lock(timeout_ms);
+    if (!s_lvgl_started || s_lvgl_mutex == NULL) return false;
+    const TickType_t wait_ticks = timeout_ms == 0
+                                      ? portMAX_DELAY
+                                      : pdMS_TO_TICKS(timeout_ms);
+    return xSemaphoreTake(s_lvgl_mutex, wait_ticks) == pdTRUE;
 }
 
 void board_display_unlock(void)
 {
-    if (s_lvgl_started) lvgl_port_unlock();
+    if (s_lvgl_mutex != NULL) {
+        xSemaphoreGive(s_lvgl_mutex);
+    }
 }
 
 esp_err_t board_backlight_set_percent(uint8_t percent)
