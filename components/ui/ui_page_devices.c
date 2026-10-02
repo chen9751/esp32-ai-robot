@@ -58,6 +58,7 @@
 #define BATH_TMAX_X10 310
 #define BATH_TSTEP_X10 5
 #define BATH_DRAG_STEP 12
+#define GESTURE_LOCK_PX 6
 
 #define RI_POWER         "\xEF\x84\xA6" /* ri-shut-down-line U+F126 */
 #define RI_COOL          "\xEF\x94\x92" /* ri-snowflake-line U+F512 */
@@ -93,6 +94,7 @@ LV_FONT_DECLARE(ui_font_remix_devices_56);
 
 typedef struct { lv_obj_t *seg[7]; } digit_t;
 typedef enum { CENTER_TEMP, CENTER_MODE, CENTER_FAN } center_t;
+typedef enum { GESTURE_PENDING, GESTURE_VERTICAL, GESTURE_HORIZONTAL } gesture_axis_t;
 
 typedef struct {
     lv_obj_t *power, *power_i, *mode, *mode_i, *swing, *swing_i, *fan, *fan_i;
@@ -155,7 +157,9 @@ static int temp2 = 48;
 static int fan_speed = 4;
 static bool fan_auto;
 static center_t center = CENTER_TEMP;
+static int32_t temp_x;
 static int32_t temp_y;
+static gesture_axis_t temp_axis = GESTURE_PENDING;
 
 static curtain_view_t curtain_views[CURTAIN_VIEW_N];
 static size_t curtain_view_n;
@@ -168,7 +172,9 @@ static uint8_t bath_speed[3]; /* Ventilation, blower and warm air: 0 off, 1 low,
 static bool bath_dry_on;
 static int32_t bath_target_x10 = 260;
 static int32_t bath_current_x10 = 240;
+static int32_t bath_temp_x;
 static int32_t bath_temp_y;
+static gesture_axis_t bath_temp_axis = GESTURE_PENDING;
 
 static drying_view_t drying_views[DRYING_VIEW_N];
 static size_t drying_view_n;
@@ -178,6 +184,11 @@ static int32_t drying_position_pct = 56;
 static void activity(void)
 {
     if(acb) acb(aud);
+}
+
+static int32_t iabs32(int32_t v)
+{
+    return v < 0 ? -v : v;
 }
 
 static void hidden(lv_obj_t *o, bool h)
@@ -381,6 +392,8 @@ static void refresh_aircon(void)
             checked(v->mode_b[j], mode_idx == (uint8_t)j);
             enabled(v->feat[j], power_on);
             enabled(v->mode_b[j], sm);
+            lv_obj_t *feat_label = lv_obj_get_child(v->feat[j], 0);
+            if(feat_label) lv_obj_set_style_text_color(feat_label, power_on ? FG : DIM, 0);
         }
         enabled(v->mode, power_on);
         enabled(v->swing, power_on);
@@ -458,18 +471,55 @@ static void temp_cb(lv_event_t *e)
     if(!i) return;
     lv_event_code_t c = lv_event_get_code(e);
     lv_point_t p; lv_indev_get_point(i, &p);
-    if(c == LV_EVENT_PRESSED) { temp_y = p.y; activity(); return; }
+
+    if(c == LV_EVENT_PRESSED) {
+        temp_x = p.x;
+        temp_y = p.y;
+        temp_axis = GESTURE_PENDING;
+        activity();
+        return;
+    }
+
     if(c == LV_EVENT_PRESSING) {
-        int32_t dy = p.y - temp_y; bool ch = false;
+        int32_t dx = p.x - temp_x;
+        int32_t dy = p.y - temp_y;
+
+        if(temp_axis == GESTURE_PENDING) {
+            int32_t ax = iabs32(dx);
+            int32_t ay = iabs32(dy);
+            if(ax < GESTURE_LOCK_PX && ay < GESTURE_LOCK_PX) {
+                activity();
+                return;
+            }
+            if(ax > ay) {
+                temp_axis = GESTURE_HORIZONTAL;
+                activity();
+                return;
+            }
+            temp_axis = GESTURE_VERTICAL;
+        }
+
+        if(temp_axis == GESTURE_HORIZONTAL) {
+            activity();
+            return;
+        }
+
+        bool ch = false;
         while(dy <= -TSTEP && temp2 < TMAX) {
             ++temp2; temp_y -= TSTEP; dy += TSTEP; ch = true;
         }
         while(dy >= TSTEP && temp2 > TMIN) {
             --temp2; temp_y += TSTEP; dy -= TSTEP; ch = true;
         }
-        if(ch) refresh_aircon(); activity(); return;
+        if(ch) refresh_aircon();
+        activity();
+        return;
     }
-    if(c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) activity();
+
+    if(c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) {
+        temp_axis = GESTURE_PENDING;
+        activity();
+    }
 }
 
 static void auto_cb(lv_event_t *e)
@@ -761,12 +811,37 @@ static void bath_temp_cb(lv_event_t *e)
     lv_indev_get_point(indev, &p);
 
     if(code == LV_EVENT_PRESSED) {
+        bath_temp_x = p.x;
         bath_temp_y = p.y;
+        bath_temp_axis = GESTURE_PENDING;
         activity();
         return;
     }
+
     if(code == LV_EVENT_PRESSING) {
+        int32_t dx = p.x - bath_temp_x;
         int32_t dy = p.y - bath_temp_y;
+
+        if(bath_temp_axis == GESTURE_PENDING) {
+            int32_t ax = iabs32(dx);
+            int32_t ay = iabs32(dy);
+            if(ax < GESTURE_LOCK_PX && ay < GESTURE_LOCK_PX) {
+                activity();
+                return;
+            }
+            if(ax > ay) {
+                bath_temp_axis = GESTURE_HORIZONTAL;
+                activity();
+                return;
+            }
+            bath_temp_axis = GESTURE_VERTICAL;
+        }
+
+        if(bath_temp_axis == GESTURE_HORIZONTAL) {
+            activity();
+            return;
+        }
+
         bool changed = false;
         while(dy <= -BATH_DRAG_STEP && bath_target_x10 < BATH_TMAX_X10) {
             bath_target_x10 += BATH_TSTEP_X10;
@@ -784,7 +859,11 @@ static void bath_temp_cb(lv_event_t *e)
         activity();
         return;
     }
-    if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) activity();
+
+    if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        bath_temp_axis = GESTURE_PENDING;
+        activity();
+    }
 }
 
 static void build_bath(lv_obj_t *p)
@@ -952,6 +1031,7 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
                                 void *ud)
 {
     acb = cb; aud = ud; wrapping = false; updating = false;
+    temp_axis = GESTURE_PENDING; bath_temp_axis = GESTURE_PENDING;
     aircon_view_n = 0; curtain_view_n = 0; bath_view_n = 0; drying_view_n = 0;
 
     root = lv_obj_create(parent); lv_obj_remove_style_all(root);
@@ -982,6 +1062,7 @@ void ui_page_devices_stop(void)
 {
     curtain_stop_animation(); drying_stop_animation();
     root = NULL; pager = NULL; wrapping = false; updating = false;
+    temp_axis = GESTURE_PENDING; bath_temp_axis = GESTURE_PENDING;
     aircon_view_n = 0; curtain_view_n = 0; bath_view_n = 0; drying_view_n = 0;
     acb = NULL; aud = NULL;
 }
