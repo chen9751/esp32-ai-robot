@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 16 px
  * Bpp: 4
- * Opts: --font /tmp/tmp.7tLJ4zBwoj/SourceHanSansSC-Normal.otf --symbols 睡眠干燥辅热ECOAUTO1234567 --size 16 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_devices_16 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_devices_16.c
+ * Opts: --font /tmp/tmp.p4dQMxAryD/SourceHanSansSC-Normal.otf --symbols 睡眠干燥辅热ECOAUTO1234567 --size 16 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_devices_16 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_devices_16.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
