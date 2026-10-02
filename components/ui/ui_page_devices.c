@@ -25,7 +25,11 @@
 #define DIS_BG  lv_color_hex(0x090D14)
 #define DIS_BR  lv_color_hex(0x263142)
 #define POWER   lv_color_hex(0xFF604F)
-#define CURTAIN_SHADE lv_color_hex(0x6F7884)
+#define CURTAIN_SHADE_OUTER lv_color_hex(0x394553)
+#define CURTAIN_SHADE_INNER lv_color_hex(0x667587)
+
+#define CURTAIN_OPEN_EDGE_W 18
+#define CURTAIN_CLOSED_GAP 12
 
 #define TMIN 32
 #define TMAX 62
@@ -644,8 +648,10 @@ static int32_t clamp_curtain_pct(int32_t percent)
 
 static void curtain_apply_position(void)
 {
+    const int32_t max_panel_w = (W - CURTAIN_CLOSED_GAP) / 2;
+    const int32_t travel = max_panel_w - CURTAIN_OPEN_EDGE_W;
     int32_t closed = 100 - curtain_open_pct;
-    int32_t panel_w = (W * closed) / 200;
+    int32_t panel_w = CURTAIN_OPEN_EDGE_W + (travel * closed) / 100;
 
     for(size_t i = 0; i < curtain_view_n; ++i) {
         curtain_view_t *v = &curtain_views[i];
@@ -673,9 +679,10 @@ static void curtain_start_animation(int32_t target)
     curtain_stop_animation();
     if(target == curtain_open_pct) return;
 
-    uint32_t duration = 220u + (uint32_t)(target > curtain_open_pct
-                                             ? target - curtain_open_pct
-                                             : curtain_open_pct - target) * 8u;
+    int32_t distance = target > curtain_open_pct
+                           ? target - curtain_open_pct
+                           : curtain_open_pct - target;
+    uint32_t duration = 500u + (uint32_t)distance * 45u;
 
     lv_anim_t a;
     lv_anim_init(&a);
@@ -741,16 +748,20 @@ static void build_curtain(lv_obj_t *p)
     lv_obj_remove_style_all(v->left_shade);
     lv_obj_set_pos(v->left_shade, 0, 0);
     lv_obj_set_height(v->left_shade, H);
-    lv_obj_set_style_bg_color(v->left_shade, CURTAIN_SHADE, 0);
-    lv_obj_set_style_bg_opa(v->left_shade, LV_OPA_30, 0);
+    lv_obj_set_style_bg_color(v->left_shade, CURTAIN_SHADE_OUTER, 0);
+    lv_obj_set_style_bg_grad_color(v->left_shade, CURTAIN_SHADE_INNER, 0);
+    lv_obj_set_style_bg_grad_dir(v->left_shade, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_style_bg_opa(v->left_shade, LV_OPA_40, 0);
     lv_obj_clear_flag(v->left_shade, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     v->right_shade = lv_obj_create(pg);
     lv_obj_remove_style_all(v->right_shade);
     lv_obj_set_pos(v->right_shade, W, 0);
     lv_obj_set_height(v->right_shade, H);
-    lv_obj_set_style_bg_color(v->right_shade, CURTAIN_SHADE, 0);
-    lv_obj_set_style_bg_opa(v->right_shade, LV_OPA_30, 0);
+    lv_obj_set_style_bg_color(v->right_shade, CURTAIN_SHADE_INNER, 0);
+    lv_obj_set_style_bg_grad_color(v->right_shade, CURTAIN_SHADE_OUTER, 0);
+    lv_obj_set_style_bg_grad_dir(v->right_shade, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_style_bg_opa(v->right_shade, LV_OPA_40, 0);
     lv_obj_clear_flag(v->right_shade, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     v->button[0] = curtain_button(pg, RI_CURTAIN_OPEN, 82, CURTAIN_ACTION_OPEN);
