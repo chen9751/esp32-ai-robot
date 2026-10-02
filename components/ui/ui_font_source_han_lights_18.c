@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 18 px
  * Bpp: 4
- * Opts: --font /tmp/tmp.NFuyBIugFV/SourceHanSansSC-Normal.otf --symbols 客厅灯书房卧室床头小彩光带浴阳台播放源：电视音箱 --size 18 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_lights_18 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_lights_18.c
+ * Opts: --font /tmp/tmp.ed4wzSA4rN/SourceHanSansSC-Normal.otf --symbols 客厅灯书房卧室床头小彩光带浴阳台播放源：电视音箱 --size 18 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_source_han_lights_18 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_source_han_lights_18.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
