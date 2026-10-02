@@ -21,7 +21,9 @@ TEMP_SYMBOLS='0123456789.°'
 # power=f126, snowflake=f512, sun=f1bf, windy=f2ca,
 # drop=ec6a, swing=ea62, temp-cold=f1f2.
 REMIX_SYMBOLS=$'\uF126\uF512\uF1BF\uF2CA\uEC6A\uEA62\uF1F2'
-REMIX_LARGE_SYMBOLS=$'\uF1F2'
+# Large device controls additionally use:
+# expand-left-right=f323, pause=efd8, contract-left-right=f2ff.
+REMIX_LARGE_SYMBOLS=$'\uF1F2\uF323\uEFD8\uF2FF'
 
 echo "Downloading Source Han Sans SC Normal..."
 curl -L --fail --retry 3 --silent --show-error "$SOURCE_HAN_URL" -o "$SOURCE_HAN_FILE"
@@ -64,7 +66,7 @@ npx --yes lv_font_conv \
   --lv-include lvgl.h \
   -o "$OUT_REMIX"
 
-echo "Generating large LVGL Devices thermometer icon..."
+echo "Generating large LVGL Devices control icons..."
 npx --yes lv_font_conv \
   --font "$REMIX_FILE" \
   --symbols "$REMIX_LARGE_SYMBOLS" \
