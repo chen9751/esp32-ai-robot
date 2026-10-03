@@ -17,6 +17,15 @@ void app_main(void)
         return;
     }
 
+    ESP_LOGI(TAG, "starting direct LCD color test");
+    err = board_display_run_color_test();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "direct LCD color test failed: %s", esp_err_to_name(err));
+    }
+    else {
+        ESP_LOGI(TAG, "direct LCD color test complete");
+    }
+
     /* LVGL is owned by the board runtime task. Build the complete first UI
      * tree under the shared mutex, then force one synchronous refresh before
      * revealing the backlight. This makes first-frame delivery deterministic
