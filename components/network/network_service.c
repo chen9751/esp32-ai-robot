@@ -18,11 +18,13 @@ static const char *TAG = "network";
 static const char *NVS_NS = "ai_robot";
 static const char *KEY_WIFI_SSID = "wifi_ssid";
 static const char *KEY_WIFI_PASS = "wifi_pass";
+static const char *KEY_WIFI_ENABLED = "wifi_on";
 static const char *KEY_AI_URL = "ai_url";
 static const char *KEY_HA_URL = "ha_url";
 static const char *KEY_HA_TOKEN = "ha_token";
 
 static bool s_initialized = false;
+static bool s_wifi_enabled = true;
 static bool s_sntp_started = false;
 static esp_netif_t *s_sta_netif = NULL;
 static network_wifi_status_t s_status = {0};
@@ -51,6 +53,14 @@ static esp_err_t load_persistent_config(void)
     if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
     if (err != ESP_OK) return err;
 
+    uint8_t wifi_on = 1;
+    esp_err_t wifi_on_err = nvs_get_u8(nvs, KEY_WIFI_ENABLED, &wifi_on);
+    if (wifi_on_err != ESP_OK && wifi_on_err != ESP_ERR_NVS_NOT_FOUND) {
+        nvs_close(nvs);
+        return wifi_on_err;
+    }
+    s_wifi_enabled = wifi_on != 0;
+
     err = nvs_read_string(nvs, KEY_WIFI_SSID,
                           s_status.ssid, sizeof(s_status.ssid));
     if (err == ESP_OK) {
@@ -71,6 +81,7 @@ static esp_err_t load_persistent_config(void)
     }
 
     nvs_close(nvs);
+    s_status.enabled = s_wifi_enabled;
     s_status.configured = s_status.ssid[0] != '\0';
     return err;
 }
@@ -137,7 +148,7 @@ static void event_handler(void *arg,
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         s_status.connected = false;
         s_status.ip[0] = '\0';
-        if (s_status.configured) {
+        if (s_wifi_enabled && s_status.configured) {
             esp_wifi_connect();
         }
         return;
@@ -158,6 +169,7 @@ static void event_handler(void *arg,
 static esp_err_t apply_wifi_config(void)
 {
     if (!s_initialized) return ESP_ERR_INVALID_STATE;
+    if (!s_wifi_enabled) return ESP_OK;
 
     wifi_config_t cfg = {0};
     strlcpy((char *)cfg.sta.ssid, s_status.ssid, sizeof(cfg.sta.ssid));
@@ -216,14 +228,16 @@ esp_err_t network_service_init(void)
     err = esp_wifi_set_mode(WIFI_MODE_STA);
     if (err != ESP_OK) return err;
 
-    err = esp_wifi_start();
-    if (err != ESP_OK) return err;
+    if (s_wifi_enabled) {
+        err = esp_wifi_start();
+        if (err != ESP_OK) return err;
+    }
 
     s_initialized = true;
     s_status.initialized = true;
     refresh_link_metadata();
 
-    if (s_status.configured) {
+    if (s_wifi_enabled && s_status.configured) {
         err = apply_wifi_config();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "initial Wi-Fi connect failed: %s", esp_err_to_name(err));
@@ -231,6 +245,38 @@ esp_err_t network_service_init(void)
     }
 
     return ESP_OK;
+}
+
+esp_err_t network_service_set_wifi_enabled(bool enabled)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u8(nvs, KEY_WIFI_ENABLED, enabled ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(nvs);
+    nvs_close(nvs);
+    if (err != ESP_OK) return err;
+
+    if (s_wifi_enabled == enabled) {
+        s_status.enabled = enabled;
+        return ESP_OK;
+    }
+
+    s_wifi_enabled = enabled;
+    s_status.enabled = enabled;
+    s_status.connected = false;
+    s_status.ip[0] = '\0';
+
+    if (!s_initialized) return ESP_OK;
+
+    if (!enabled) {
+        (void)esp_wifi_disconnect();
+        return esp_wifi_stop();
+    }
+
+    err = esp_wifi_start();
+    if (err != ESP_OK) return err;
+    return s_status.configured ? apply_wifi_config() : ESP_OK;
 }
 
 esp_err_t network_service_set_wifi_credentials(const char *ssid,
@@ -274,6 +320,7 @@ esp_err_t network_service_get_wifi_credentials(char *ssid,
 void network_service_get_wifi_status(network_wifi_status_t *status)
 {
     if (status == NULL) return;
+    s_status.enabled = s_wifi_enabled;
     *status = s_status;
 
     if (s_sntp_started) {
