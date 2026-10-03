@@ -23,6 +23,21 @@ void board_display_unlock(void);
 esp_err_t board_backlight_set_percent(uint8_t percent);
 uint8_t board_backlight_get_percent(void);
 
+typedef struct {
+    bool available;
+    bool battery_present;
+    bool external_power;
+    bool charging;
+    bool low_battery;
+    uint16_t battery_mv;
+} board_power_status_t;
+
+/* Real Waveshare V2 power telemetry:
+ * VBAT from GPIO4/ADC1_CH3 and external-vs-battery source from GPIO16 SYS_OUT.
+ * "charging" denotes external power with a detected battery; the board does
+ * not expose a dedicated charger-current status through the reference API. */
+esp_err_t board_power_get_status(board_power_status_t *status);
+
 typedef enum {
     BOARD_ORIENTATION_UNKNOWN = 0,
     BOARD_ORIENTATION_LANDSCAPE,
