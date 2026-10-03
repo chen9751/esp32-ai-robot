@@ -54,6 +54,7 @@ static bool s_lvgl_started = false;
 static bool s_display_ready = false;
 static bool s_backlight_ready = false;
 static uint8_t s_backlight_percent = 0;
+static uint32_t s_flush_count = 0;
 
 /* Waveshare's V2 example performs hardware reset through TCA9554 and then
  * supplies sleep-out/display-on as the AXS15231B custom initialization list. */
@@ -292,6 +293,14 @@ static void display_flush_cb(lv_display_t *display,
                              const lv_area_t *area,
                              uint8_t *color_map)
 {
+    const uint32_t flush_id = ++s_flush_count;
+    if (flush_id <= 3) {
+        ESP_LOGI(TAG, "LVGL flush #%u area=(%ld,%ld)-(%ld,%ld)",
+                 (unsigned)flush_id,
+                 (long)area->x1, (long)area->y1,
+                 (long)area->x2, (long)area->y2);
+    }
+
     if (s_lcd_panel == NULL || s_dma_buffer == NULL || s_rotate_buffer == NULL) {
         lv_display_flush_ready(display);
         return;
@@ -331,6 +340,7 @@ static void display_flush_cb(lv_display_t *display,
     const uint16_t *native_pixels = (const uint16_t *)s_rotate_buffer;
     const size_t pixels_per_chunk = BOARD_LCD_DMA_BYTES / sizeof(uint16_t);
 
+    bool flush_ok = true;
     for (int chunk = 0; chunk < BOARD_LCD_DMA_CHUNKS; ++chunk) {
         memcpy(s_dma_buffer,
                native_pixels + ((size_t)chunk * pixels_per_chunk),
@@ -347,13 +357,20 @@ static void display_flush_cb(lv_display_t *display,
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "LCD flush chunk %d failed: %s",
                      chunk, esp_err_to_name(err));
+            flush_ok = false;
             break;
         }
 
         if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(100)) != pdTRUE) {
             ESP_LOGE(TAG, "LCD flush chunk %d timed out", chunk);
+            flush_ok = false;
             break;
         }
+    }
+
+    if (flush_id <= 3) {
+        ESP_LOGI(TAG, "LVGL flush #%u %s",
+                 (unsigned)flush_id, flush_ok ? "complete" : "incomplete");
     }
 
     lv_display_flush_ready(display);
@@ -628,6 +645,8 @@ esp_err_t board_backlight_set_percent(uint8_t percent)
     if (err != ESP_OK) return err;
 
     s_backlight_percent = percent;
+    ESP_LOGI(TAG, "backlight: PWM duty=%u/255, BL_EN=%d, percent=%u",
+             (unsigned)duty, percent > 0 ? 1 : 0, (unsigned)percent);
     return ESP_OK;
 }
 
