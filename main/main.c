@@ -1,5 +1,6 @@
 #include "board.h"
 #include "ui_manager.h"
+#include "network_service.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -44,6 +45,11 @@ void app_main(void)
     else {
         ESP_LOGI(TAG, "backlight enabled at %u%%",
                  (unsigned)board_backlight_get_percent());
+    }
+
+    err = network_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
 
     ESP_LOGI(TAG, "UI ready at logical resolution 640x172");
