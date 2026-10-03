@@ -1,6 +1,7 @@
 #include "board.h"
 #include "ui_manager.h"
 #include "network_service.h"
+#include "bluetooth_service.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -50,6 +51,11 @@ void app_main(void)
     err = network_service_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
+    }
+
+    err = bluetooth_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Bluetooth service init failed: %s", esp_err_to_name(err));
     }
 
     ESP_LOGI(TAG, "UI ready at logical resolution 640x172");
