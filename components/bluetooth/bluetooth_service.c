@@ -28,6 +28,9 @@ static SemaphoreHandle_t s_lock = NULL;
 static uint8_t s_own_addr_type = 0;
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static bool s_host_started = false;
+static uint32_t s_scan_packets = 0;
+static uint32_t s_scan_named_packets = 0;
+static uint32_t s_scan_event_type_count[8] = {0};
 
 void ble_store_config_init(void);
 
@@ -123,21 +126,59 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
 
     lock();
 
+    ++s_scan_packets;
+    if (has_name) ++s_scan_named_packets;
+    if (disc->event_type < (sizeof(s_scan_event_type_count) /
+                            sizeof(s_scan_event_type_count[0]))) {
+        ++s_scan_event_type_count[disc->event_type];
+    }
+
     int idx = find_result(&disc->addr);
     bool is_new = idx < 0;
 
     if (is_new) {
         if (s_result_count >= BLUETOOTH_MAX_SCAN_RESULTS) {
-            /* Keep the strongest devices visible on the tiny settings screen. */
-            int weakest = 0;
-            for (size_t i = 1; i < s_result_count; ++i) {
-                if (s_results[i].rssi < s_results[weakest].rssi) weakest = (int)i;
+            /* The settings page is a device picker, not a radio sniffer.
+             * Prefer devices that actually advertise a Local Name. Otherwise
+             * a room full of anonymous beacons/random-address advertisements
+             * can occupy all visible slots before a useful peripheral appears. */
+            int replace = -1;
+
+            if (has_name) {
+                for (size_t i = 0; i < s_result_count; ++i) {
+                    if (strcmp(s_results[i].name, "BLE device") == 0) {
+                        if (replace < 0 ||
+                            s_results[i].rssi < s_results[replace].rssi) {
+                            replace = (int)i;
+                        }
+                    }
+                }
             }
-            if (disc->rssi <= s_results[weakest].rssi) {
-                unlock();
-                return;
+
+            if (replace < 0) {
+                int weakest = 0;
+                for (size_t i = 1; i < s_result_count; ++i) {
+                    if (s_results[i].rssi < s_results[weakest].rssi) {
+                        weakest = (int)i;
+                    }
+                }
+
+                /* Never evict a named device merely to show a stronger
+                 * anonymous advertiser. */
+                bool weakest_named =
+                    strcmp(s_results[weakest].name, "BLE device") != 0;
+                if (!has_name && weakest_named) {
+                    unlock();
+                    return;
+                }
+                if (disc->rssi <= s_results[weakest].rssi && !has_name) {
+                    unlock();
+                    return;
+                }
+                replace = weakest;
             }
-            idx = weakest;
+
+            idx = replace;
         }
         else {
             idx = (int)s_result_count++;
@@ -228,8 +269,18 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             s_status.last_error = event->disc_complete.reason;
             bump_generation();
             unlock();
-            ESP_LOGI(TAG, "scan complete, reason=%d, results=%u",
-                     event->disc_complete.reason, (unsigned)s_result_count);
+            ESP_LOGI(TAG,
+                     "scan complete: reason=%d results=%u packets=%u named_packets=%u "
+                     "event_types=[%u,%u,%u,%u,%u]",
+                     event->disc_complete.reason,
+                     (unsigned)s_result_count,
+                     (unsigned)s_scan_packets,
+                     (unsigned)s_scan_named_packets,
+                     (unsigned)s_scan_event_type_count[0],
+                     (unsigned)s_scan_event_type_count[1],
+                     (unsigned)s_scan_event_type_count[2],
+                     (unsigned)s_scan_event_type_count[3],
+                     (unsigned)s_scan_event_type_count[4]);
             return 0;
 
         case BLE_GAP_EVENT_CONNECT:
@@ -416,6 +467,9 @@ esp_err_t bluetooth_service_start_scan(void)
     lock();
     memset(s_results, 0, sizeof(s_results));
     s_result_count = 0;
+    s_scan_packets = 0;
+    s_scan_named_packets = 0;
+    memset(s_scan_event_type_count, 0, sizeof(s_scan_event_type_count));
     s_status.scanning = true;
     s_status.state = BLUETOOTH_LINK_SCANNING;
     s_status.last_error = 0;
@@ -428,8 +482,11 @@ esp_err_t bluetooth_service_start_scan(void)
      * Local Name only in the scan-response packet. */
     params.filter_duplicates = 0;
     params.passive = 0;
+    /* ESP32-S3 Wi-Fi and BLE share one 2.4 GHz radio. Espressif recommends
+     * interval == window in coexistence scenarios so BLE can reacquire RF
+     * time during the same scan window after Wi-Fi activity. */
     params.itvl = 0x50;
-    params.window = 0x30;
+    params.window = 0x50;
     params.filter_policy = 0;
     params.limited = 0;
 
