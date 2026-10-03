@@ -37,6 +37,7 @@ static esp_lcd_panel_io_handle_t s_lcd_io = NULL;
 static esp_lcd_panel_handle_t s_lcd_panel = NULL;
 static esp_lcd_panel_io_handle_t s_touch_io = NULL;
 static esp_lcd_touch_handle_t s_touch = NULL;
+static i2c_master_dev_handle_t s_imu_dev = NULL;
 static lv_display_t *s_display = NULL;
 static lv_indev_t *s_touch_indev = NULL;
 
@@ -55,6 +56,16 @@ static bool s_display_ready = false;
 static bool s_backlight_ready = false;
 static uint8_t s_backlight_percent = 0;
 static uint32_t s_flush_count = 0;
+
+#define QMI8658_ADDR              0x6B
+#define QMI8658_REG_WHOAMI        0x00
+#define QMI8658_WHOAMI_VALUE      0x05
+#define QMI8658_REG_CTRL1         0x02
+#define QMI8658_REG_CTRL2         0x03
+#define QMI8658_REG_CTRL7         0x08
+#define QMI8658_REG_AX_L          0x35
+#define QMI8658_ORIENTATION_MIN   7000
+#define QMI8658_ORIENTATION_BIAS  2500
 
 /* Waveshare's V2 example performs hardware reset through TCA9554 and then
  * supplies sleep-out/display-on as the AXS15231B custom initialization list. */
@@ -228,6 +239,58 @@ static esp_err_t init_lcd_panel(void)
      * as "off", while ESP-IDF's public API defines true as "on". Calling the
      * public API with true therefore sends DISPOFF and leaves a fully working
      * backlight/flush path showing only black. */
+    return ESP_OK;
+}
+
+static esp_err_t qmi8658_write_reg(uint8_t reg, uint8_t value)
+{
+    if (s_imu_dev == NULL) return ESP_ERR_INVALID_STATE;
+    uint8_t packet[2] = { reg, value };
+    return i2c_master_transmit(s_imu_dev, packet, sizeof(packet), 100);
+}
+
+static esp_err_t qmi8658_read(uint8_t reg, uint8_t *data, size_t len)
+{
+    if (s_imu_dev == NULL || data == NULL || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return i2c_master_transmit_receive(s_imu_dev, &reg, 1, data, len, 100);
+}
+
+static esp_err_t init_imu(void)
+{
+    const i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = QMI8658_ADDR,
+        .scl_speed_hz = 400000,
+    };
+    esp_err_t err = i2c_master_bus_add_device(s_system_i2c, &dev_cfg, &s_imu_dev);
+    if (err != ESP_OK) return err;
+
+    uint8_t whoami = 0;
+    err = qmi8658_read(QMI8658_REG_WHOAMI, &whoami, 1);
+    if (err != ESP_OK) return err;
+    if (whoami != QMI8658_WHOAMI_VALUE) {
+        ESP_LOGE(TAG, "QMI8658 WHOAMI mismatch: 0x%02x", whoami);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    /* Match Waveshare's verified setup closely enough for orientation:
+     * CTRL1 bit6 enables register auto-increment.
+     * CTRL2 = 4G range + 1000 Hz ODR.
+     * CTRL7 bit0 enables accelerometer output. */
+    err = qmi8658_write_reg(QMI8658_REG_CTRL1, 0x40);
+    if (err != ESP_OK) return err;
+    err = qmi8658_write_reg(QMI8658_REG_CTRL2, 0x13);
+    if (err != ESP_OK) return err;
+
+    uint8_t ctrl7 = 0;
+    err = qmi8658_read(QMI8658_REG_CTRL7, &ctrl7, 1);
+    if (err != ESP_OK) return err;
+    err = qmi8658_write_reg(QMI8658_REG_CTRL7, (uint8_t)(ctrl7 | 0x01));
+    if (err != ESP_OK) return err;
+
+    ESP_LOGI(TAG, "QMI8658 orientation sensor ready");
     return ESP_OK;
 }
 
@@ -525,6 +588,15 @@ esp_err_t board_init(void)
     err = init_io_expander();
     if (err != ESP_OK) goto fail;
 
+    /* IMU is useful but not required to render the UI. Keep booting if the
+     * sensor is temporarily unavailable and let the remote page stay at its
+     * last orientation. */
+    err = init_imu();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "QMI8658 init failed: %s", esp_err_to_name(err));
+        s_imu_dev = NULL;
+    }
+
     /* Create the transfer semaphore before panel IO registers its callback. */
     s_flush_done = xSemaphoreCreateBinary();
     if (s_flush_done == NULL) {
@@ -659,10 +731,18 @@ esp_err_t board_backlight_set_percent(uint8_t percent)
     }
 
     if (percent > 100) percent = 100;
-    /* Waveshare V2 defines LCD_PWM_MODE_x as (0xff - x): the GPIO42
-     * brightness PWM is active-low. Therefore 100% brightness must drive
-     * duty=0, while 0% brightness must drive duty=255. */
-    const uint32_t brightness = ((uint32_t)percent * 255U + 50U) / 100U;
+
+    /* GPIO42 is active-low, but the LED driver is not visually linear across
+     * the full 0..255 electrical range. On this V2 panel the lower ~30% of
+     * raw drive is already below the visible threshold. Preserve 0% as true
+     * off, then map user 1..100% across the complete visible range so values
+     * such as 10%, 20% and 30% remain distinct instead of collapsing to off. */
+    uint32_t brightness = 0;
+    if (percent > 0) {
+        const uint32_t min_visible = 90U; /* ~35% raw drive, above panel cutoff */
+        brightness = min_visible +
+                     ((uint32_t)(percent - 1U) * (255U - min_visible) + 49U) / 99U;
+    }
     const uint32_t duty = 255U - brightness;
 
     esp_err_t err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty);
@@ -684,6 +764,42 @@ esp_err_t board_backlight_set_percent(uint8_t percent)
 uint8_t board_backlight_get_percent(void)
 {
     return s_backlight_percent;
+}
+
+esp_err_t board_imu_get_orientation(board_orientation_t *orientation)
+{
+    if (orientation == NULL) return ESP_ERR_INVALID_ARG;
+    *orientation = BOARD_ORIENTATION_UNKNOWN;
+    if (s_imu_dev == NULL) return ESP_ERR_INVALID_STATE;
+
+    uint8_t raw[6] = {0};
+    esp_err_t err = qmi8658_read(QMI8658_REG_AX_L, raw, sizeof(raw));
+    if (err != ESP_OK) return err;
+
+    const int16_t ax = (int16_t)((uint16_t)raw[1] << 8 | raw[0]);
+    const int16_t ay = (int16_t)((uint16_t)raw[3] << 8 | raw[2]);
+    const int32_t abs_x = ax < 0 ? -(int32_t)ax : (int32_t)ax;
+    const int32_t abs_y = ay < 0 ? -(int32_t)ay : (int32_t)ay;
+
+    /* Flat-on-table means gravity is mostly Z. In that state don't invent a
+     * new screen orientation; the UI keeps the last stable one. */
+    if (abs_x < QMI8658_ORIENTATION_MIN &&
+        abs_y < QMI8658_ORIENTATION_MIN) {
+        return ESP_OK;
+    }
+
+    if (abs_y > abs_x + QMI8658_ORIENTATION_BIAS) {
+        *orientation = ay > 0
+                           ? BOARD_ORIENTATION_LANDSCAPE
+                           : BOARD_ORIENTATION_LANDSCAPE_INVERTED;
+    }
+    else if (abs_x > abs_y + QMI8658_ORIENTATION_BIAS) {
+        *orientation = ax > 0
+                           ? BOARD_ORIENTATION_PORTRAIT_RIGHT
+                           : BOARD_ORIENTATION_PORTRAIT_LEFT;
+    }
+
+    return ESP_OK;
 }
 
 static uint16_t rgb565_to_wire(uint16_t color)
