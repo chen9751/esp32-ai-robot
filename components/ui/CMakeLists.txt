@@ -58,7 +58,7 @@ endif()
 idf_component_register(
     SRCS ${UI_SRCS}
     INCLUDE_DIRS "include"
-    REQUIRES lvgl board
+    REQUIRES lvgl board network
 )
 
 if(UI_ALARM_HAS_SOURCE_HAN)
