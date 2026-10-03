@@ -124,6 +124,16 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
         }
     }
 
+    /* The Settings page is a pairing picker, so keep only connectable
+     * advertisers. Scan Response (event type 4) is accepted only when we
+     * already saw the same address advertising connectability. This mirrors
+     * NimBLE central examples, which require ADV_IND / DIR_IND before connect. */
+    bool is_connectable_adv =
+        disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_ADV_IND ||
+        disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_DIR_IND;
+    bool is_scan_response =
+        disc->event_type == BLE_HCI_ADV_RPT_EVTYPE_SCAN_RSP;
+
     lock();
 
     ++s_scan_packets;
@@ -134,6 +144,19 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     }
 
     int idx = find_result(&disc->addr);
+
+    if (!is_connectable_adv && !is_scan_response) {
+        unlock();
+        return;
+    }
+
+    /* A scan response is useful only when it belongs to a connectable
+     * advertiser already present in our pairing list. */
+    if (is_scan_response && idx < 0) {
+        unlock();
+        return;
+    }
+
     bool is_new = idx < 0;
 
     if (is_new) {
@@ -270,8 +293,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             bump_generation();
             unlock();
             ESP_LOGI(TAG,
-                     "scan complete: reason=%d results=%u packets=%u named_packets=%u "
-                     "event_types=[%u,%u,%u,%u,%u]",
+                     "scan complete: reason=%d pairable=%u packets=%u named_packets=%u "
+                     "adv_ind=%u dir_ind=%u scan_ind=%u nonconn=%u scan_rsp=%u",
                      event->disc_complete.reason,
                      (unsigned)s_result_count,
                      (unsigned)s_scan_packets,
