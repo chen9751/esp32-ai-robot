@@ -3,6 +3,7 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
+#include "esp_adc/adc_oneshot.h"
 
 /*
  * Waveshare ESP32-S3-Touch-LCD-3.49 V2 hardware map.
@@ -47,6 +48,9 @@
 #define BOARD_EXIO_PIN_NS_MODE          (1ULL << 7)
 
 #define BOARD_POWER_SYS_OUT_PIN         GPIO_NUM_16
+#define BOARD_BATTERY_ADC_PIN           GPIO_NUM_4
+#define BOARD_BATTERY_ADC_CHANNEL       ADC_CHANNEL_3
+#define BOARD_BATTERY_LOW_MV            3500
 
 /*
  * The product UI is permanently 640x172 while the physical AXS15231B panel is
