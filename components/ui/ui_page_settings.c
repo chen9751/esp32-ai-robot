@@ -327,307 +327,51 @@ static lv_obj_t *add_action_button(lv_obj_t *parent, const char *text,
     return btn;
 }
 
-/* Placeholder QR visual. The real payload/URL is added with the Web setup service. */
-static void build_qr_placeholder(lv_obj_t *parent, int32_t x, int32_t y)
+/* Scannable Wi-Fi QR generated for:
+ *     WIFI:T:nopass;S:AI-Robot-Setup;;
+ * The setup AP is intentionally fixed for this single-device product so the
+ * QR can be a tiny static bitmap instead of pulling a QR encoder into RAM. */
+static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
 {
-    const int32_t size = 82;
-    const int32_t cells = 13;
-    const int32_t cell = 6;
+    static const uint32_t rows[29] = {
+        0x1FC5EF7Fu, 0x1044F841u, 0x1755A25Du, 0x175C685Du, 0x1759335Du,
+        0x105E0141u, 0x1FD5557Fu, 0x00155700u, 0x17C41E7Cu, 0x1B23EF76u,
+        0x1A57F0A8u, 0x0118A253u, 0x164F61ACu, 0x01393176u, 0x0EDC0DF4u,
+        0x140F5158u, 0x0ACC0A0Bu, 0x1784E63Au, 0x1064F190u, 0x17258051u,
+        0x13735BFCu, 0x00140114u, 0x1FC73154u, 0x105F471Au, 0x175E19F6u,
+        0x175042AFu, 0x175C6076u, 0x1047E0EAu, 0x1FD8FAE4u
+    };
+    const int32_t cell = 3;
+    const int32_t quiet = 4;
+    const int32_t modules = 29 + quiet * 2;
+    const int32_t size = modules * cell;
 
     lv_obj_t *plate = plain_obj(parent);
     lv_obj_set_size(plate, size, size);
     lv_obj_set_pos(plate, x, y);
     lv_obj_set_style_bg_color(plate, UI_COLOR_FG, 0);
     lv_obj_set_style_bg_opa(plate, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(plate, 4, 0);
 
-    for (int32_t r = 0; r < cells; ++r) {
-        for (int32_t c = 0; c < cells; ++c) {
-            bool finder_tl = (r < 5 && c < 5 &&
-                             (r == 0 || r == 4 || c == 0 || c == 4 ||
-                              (r == 2 && c == 2)));
-            bool finder_tr = (r < 5 && c >= 8 &&
-                             (r == 0 || r == 4 || c == 8 || c == 12 ||
-                              (r == 2 && c == 10)));
-            bool finder_bl = (r >= 8 && c < 5 &&
-                             (r == 8 || r == 12 || c == 0 || c == 4 ||
-                              (r == 10 && c == 2)));
-            bool data = (((r * 7 + c * 11 + r * c) % 5) < 2);
-            if (!(finder_tl || finder_tr || finder_bl || data)) continue;
-
+    for(int32_t row = 0; row < 29; ++row) {
+        for(int32_t col = 0; col < 29; ++col) {
+            if(((rows[row] >> (28 - col)) & 1u) == 0) continue;
             lv_obj_t *dot = plain_obj(plate);
             lv_obj_set_size(dot, cell, cell);
-            lv_obj_set_pos(dot, 2 + c * cell, 2 + r * cell);
+            lv_obj_set_pos(dot, (quiet + col) * cell, (quiet + row) * cell);
             lv_obj_set_style_bg_color(dot, UI_COLOR_BG, 0);
             lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
         }
     }
 }
 
+static void ensure_setup_portal(void)
+{
+#if defined(ESP_PLATFORM)
+    (void)network_service_start_setup_portal();
+#endif
+}
+
 static void wifi_toggle_event_cb(lv_event_t *e);
-static void edit_field_event_cb(lv_event_t *e);
-static void wifi_save_event_cb(lv_event_t *e);
-static void ai_save_event_cb(lv_event_t *e);
-static void bt_icon_event_cb(lv_event_t *e);
-static void bt_scan_event_cb(lv_event_t *e);
-static void bt_connected_event_cb(lv_event_t *e);
-static void bt_forget_event_cb(lv_event_t *e);
-static void bt_available_event_cb(lv_event_t *e);
-static void show_tab(ui_settings_tab_t tab);
-
-static void load_runtime_settings(void)
-{
-#if defined(ESP_PLATFORM)
-    network_wifi_status_t status = {0};
-    network_service_get_wifi_status(&status);
-    s_wifi_enabled = status.enabled;
-    s_wifi_configured = status.configured;
-    s_wifi_connected = status.connected;
-
-    (void)network_service_get_wifi_credentials(
-        s_wifi_ssid, sizeof(s_wifi_ssid),
-        s_wifi_password, sizeof(s_wifi_password));
-
-    network_backend_config_t backend = {0};
-    if (network_service_get_backend_config(&backend) == ESP_OK) {
-        strncpy(s_ai_url, backend.ai_url, sizeof(s_ai_url) - 1);
-        strncpy(s_ha_url, backend.ha_url, sizeof(s_ha_url) - 1);
-        strncpy(s_ha_token, backend.ha_token, sizeof(s_ha_token) - 1);
-        s_ai_configured = s_ai_url[0] != '\0';
-    }
-#endif
-}
-
-static const char *edit_value_for_field(edit_field_t field)
-{
-    switch(field) {
-        case EDIT_WIFI_SSID: return s_wifi_ssid;
-        case EDIT_WIFI_PASSWORD: return s_wifi_password;
-        case EDIT_AI_URL: return s_ai_url;
-        case EDIT_HA_URL: return s_ha_url;
-        case EDIT_HA_TOKEN: return s_ha_token;
-        default: return "";
-    }
-}
-
-static void store_editor_value(edit_field_t field, const char *value)
-{
-    if(value == NULL) value = "";
-    switch(field) {
-        case EDIT_WIFI_SSID:
-            strncpy(s_wifi_ssid, value, sizeof(s_wifi_ssid) - 1);
-            s_wifi_ssid[sizeof(s_wifi_ssid) - 1] = '\0';
-            break;
-        case EDIT_WIFI_PASSWORD:
-            strncpy(s_wifi_password, value, sizeof(s_wifi_password) - 1);
-            s_wifi_password[sizeof(s_wifi_password) - 1] = '\0';
-            break;
-        case EDIT_AI_URL:
-            strncpy(s_ai_url, value, sizeof(s_ai_url) - 1);
-            s_ai_url[sizeof(s_ai_url) - 1] = '\0';
-            break;
-        case EDIT_HA_URL:
-            strncpy(s_ha_url, value, sizeof(s_ha_url) - 1);
-            s_ha_url[sizeof(s_ha_url) - 1] = '\0';
-            break;
-        case EDIT_HA_TOKEN:
-            strncpy(s_ha_token, value, sizeof(s_ha_token) - 1);
-            s_ha_token[sizeof(s_ha_token) - 1] = '\0';
-            break;
-        default:
-            break;
-    }
-}
-
-static void close_editor(void)
-{
-    if(s_editor_overlay != NULL) {
-        lv_obj_delete(s_editor_overlay);
-        s_editor_overlay = NULL;
-    }
-    s_edit_field = EDIT_NONE;
-}
-
-static void editor_event_cb(lv_event_t *e)
-{
-    lv_event_code_t code = lv_event_get_code(e);
-    if(code != LV_EVENT_READY && code != LV_EVENT_CANCEL) return;
-
-    if(code == LV_EVENT_READY && s_editor_overlay != NULL) {
-        lv_obj_t *textarea = lv_obj_get_child(s_editor_overlay, 1);
-        if(textarea != NULL) {
-            store_editor_value(s_edit_field, lv_textarea_get_text(textarea));
-        }
-    }
-
-    close_editor();
-    show_tab(s_selected);
-    note_activity();
-}
-
-static void open_editor(edit_field_t field)
-{
-    if(s_root == NULL) return;
-    close_editor();
-    s_edit_field = field;
-
-    s_editor_overlay = plain_obj(s_root);
-    lv_obj_set_size(s_editor_overlay, UI_SCREEN_W, UI_SCREEN_H);
-    lv_obj_set_pos(s_editor_overlay, 0, 0);
-    lv_obj_set_style_bg_color(s_editor_overlay, UI_COLOR_BG, 0);
-    lv_obj_set_style_bg_opa(s_editor_overlay, LV_OPA_COVER, 0);
-
-    const char *title = "EDIT";
-    if(field == EDIT_WIFI_SSID) title = "WI-FI SSID";
-    else if(field == EDIT_WIFI_PASSWORD) title = "WI-FI PASSWORD";
-    else if(field == EDIT_AI_URL) title = "AI SERVER URL";
-    else if(field == EDIT_HA_URL) title = "HOME ASSISTANT URL";
-    else if(field == EDIT_HA_TOKEN) title = "HA ACCESS TOKEN";
-
-    lv_obj_t *label = make_label(s_editor_overlay, title, UI_COLOR_MUTED);
-    lv_obj_set_pos(label, 10, 9);
-
-    lv_obj_t *textarea = lv_textarea_create(s_editor_overlay);
-    lv_obj_set_pos(textarea, 150, 2);
-    lv_obj_set_size(textarea, 478, 38);
-    lv_textarea_set_one_line(textarea, true);
-    lv_textarea_set_text(textarea, edit_value_for_field(field));
-    if(field == EDIT_WIFI_PASSWORD || field == EDIT_HA_TOKEN) {
-        lv_textarea_set_password_mode(textarea, true);
-    }
-
-    lv_obj_t *keyboard = lv_keyboard_create(s_editor_overlay);
-    lv_obj_set_pos(keyboard, 0, 44);
-    lv_obj_set_size(keyboard, UI_SCREEN_W, UI_SCREEN_H - 44);
-    lv_keyboard_set_textarea(keyboard, textarea);
-    lv_obj_add_event_cb(keyboard, editor_event_cb, LV_EVENT_READY, NULL);
-    lv_obj_add_event_cb(keyboard, editor_event_cb, LV_EVENT_CANCEL, NULL);
-
-    lv_obj_move_foreground(s_editor_overlay);
-    lv_group_focus_obj(textarea);
-}
-
-static void edit_field_event_cb(lv_event_t *e)
-{
-    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    open_editor((edit_field_t)(uintptr_t)lv_event_get_user_data(e));
-    note_activity();
-}
-
-static lv_obj_t *build_setting_field(lv_obj_t *parent,
-                                     const char *name,
-                                     const char *value,
-                                     int32_t y,
-                                     edit_field_t field,
-                                     bool secret)
-{
-    const int32_t x = UI_STATUS_RIGHT_X + 12;
-    const int32_t w = UI_STATUS_RIGHT_W - 24;
-    lv_obj_t *row = plain_obj(parent);
-    lv_obj_set_pos(row, x, y);
-    lv_obj_set_size(row, w, 28);
-    lv_obj_set_style_bg_color(row, UI_COLOR_PANEL, 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(row, 7, 0);
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, edit_field_event_cb, LV_EVENT_CLICKED,
-                        (void *)(uintptr_t)field);
-
-    lv_obj_t *n = make_label(row, name, UI_COLOR_MUTED);
-    lv_obj_set_pos(n, 8, 5);
-
-    const char *display = value;
-    if(secret && value != NULL && value[0] != '\0') display = "********";
-    if(display == NULL || display[0] == '\0') display = "TAP TO SET";
-
-    lv_obj_t *v = make_label(row, display, UI_COLOR_FG);
-    lv_obj_set_pos(v, 92, 5);
-    lv_obj_set_width(v, w - 100);
-    lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
-    return row;
-}
-
-static void build_wifi_left(lv_obj_t *parent)
-{
-    lv_obj_t *icon = ui_system_icon_wifi(parent,
-                                         s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_align(icon, LV_ALIGN_TOP_MID, -UI_STATUS_RIGHT_W / 2, 20);
-
-    lv_obj_t *toggle = plain_obj(parent);
-    lv_obj_set_size(toggle, 64, 28);
-    lv_obj_set_pos(toggle, 45, 73);
-    lv_obj_set_style_bg_color(toggle,
-                              s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_PANEL_2, 0);
-    lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, 0);
-    lv_obj_add_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(toggle, wifi_toggle_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *knob = plain_obj(toggle);
-    lv_obj_set_size(knob, 22, 22);
-    lv_obj_set_pos(knob, s_wifi_enabled ? 39 : 3, 3);
-    lv_obj_set_style_bg_color(knob, UI_COLOR_FG, 0);
-    lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(knob, LV_RADIUS_CIRCLE, 0);
-
-    lv_obj_t *state = make_label(parent, s_wifi_enabled ? "ON" : "OFF",
-                                 s_wifi_enabled ? UI_COLOR_FG : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, 68, 102);
-}
-
-static void build_wifi_right(lv_obj_t *parent)
-{
-    load_runtime_settings();
-
-    network_wifi_status_t status = {0};
-#if defined(ESP_PLATFORM)
-    network_service_get_wifi_status(&status);
-#else
-    status.enabled = s_wifi_enabled;
-    status.configured = s_wifi_ssid[0] != '\0';
-    status.connected = false;
-#endif
-
-    build_setting_field(parent, "SSID", s_wifi_ssid, 8,
-                        EDIT_WIFI_SSID, false);
-    build_setting_field(parent, "PASS", s_wifi_password, 40,
-                        EDIT_WIFI_PASSWORD, true);
-
-    lv_obj_t *save = add_action_button(parent, "SAVE",
-                                       UI_STATUS_RIGHT_X + 16, 77, 82,
-                                       UI_COLOR_PANEL_2, UI_COLOR_ACCENT);
-    lv_obj_add_event_cb(save, wifi_save_event_cb, LV_EVENT_CLICKED, NULL);
-
-    const char *state_text = !status.enabled
-                                 ? "OFF"
-                                 : (status.connected ? "CONNECTED" :
-                                    (status.configured ? "CONNECTING" : "NOT SET"));
-    lv_obj_t *state = make_label(parent, state_text,
-                                 status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, UI_STATUS_RIGHT_X + 114, 82);
-
-    if(status.connected) {
-        lv_obj_t *ip = make_label(parent, status.ip, UI_COLOR_FG);
-        lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 230, 82);
-        lv_obj_t *sync = make_label(parent,
-                                    status.time_synced ? "TIME OK" : "SYNCING TIME",
-                                    status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-        lv_obj_set_pos(sync, UI_STATUS_RIGHT_X + 230, 102);
-    }
-}
-
-static void wifi_save_event_cb(lv_event_t *e)
-{
-    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-#if defined(ESP_PLATFORM)
-    (void)network_service_set_wifi_credentials(s_wifi_ssid, s_wifi_password);
-#endif
-    s_wifi_configured = s_wifi_ssid[0] != '\0';
-    s_wifi_connected = false;
-    note_activity();
-    show_tab(UI_SETTINGS_WIFI);
-}
-
 static void build_wifi_content(void)
 {
     build_wifi_left(s_content);
@@ -732,24 +476,10 @@ static void bt_connected_event_cb(lv_event_t *e) { (void)e; }
 static void bt_forget_event_cb(lv_event_t *e) { (void)e; }
 static void bt_available_event_cb(lv_event_t *e) { (void)e; }
 
-static void ai_save_event_cb(lv_event_t *e)
-{
-    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-#if defined(ESP_PLATFORM)
-    network_backend_config_t cfg = {0};
-    strncpy(cfg.ai_url, s_ai_url, sizeof(cfg.ai_url) - 1);
-    strncpy(cfg.ha_url, s_ha_url, sizeof(cfg.ha_url) - 1);
-    strncpy(cfg.ha_token, s_ha_token, sizeof(cfg.ha_token) - 1);
-    (void)network_service_set_backend_config(&cfg);
-#endif
-    s_ai_configured = s_ai_url[0] != '\0';
-    note_activity();
-    show_tab(UI_SETTINGS_AI);
-}
-
 static void build_ai_content(void)
 {
     load_runtime_settings();
+    ensure_setup_portal();
 
     lv_obj_t *icon = ui_system_icon_ai_robot2(
         s_content, s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
@@ -762,25 +492,19 @@ static void build_ai_content(void)
     lv_obj_set_pos(state, 43, 72);
 
     add_status_divider(s_content);
+    build_setup_qr(s_content, UI_STATUS_RIGHT_X + 12, 6);
 
-    build_setting_field(s_content, "AI URL", s_ai_url, 4,
-                        EDIT_AI_URL, false);
-    build_setting_field(s_content, "HA URL", s_ha_url, 36,
-                        EDIT_HA_URL, false);
-    build_setting_field(s_content, "HA TOKEN", s_ha_token, 68,
-                        EDIT_HA_TOKEN, true);
+    lv_obj_t *title = make_label(s_content, "PHONE WEB SETUP", UI_COLOR_ACCENT);
+    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 13);
 
-    lv_obj_t *save = add_action_button(s_content, "SAVE",
-                                       UI_STATUS_RIGHT_X + 16, 98, 82,
-                                       UI_COLOR_PANEL_2, UI_COLOR_ACCENT);
-    lv_obj_add_event_cb(save, ai_save_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *line1 = make_label(s_content, "AI Server + Home Assistant", UI_COLOR_FG);
+    lv_obj_set_pos(line1, UI_STATUS_RIGHT_X + 137, 38);
 
-    lv_obj_t *hint = make_label(s_content,
-                                "HA REST API",
-                                (s_ha_url[0] != '\0' && s_ha_token[0] != '\0')
-                                    ? UI_COLOR_ACCENT
-                                    : UI_COLOR_MUTED);
-    lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 118, 103);
+    lv_obj_t *line2 = make_label(s_content, "HA URL + Long-Lived Token", UI_COLOR_MUTED);
+    lv_obj_set_pos(line2, UI_STATUS_RIGHT_X + 137, 61);
+
+    lv_obj_t *line3 = make_label(s_content, "AP: AI-Robot-Setup", UI_COLOR_MUTED);
+    lv_obj_set_pos(line3, UI_STATUS_RIGHT_X + 137, 84);
 }
 
 static void refresh_tab_styles(void)
