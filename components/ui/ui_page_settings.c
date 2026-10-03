@@ -316,11 +316,42 @@ static lv_obj_t *add_action_button(lv_obj_t *parent, const char *text,
 
 /* Scannable Wi-Fi QR generated for:
  *     WIFI:T:nopass;S:AI-Robot-Setup;;
- * The setup AP is intentionally fixed for this single-device product so the
- * QR can be a tiny static bitmap instead of pulling a QR encoder into RAM. */
-static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
+ *
+ * IMPORTANT: the previous implementation created one LVGL object for every
+ * black QR module. On real hardware that meant hundreds of lv_obj allocations
+ * in one event callback and caused StoreProhibited inside lv_obj_create().
+ *
+ * Keep the QR as one A8 image instead. The 111x111 alpha buffer is generated
+ * once from the compact 29-row bit matrix, then every settings page only
+ * creates a white plate + one image object. */
+#define SETUP_QR_MODULES 29
+#define SETUP_QR_QUIET    4
+#define SETUP_QR_CELL     3
+#define SETUP_QR_PIXELS  ((SETUP_QR_MODULES + SETUP_QR_QUIET * 2) * SETUP_QR_CELL)
+
+static uint8_t s_setup_qr_buf[SETUP_QR_PIXELS * SETUP_QR_PIXELS];
+static bool s_setup_qr_ready = false;
+
+static lv_image_dsc_t s_setup_qr_dsc = {
+    .header = {
+        .magic = LV_IMAGE_HEADER_MAGIC,
+        .cf = LV_COLOR_FORMAT_A8,
+        .flags = 0,
+        .w = SETUP_QR_PIXELS,
+        .h = SETUP_QR_PIXELS,
+        .stride = SETUP_QR_PIXELS,
+        .reserved_2 = 0,
+    },
+    .data_size = sizeof(s_setup_qr_buf),
+    .data = s_setup_qr_buf,
+    .reserved = NULL,
+};
+
+static void prepare_setup_qr(void)
 {
-    static const uint32_t rows[29] = {
+    if(s_setup_qr_ready) return;
+
+    static const uint32_t rows[SETUP_QR_MODULES] = {
         0x1FC5EF7Fu, 0x1044F841u, 0x1755A25Du, 0x175C685Du, 0x1759335Du,
         0x105E0141u, 0x1FD5557Fu, 0x00155700u, 0x17C41E7Cu, 0x1B23EF76u,
         0x1A57F0A8u, 0x0118A253u, 0x164F61ACu, 0x01393176u, 0x0EDC0DF4u,
@@ -328,27 +359,42 @@ static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
         0x13735BFCu, 0x00140114u, 0x1FC73154u, 0x105F471Au, 0x175E19F6u,
         0x175042AFu, 0x175C6076u, 0x1047E0EAu, 0x1FD8FAE4u
     };
-    const int32_t cell = 3;
-    const int32_t quiet = 4;
-    const int32_t modules = 29 + quiet * 2;
-    const int32_t size = modules * cell;
+
+    memset(s_setup_qr_buf, 0, sizeof(s_setup_qr_buf));
+
+    for(int32_t row = 0; row < SETUP_QR_MODULES; ++row) {
+        for(int32_t col = 0; col < SETUP_QR_MODULES; ++col) {
+            if(((rows[row] >> (SETUP_QR_MODULES - 1 - col)) & 1u) == 0) continue;
+
+            const int32_t x0 = (SETUP_QR_QUIET + col) * SETUP_QR_CELL;
+            const int32_t y0 = (SETUP_QR_QUIET + row) * SETUP_QR_CELL;
+
+            for(int32_t py = 0; py < SETUP_QR_CELL; ++py) {
+                uint8_t *dst = &s_setup_qr_buf[
+                    (y0 + py) * SETUP_QR_PIXELS + x0];
+                memset(dst, 0xFF, SETUP_QR_CELL);
+            }
+        }
+    }
+
+    s_setup_qr_ready = true;
+}
+
+static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
+{
+    prepare_setup_qr();
 
     lv_obj_t *plate = plain_obj(parent);
-    lv_obj_set_size(plate, size, size);
+    lv_obj_set_size(plate, SETUP_QR_PIXELS, SETUP_QR_PIXELS);
     lv_obj_set_pos(plate, x, y);
     lv_obj_set_style_bg_color(plate, UI_COLOR_FG, 0);
     lv_obj_set_style_bg_opa(plate, LV_OPA_COVER, 0);
 
-    for(int32_t row = 0; row < 29; ++row) {
-        for(int32_t col = 0; col < 29; ++col) {
-            if(((rows[row] >> (28 - col)) & 1u) == 0) continue;
-            lv_obj_t *dot = plain_obj(plate);
-            lv_obj_set_size(dot, cell, cell);
-            lv_obj_set_pos(dot, (quiet + col) * cell, (quiet + row) * cell);
-            lv_obj_set_style_bg_color(dot, UI_COLOR_BG, 0);
-            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        }
-    }
+    lv_obj_t *image = lv_image_create(plate);
+    lv_image_set_src(image, &s_setup_qr_dsc);
+    lv_obj_set_style_image_recolor(image, UI_COLOR_BG, 0);
+    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
+    lv_obj_set_pos(image, 0, 0);
 }
 
 static void ensure_setup_portal(void)
