@@ -1,5 +1,8 @@
 #include "ui_page_remote.h"
 #include "ui_remote_icons.h"
+#if defined(ESP_PLATFORM)
+#include "board.h"
+#endif
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,9 +37,13 @@ static void *s_activity_user_data = NULL;
 static lv_point_t s_touch_press = {0, 0};
 static bool s_touch_active = false;
 static bool s_icons_ccw90 = false;
-static bool s_display_rotation_long_press = false;
+static int16_t s_icon_angle = 0;
 static lv_obj_t *s_icons[REMOTE_ICON_COUNT] = {0};
 static uint8_t s_icon_count = 0;
+#if defined(ESP_PLATFORM)
+static lv_timer_t *s_orientation_timer = NULL;
+static board_orientation_t s_last_orientation = BOARD_ORIENTATION_UNKNOWN;
+#endif
 
 typedef struct {
     ui_remote_action_t action;
@@ -77,15 +84,7 @@ static void register_icon(lv_obj_t *image)
 {
     if (image == NULL) return;
     if (s_icon_count < REMOTE_ICON_COUNT) s_icons[s_icon_count++] = image;
-    lv_image_set_rotation(image, s_icons_ccw90 ? 2700 : 0);
-}
-
-static void display_rotation_toggle_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
-    s_display_rotation_long_press = true;
-    ui_page_remote_set_icons_ccw90(!s_icons_ccw90, true);
-    note_activity();
+    lv_image_set_rotation(image, s_icon_angle);
 }
 
 static void button_event_cb(lv_event_t *e)
@@ -102,13 +101,7 @@ static void button_event_cb(lv_event_t *e)
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         lv_obj_set_style_bg_color(button, COLOR_BUTTON, 0);
     }
-    if (code == LV_EVENT_CLICKED && data != NULL) {
-        if (data == &s_display && s_display_rotation_long_press) {
-            s_display_rotation_long_press = false;
-            return;
-        }
-        emit_action(data->action, 0);
-    }
+    if (code == LV_EVENT_CLICKED && data != NULL) emit_action(data->action, 0);
 }
 
 static lv_obj_t *create_icon(lv_obj_t *parent, ui_remote_icon_t icon, uint32_t color_hex)
@@ -254,12 +247,72 @@ static lv_obj_t *create_volume_rocker(lv_obj_t *parent)
     return rocker;
 }
 
+static void set_icon_angle(int16_t angle, bool animate)
+{
+    while (angle < 0) angle += 3600;
+    angle %= 3600;
+    if (s_icon_angle == angle && s_icon_count > 0) return;
+
+    int16_t old_angle = s_icon_angle;
+    s_icon_angle = angle;
+    s_icons_ccw90 = (angle == 2700);
+
+    for (uint8_t i = 0; i < s_icon_count; i++) {
+        lv_obj_t *icon = s_icons[i];
+        if (icon == NULL) continue;
+        lv_anim_delete(icon, icon_rotation_exec_cb);
+
+        if (!animate) {
+            lv_image_set_rotation(icon, angle);
+            continue;
+        }
+
+        int32_t start = old_angle;
+        int32_t end = angle;
+        int32_t delta = end - start;
+        if (delta > 1800) end -= 3600;
+        else if (delta < -1800) end += 3600;
+
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, icon);
+        lv_anim_set_exec_cb(&a, icon_rotation_exec_cb);
+        lv_anim_set_duration(&a, ICON_ROTATION_MS);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+        lv_anim_set_values(&a, start, end);
+        lv_anim_start(&a);
+    }
+}
+
+#if defined(ESP_PLATFORM)
+static void orientation_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    board_orientation_t orientation = BOARD_ORIENTATION_UNKNOWN;
+    if (board_imu_get_orientation(&orientation) != ESP_OK ||
+        orientation == BOARD_ORIENTATION_UNKNOWN ||
+        orientation == s_last_orientation) {
+        return;
+    }
+
+    s_last_orientation = orientation;
+    int16_t angle = 0;
+    switch (orientation) {
+        case BOARD_ORIENTATION_PORTRAIT_RIGHT:      angle = 900;  break;
+        case BOARD_ORIENTATION_LANDSCAPE_INVERTED: angle = 1800; break;
+        case BOARD_ORIENTATION_PORTRAIT_LEFT:       angle = 2700; break;
+        case BOARD_ORIENTATION_LANDSCAPE:
+        default:                                    angle = 0;    break;
+    }
+    set_icon_angle(angle, true);
+}
+#endif
+
 void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb, void *activity_user_data)
 {
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
     s_touch_active = false;
-    s_display_rotation_long_press = false;
     s_icon_count = 0;
     for (uint8_t i = 0; i < REMOTE_ICON_COUNT; i++) s_icons[i] = NULL;
 
@@ -278,17 +331,28 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     create_circle_button(root, 398, 22, &s_home);
     create_circle_button(root, 398, 98, &s_back);
     create_circle_button(root, 474, 22, &s_setup);
-    lv_obj_t *display_button = create_circle_button(root, 549, 22, &s_display);
-    /* Short press keeps the normal DISPLAY remote action. Long press is the
-     * on-device control for the runtime icon-orientation feature that was
-     * previously reachable only from the web preview. */
-    lv_obj_add_event_cb(display_button, display_rotation_toggle_cb,
-                        LV_EVENT_LONG_PRESSED, NULL);
+    create_circle_button(root, 549, 22, &s_display);
     create_volume_rocker(root);
+
+#if defined(ESP_PLATFORM)
+    s_last_orientation = BOARD_ORIENTATION_UNKNOWN;
+    if (s_orientation_timer != NULL) {
+        lv_timer_delete(s_orientation_timer);
+    }
+    s_orientation_timer = lv_timer_create(orientation_timer_cb, 200, NULL);
+    orientation_timer_cb(s_orientation_timer);
+#endif
 }
 
 void ui_page_remote_stop(void)
 {
+#if defined(ESP_PLATFORM)
+    if (s_orientation_timer != NULL) {
+        lv_timer_delete(s_orientation_timer);
+        s_orientation_timer = NULL;
+    }
+    s_last_orientation = BOARD_ORIENTATION_UNKNOWN;
+#endif
     s_touch_active = false;
     s_activity_cb = NULL;
     s_activity_user_data = NULL;
@@ -304,32 +368,5 @@ void ui_page_remote_set_action_cb(ui_remote_action_cb_t cb, void *user_data)
 
 void ui_page_remote_set_icons_ccw90(bool ccw90, bool animate)
 {
-    if (s_icons_ccw90 == ccw90 && s_icon_count > 0) return;
-    bool was_ccw90 = s_icons_ccw90;
-    s_icons_ccw90 = ccw90;
-
-    for (uint8_t i = 0; i < s_icon_count; i++) {
-        lv_obj_t *icon = s_icons[i];
-        if (icon == NULL) continue;
-
-        lv_anim_delete(icon, icon_rotation_exec_cb);
-
-        if (!animate || was_ccw90 == ccw90) {
-            lv_image_set_rotation(icon, ccw90 ? 2700 : 0);
-            continue;
-        }
-
-        lv_anim_t a;
-        lv_anim_init(&a);
-        lv_anim_set_var(&a, icon);
-        lv_anim_set_exec_cb(&a, icon_rotation_exec_cb);
-        lv_anim_set_duration(&a, ICON_ROTATION_MS);
-        lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
-
-        /* LVGL rotation is clockwise-positive. 3600 == 0 visually, so
-         * 3600 -> 2700 is a true 90-degree counter-clockwise animation. */
-        if (ccw90) lv_anim_set_values(&a, 3600, 2700);
-        else lv_anim_set_values(&a, 2700, 3600);
-        lv_anim_start(&a);
-    }
+    set_icon_angle(ccw90 ? 2700 : 0, animate);
 }
