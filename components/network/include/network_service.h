@@ -16,6 +16,7 @@ extern "C" {
 
 typedef struct {
     bool initialized;
+    bool enabled;
     bool configured;
     bool connected;
     bool time_synced;
@@ -33,6 +34,7 @@ typedef struct {
 
 esp_err_t network_service_init(void);
 
+esp_err_t network_service_set_wifi_enabled(bool enabled);
 esp_err_t network_service_set_wifi_credentials(const char *ssid,
                                                const char *password);
 esp_err_t network_service_get_wifi_credentials(char *ssid,
