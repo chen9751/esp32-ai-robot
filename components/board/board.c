@@ -789,14 +789,16 @@ esp_err_t board_imu_get_orientation(board_orientation_t *orientation)
     }
 
     if (abs_y > abs_x + QMI8658_ORIENTATION_BIAS) {
+        /* QMI8658 is mounted 180 degrees relative to the product's final
+         * screen orientation, so invert the raw board axes here. */
         *orientation = ay > 0
-                           ? BOARD_ORIENTATION_LANDSCAPE
-                           : BOARD_ORIENTATION_LANDSCAPE_INVERTED;
+                           ? BOARD_ORIENTATION_LANDSCAPE_INVERTED
+                           : BOARD_ORIENTATION_LANDSCAPE;
     }
     else if (abs_x > abs_y + QMI8658_ORIENTATION_BIAS) {
         *orientation = ax > 0
-                           ? BOARD_ORIENTATION_PORTRAIT_RIGHT
-                           : BOARD_ORIENTATION_PORTRAIT_LEFT;
+                           ? BOARD_ORIENTATION_PORTRAIT_LEFT
+                           : BOARD_ORIENTATION_PORTRAIT_RIGHT;
     }
 
     return ESP_OK;
