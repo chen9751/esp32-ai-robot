@@ -137,6 +137,13 @@ static const char *s_bt_available_rssi[] = {
 
 #define UI_BT_AVAILABLE_COUNT ((int)(sizeof(s_bt_available_names) / sizeof(s_bt_available_names[0])))
 
+static void show_tab(ui_settings_tab_t tab);
+static void bt_icon_event_cb(lv_event_t *e);
+static void bt_scan_event_cb(lv_event_t *e);
+static void bt_connected_event_cb(lv_event_t *e);
+static void bt_forget_event_cb(lv_event_t *e);
+static void bt_available_event_cb(lv_event_t *e);
+
 static void note_activity(void)
 {
     if (s_activity_cb != NULL) s_activity_cb(s_activity_user_data);
@@ -372,6 +379,81 @@ static void ensure_setup_portal(void)
 }
 
 static void wifi_toggle_event_cb(lv_event_t *e);
+
+static void build_wifi_left(lv_obj_t *parent)
+{
+    lv_obj_t *icon = ui_system_icon_wifi(
+        parent, s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, -UI_STATUS_RIGHT_W / 2, 20);
+
+    lv_obj_t *toggle = plain_obj(parent);
+    lv_obj_set_size(toggle, 64, 28);
+    lv_obj_set_pos(toggle, 45, 73);
+    lv_obj_set_style_bg_color(toggle,
+                              s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_PANEL_2, 0);
+    lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, 0);
+    lv_obj_add_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(toggle, wifi_toggle_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *knob = plain_obj(toggle);
+    lv_obj_set_size(knob, 22, 22);
+    lv_obj_set_pos(knob, s_wifi_enabled ? 39 : 3, 3);
+    lv_obj_set_style_bg_color(knob, UI_COLOR_FG, 0);
+    lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(knob, LV_RADIUS_CIRCLE, 0);
+
+    lv_obj_t *state = make_label(parent, s_wifi_enabled ? "ON" : "OFF",
+                                 s_wifi_enabled ? UI_COLOR_FG : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, 68, 102);
+}
+
+static void build_wifi_right(lv_obj_t *parent)
+{
+    load_runtime_settings();
+    ensure_setup_portal();
+
+    network_wifi_status_t status = {0};
+#if defined(ESP_PLATFORM)
+    network_service_get_wifi_status(&status);
+#else
+    status.enabled = s_wifi_enabled;
+    status.configured = s_wifi_configured;
+    status.connected = s_wifi_connected;
+#endif
+
+    build_setup_qr(parent, UI_STATUS_RIGHT_X + 12, 6);
+
+    lv_obj_t *title = make_label(parent, "SCAN WITH PHONE", UI_COLOR_ACCENT);
+    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 12);
+
+    lv_obj_t *ap = make_label(parent, "AI-Robot-Setup", UI_COLOR_FG);
+    lv_obj_set_pos(ap, UI_STATUS_RIGHT_X + 137, 36);
+
+    lv_obj_t *hint = make_label(parent, "Captive setup page", UI_COLOR_MUTED);
+    lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 137, 58);
+
+    lv_obj_t *fallback = make_label(parent, "192.168.4.1", UI_COLOR_MUTED);
+    lv_obj_set_pos(fallback, UI_STATUS_RIGHT_X + 137, 80);
+
+    const char *state_text = status.connected ? "CONNECTED" :
+                             (status.configured ? "NOT CONNECTED" : "NOT SET");
+    lv_obj_t *state = make_label(parent, state_text,
+                                 status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, UI_STATUS_RIGHT_X + 272, 12);
+
+    if(status.connected) {
+        lv_obj_t *ssid = make_label(parent, status.ssid, UI_COLOR_FG);
+        lv_obj_set_pos(ssid, UI_STATUS_RIGHT_X + 272, 36);
+        lv_obj_t *ip = make_label(parent, status.ip, UI_COLOR_FG);
+        lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 272, 58);
+        lv_obj_t *sync = make_label(parent,
+                                    status.time_synced ? "TIME SYNCED" : "TIME SYNCING",
+                                    status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+        lv_obj_set_pos(sync, UI_STATUS_RIGHT_X + 272, 80);
+    }
+}
+
 static void build_wifi_content(void)
 {
     build_wifi_left(s_content);
