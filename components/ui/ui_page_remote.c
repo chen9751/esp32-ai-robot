@@ -34,6 +34,7 @@ static void *s_activity_user_data = NULL;
 static lv_point_t s_touch_press = {0, 0};
 static bool s_touch_active = false;
 static bool s_icons_ccw90 = false;
+static bool s_display_rotation_long_press = false;
 static lv_obj_t *s_icons[REMOTE_ICON_COUNT] = {0};
 static uint8_t s_icon_count = 0;
 
@@ -82,6 +83,7 @@ static void register_icon(lv_obj_t *image)
 static void display_rotation_toggle_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    s_display_rotation_long_press = true;
     ui_page_remote_set_icons_ccw90(!s_icons_ccw90, true);
     note_activity();
 }
@@ -100,7 +102,13 @@ static void button_event_cb(lv_event_t *e)
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         lv_obj_set_style_bg_color(button, COLOR_BUTTON, 0);
     }
-    if (code == LV_EVENT_CLICKED && data != NULL) emit_action(data->action, 0);
+    if (code == LV_EVENT_CLICKED && data != NULL) {
+        if (data == &s_display && s_display_rotation_long_press) {
+            s_display_rotation_long_press = false;
+            return;
+        }
+        emit_action(data->action, 0);
+    }
 }
 
 static lv_obj_t *create_icon(lv_obj_t *parent, ui_remote_icon_t icon, uint32_t color_hex)
@@ -251,6 +259,7 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
     s_touch_active = false;
+    s_display_rotation_long_press = false;
     s_icon_count = 0;
     for (uint8_t i = 0; i < REMOTE_ICON_COUNT; i++) s_icons[i] = NULL;
 
