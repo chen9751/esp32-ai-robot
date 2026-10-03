@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -262,14 +264,41 @@ esp_err_t bluetooth_service_init(void)
 {
     if (s_status.initialized) return ESP_OK;
 
+    /* NimBLE/BT controller uses NVS and needs a relatively large contiguous
+     * chunk of internal DRAM. Initialize it before the display/UI/Wi-Fi stack
+     * so the controller/HCI gets first choice of internal memory. */
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
+        nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_err = nvs_flash_init();
+    }
+    if (nvs_err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed before NimBLE: %s",
+                 esp_err_to_name(nvs_err));
+        return nvs_err;
+    }
+
+    ESP_LOGI(TAG, "before NimBLE: internal free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+
     s_lock = xSemaphoreCreateMutex();
     if (s_lock == NULL) return ESP_ERR_NO_MEM;
 
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nimble_port_init failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG,
+                 "nimble_port_init failed: %s; internal free=%u largest=%u",
+                 esp_err_to_name(err),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         return err;
     }
+
+    ESP_LOGI(TAG, "after NimBLE init: internal free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
     ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.sync_cb = on_sync;
