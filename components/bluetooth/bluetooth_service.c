@@ -15,6 +15,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_hs_adv.h"
 #include "host/util/util.h"
+#include "os/os_mbuf.h"
 
 static const char *TAG = "bluetooth";
 
@@ -31,6 +32,8 @@ static bool s_host_started = false;
 static uint32_t s_scan_packets = 0;
 static uint32_t s_scan_named_packets = 0;
 static uint32_t s_scan_event_type_count[8] = {0};
+static size_t s_selected_result_index = SIZE_MAX;
+static bool s_name_read_in_progress = false;
 
 void ble_store_config_init(void);
 
@@ -237,6 +240,76 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     unlock();
 }
 
+static int device_name_read_cb(uint16_t conn_handle,
+                               const struct ble_gatt_error *error,
+                               struct ble_gatt_attr *attr,
+                               void *arg)
+{
+    (void)arg;
+
+    if (error->status == 0 && attr != NULL && attr->om != NULL) {
+        uint16_t len = OS_MBUF_PKTLEN(attr->om);
+        if (len >= BLUETOOTH_DEVICE_NAME_MAX) {
+            len = BLUETOOTH_DEVICE_NAME_MAX - 1;
+        }
+
+        char name[BLUETOOTH_DEVICE_NAME_MAX] = {0};
+        if (len > 0 && os_mbuf_copydata(attr->om, 0, len, name) == 0) {
+            name[len] = '\0';
+
+            lock();
+            strlcpy(s_status.peer_name, name, sizeof(s_status.peer_name));
+            if (s_selected_result_index < s_result_count) {
+                strlcpy(s_results[s_selected_result_index].name,
+                        name,
+                        sizeof(s_results[s_selected_result_index].name));
+            }
+            bump_generation();
+            unlock();
+
+            ESP_LOGI(TAG, "GATT device name: %s", name);
+        }
+        return 0;
+    }
+
+    if (error->status == BLE_HS_EDONE) {
+        s_name_read_in_progress = false;
+        return 0;
+    }
+
+    s_name_read_in_progress = false;
+    ESP_LOGW(TAG, "GATT device-name read failed: %d", error->status);
+    return 0;
+}
+
+static void try_read_device_name(uint16_t conn_handle)
+{
+    if (s_name_read_in_progress) return;
+
+    lock();
+    bool needs_name =
+        s_status.peer_name[0] == '\0' ||
+        strcmp(s_status.peer_name, "BLE device") == 0;
+    unlock();
+
+    if (!needs_name) return;
+
+    static const ble_uuid16_t device_name_uuid = BLE_UUID16_INIT(0x2A00);
+    int rc = ble_gattc_read_by_uuid(conn_handle,
+                                    0x0001,
+                                    0xFFFF,
+                                    &device_name_uuid.u,
+                                    device_name_read_cb,
+                                    NULL);
+    if (rc == 0) {
+        s_name_read_in_progress = true;
+        ESP_LOGI(TAG, "reading GAP Device Name (0x2A00)");
+    }
+    else {
+        ESP_LOGW(TAG, "could not start GAP Device Name read: %d", rc);
+    }
+}
+
 static void host_task(void *param)
 {
     (void)param;
@@ -332,6 +405,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
                 unlock();
             }
 
+            try_read_device_name(s_conn_handle);
+
             /* Initiate security immediately. Just-Works peers complete without
              * user input; peers that need a passkey will stay connected but
              * report the security error for the next UI iteration. */
@@ -361,6 +436,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
                          event->enc_change.status,
                          desc.sec_state.encrypted,
                          desc.sec_state.bonded);
+                if (event->enc_change.status == 0) {
+                    try_read_device_name(event->enc_change.conn_handle);
+                }
             }
             return 0;
 
@@ -371,6 +449,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
             s_status.state = BLUETOOTH_LINK_IDLE;
             s_status.last_error = event->disconnect.reason;
             s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+            s_name_read_in_progress = false;
+            s_selected_result_index = SIZE_MAX;
             s_status.peer_name[0] = '\0';
             s_status.peer_address[0] = '\0';
             bump_generation();
@@ -564,6 +644,7 @@ esp_err_t bluetooth_service_connect(size_t index)
         return ESP_ERR_INVALID_ARG;
     }
     peer = s_results[index];
+    s_selected_result_index = index;
     strlcpy(s_status.peer_name, peer.name, sizeof(s_status.peer_name));
     strlcpy(s_status.peer_address, peer.address, sizeof(s_status.peer_address));
     s_status.scanning = false;
