@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <time.h>
 
+#if defined(ESP_PLATFORM)
+#include "board.h"
+#endif
+
 #define UI_SCREEN_W              640
 #define UI_SCREEN_H              172
 
@@ -184,18 +188,19 @@ static void draw_colon(int32_t x, int32_t y)
     draw_pixel(x, y + 4 * PIXEL_STEP);
 }
 
-static void read_clock(int *hour24, int *minute)
+static void read_clock(int *hour12, int *minute)
 {
     time_t now = time(NULL);
     struct tm local_tm;
 
     if (now <= 0 || localtime_r(&now, &local_tm) == NULL) {
-        *hour24 = 0;
+        *hour12 = 12;
         *minute = 0;
         return;
     }
 
-    *hour24 = local_tm.tm_hour;
+    const int h = local_tm.tm_hour % 12;
+    *hour12 = (h == 0) ? 12 : h;
     *minute = local_tm.tm_min;
 }
 
@@ -205,21 +210,20 @@ static void redraw_clock(void)
         return;
     }
 
-    int hour24 = 0;
+    int hour12 = 12;
     int minute = 0;
-    read_clock(&hour24, &minute);
+    read_clock(&hour12, &minute);
 
-    if (hour24 == s_last_hour && minute == s_last_minute) {
+    if (hour12 == s_last_hour && minute == s_last_minute) {
         return;
     }
 
-    s_last_hour = hour24;
+    s_last_hour = hour12;
     s_last_minute = minute;
     s_rect_used = 0;
 
-    /* Always render HH:MM in 24-hour format. Keeping four digits at all
-     * times makes the clock's bounding box constant, so 03:00, 12:00 and
-     * 23:59 share exactly the same visual center on the 640x172 canvas. */
+    /* Always render two hour digits even in 12-hour mode. Keeping HH:MM at a
+     * fixed width means 03:00 and 12:00 share the same visual center. */
     const int hour_w = 2 * DIGIT_W + DIGIT_GAP;
     const int minute_w = 2 * DIGIT_W + DIGIT_GAP;
     const int total_w = hour_w + COLON_GAP + COLON_W + COLON_GAP + minute_w;
@@ -228,9 +232,9 @@ static void redraw_clock(void)
 
     int x = x0;
 
-    draw_digit((uint8_t)(hour24 / 10), x, y0);
+    draw_digit((uint8_t)(hour12 / 10), x, y0);
     x += DIGIT_W + DIGIT_GAP;
-    draw_digit((uint8_t)(hour24 % 10), x, y0);
+    draw_digit((uint8_t)(hour12 % 10), x, y0);
     x += DIGIT_W + COLON_GAP;
 
     draw_colon(x, y0);
@@ -244,9 +248,34 @@ static void redraw_clock(void)
     finish_rect_frame();
 }
 
+static void refresh_power_state(void)
+{
+#if defined(ESP_PLATFORM)
+    board_power_status_t power = {0};
+    if (board_power_get_status(&power) != ESP_OK || !power.available) {
+        return;
+    }
+
+    ui_clock_battery_state_t next = UI_CLOCK_BATTERY_NORMAL;
+    if (power.charging) {
+        next = UI_CLOCK_BATTERY_CHARGING;
+    }
+    else if (power.low_battery) {
+        next = UI_CLOCK_BATTERY_LOW;
+    }
+
+    if (next != s_battery_state) {
+        s_battery_state = next;
+        s_last_hour = -1;
+        s_last_minute = -1;
+    }
+#endif
+}
+
 static void clock_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    refresh_power_state();
     redraw_clock();
 }
 
@@ -279,6 +308,7 @@ void ui_page_clock_build(lv_obj_t *parent)
     s_last_hour = -1;
     s_last_minute = -1;
 
+    refresh_power_state();
     redraw_clock();
     s_clock_timer = lv_timer_create(clock_timer_cb, 1000, NULL);
 }
