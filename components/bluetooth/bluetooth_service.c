@@ -66,21 +66,59 @@ static int find_result(const ble_addr_t *addr)
     return -1;
 }
 
+static bool extract_local_name(const uint8_t *data,
+                               uint8_t data_len,
+                               char *name,
+                               size_t name_size)
+{
+    if (data == NULL || name == NULL || name_size == 0) return false;
+
+    size_t offset = 0;
+    while (offset < data_len) {
+        uint8_t field_len = data[offset];
+        if (field_len == 0) break;
+
+        size_t total = (size_t)field_len + 1U;
+        if (offset + total > data_len || field_len < 1) break;
+
+        uint8_t type = data[offset + 1];
+        if (type == BLE_HS_ADV_TYPE_COMP_NAME ||
+            type == BLE_HS_ADV_TYPE_INCOMP_NAME) {
+            size_t text_len = (size_t)field_len - 1U;
+            if (text_len >= name_size) text_len = name_size - 1U;
+            memcpy(name, &data[offset + 2], text_len);
+            name[text_len] = '\0';
+            return text_len > 0;
+        }
+
+        offset += total;
+    }
+
+    return false;
+}
+
 static void save_discovery(const struct ble_gap_disc_desc *disc)
 {
-    struct ble_hs_adv_fields fields = {0};
     char name[BLUETOOTH_DEVICE_NAME_MAX] = {0};
 
-    /* In an active BLE scan the local name is often not in the first
-     * advertising packet. Many devices put it in the scan-response packet
-     * sent immediately afterwards. Parse every packet and merge it into the
-     * existing entry instead of replacing the whole entry each time. */
-    if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) == 0 &&
-        fields.name != NULL && fields.name_len > 0) {
-        size_t len = fields.name_len;
-        if (len >= sizeof(name)) len = sizeof(name) - 1;
-        memcpy(name, fields.name, len);
-        name[len] = '\0';
+    /* Some peripherals put Local Name only in the active-scan response.
+     * Walk AD structures directly so a malformed/unrecognised unrelated AD
+     * field cannot make ble_hs_adv_parse_fields() hide an otherwise valid
+     * 0x08/0x09 Local Name field. */
+    bool has_name = extract_local_name(
+        disc->data, disc->length_data, name, sizeof(name));
+
+    if (!has_name) {
+        /* Keep the normal NimBLE parser as a second path. */
+        struct ble_hs_adv_fields fields = {0};
+        if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) == 0 &&
+            fields.name != NULL && fields.name_len > 0) {
+            size_t len = fields.name_len;
+            if (len >= sizeof(name)) len = sizeof(name) - 1;
+            memcpy(name, fields.name, len);
+            name[len] = '\0';
+            has_name = true;
+        }
     }
 
     lock();
@@ -120,10 +158,15 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     /* Always refresh signal strength, but never erase a previously discovered
      * name just because a later advertisement omits the Local Name field. */
     dst->rssi = disc->rssi;
-    if (name[0] != '\0') {
+    if (has_name && name[0] != '\0') {
         strlcpy(dst->name, name, sizeof(dst->name));
-        ESP_LOGI(TAG, "device name: %s (%s), rssi=%d",
-                 dst->name, dst->address, (int)dst->rssi);
+        ESP_LOGI(TAG,
+                 "device name: %s (%s), event_type=%u rssi=%d data_len=%u",
+                 dst->name,
+                 dst->address,
+                 (unsigned)disc->event_type,
+                 (int)dst->rssi,
+                 (unsigned)disc->length_data);
     }
 
     bump_generation();
@@ -380,13 +423,13 @@ esp_err_t bluetooth_service_start_scan(void)
     unlock();
 
     struct ble_gap_disc_params params = {0};
-    /* Do not filter duplicates in the controller: active scan responses often
-     * carry the Local Name while the initial ADV packet does not. We merge
-     * packets by address in save_discovery(). */
+    /* Match ESP-IDF's BLE HID host active-scan timing. A non-zero scan
+     * window is important here because many nearby devices expose their
+     * Local Name only in the scan-response packet. */
     params.filter_duplicates = 0;
     params.passive = 0;
-    params.itvl = 0;
-    params.window = 0;
+    params.itvl = 0x50;
+    params.window = 0x30;
     params.filter_policy = 0;
     params.limited = 0;
 
