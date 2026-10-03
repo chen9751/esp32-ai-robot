@@ -287,12 +287,13 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
                                                         1);
     if (pressed && point_count > 0) {
         /* Touch driver coordinates are in the panel's native 172x640 space.
-         * The display path maps logical (lx, ly) to native:
-         *     nx = ly
-         *     ny = 639 - lx
-         * Apply the inverse transform here so LVGL always sees 640x172. */
-        int32_t logical_x = (BOARD_UI_H_RES - 1) - (int32_t)y;
-        int32_t logical_y = (int32_t)x;
+         * The final display mapping is:
+         *     nx = 171 - ly
+         *     ny = lx
+         * Apply the inverse transform so touch follows the 180-degree-corrected
+         * 640x172 UI orientation. */
+        int32_t logical_x = (int32_t)y;
+        int32_t logical_y = (BOARD_UI_V_RES - 1) - (int32_t)x;
         if (logical_x < 0) logical_x = 0;
         if (logical_x >= BOARD_UI_H_RES) logical_x = BOARD_UI_H_RES - 1;
         if (logical_y < 0) logical_y = 0;
@@ -356,8 +357,8 @@ static void display_flush_cb(lv_display_t *display,
             const uint16_t pixel = logical_pixels[src_row + (size_t)logical_x];
             const uint16_t wire_pixel =
                 (uint16_t)((pixel << 8) | (pixel >> 8));
-            const int32_t native_x = logical_y;
-            const int32_t native_y = (BOARD_UI_H_RES - 1) - logical_x;
+            const int32_t native_x = (BOARD_UI_V_RES - 1) - logical_y;
+            const int32_t native_y = logical_x;
             native_pixels_mut[(size_t)native_y * BOARD_LCD_NATIVE_H_RES +
                               (size_t)native_x] = wire_pixel;
         }
