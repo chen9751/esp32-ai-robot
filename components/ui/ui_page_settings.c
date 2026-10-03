@@ -4,6 +4,7 @@
 #if defined(ESP_PLATFORM)
 #include "board.h"
 #include "network_service.h"
+#include "bluetooth_service.h"
 #else
 typedef struct {
     bool initialized;
@@ -16,6 +17,38 @@ typedef struct {
     char mac[18];
     char dns[16];
 } network_wifi_status_t;
+
+#define BLUETOOTH_MAX_SCAN_RESULTS 8
+#define BLUETOOTH_DEVICE_NAME_MAX 32
+#define BLUETOOTH_ADDRESS_STR_MAX 18
+typedef enum {
+    BLUETOOTH_LINK_IDLE = 0,
+    BLUETOOTH_LINK_SCANNING,
+    BLUETOOTH_LINK_CONNECTING,
+    BLUETOOTH_LINK_PAIRING,
+    BLUETOOTH_LINK_CONNECTED,
+} bluetooth_link_state_t;
+typedef struct {
+    char name[BLUETOOTH_DEVICE_NAME_MAX];
+    char address[BLUETOOTH_ADDRESS_STR_MAX];
+    int8_t rssi;
+    uint8_t addr_type;
+    uint8_t addr[6];
+} bluetooth_scan_result_t;
+typedef struct {
+    bool initialized;
+    bool ready;
+    bool enabled;
+    bool scanning;
+    bool connected;
+    bool bonded;
+    bluetooth_link_state_t state;
+    char peer_name[BLUETOOTH_DEVICE_NAME_MAX];
+    char peer_address[BLUETOOTH_ADDRESS_STR_MAX];
+    int last_error;
+    uint32_t generation;
+} bluetooth_status_t;
+
 static int board_backlight_set_percent(unsigned char percent)
 {
     (void)percent;
@@ -97,9 +130,15 @@ static bool s_wifi_configured = false;
 static bool s_wifi_connected = false;
 static bool s_ai_configured = false;
 static bool s_bt_enabled = true;
+static lv_timer_t *s_bt_refresh_timer = NULL;
+static uint32_t s_bt_last_generation = UINT32_MAX;
 
 static void show_tab(ui_settings_tab_t tab);
 static void bt_icon_event_cb(lv_event_t *e);
+static void bt_scan_event_cb(lv_event_t *e);
+static void bt_device_event_cb(lv_event_t *e);
+static void bt_disconnect_event_cb(lv_event_t *e);
+static void bt_forget_event_cb(lv_event_t *e);
 
 static void load_runtime_settings(void)
 {
@@ -499,56 +538,286 @@ static void wifi_toggle_event_cb(lv_event_t *e)
     show_tab(UI_SETTINGS_WIFI);
 }
 
+static void get_bluetooth_status(bluetooth_status_t *status)
+{
+    memset(status, 0, sizeof(*status));
+#if defined(ESP_PLATFORM)
+    bluetooth_service_get_status(status);
+#else
+    status->initialized = true;
+    status->ready = true;
+    status->enabled = s_bt_enabled;
+    status->generation = 1;
+#endif
+}
+
+static size_t get_bluetooth_results(bluetooth_scan_result_t *results, size_t capacity)
+{
+#if defined(ESP_PLATFORM)
+    return bluetooth_service_get_scan_results(results, capacity);
+#else
+    (void)results;
+    (void)capacity;
+    return 0;
+#endif
+}
+
+static const char *bluetooth_state_text(const bluetooth_status_t *status)
+{
+    if(!status->enabled) return "OFF";
+    if(!status->ready) return "STARTING";
+    switch(status->state) {
+        case BLUETOOTH_LINK_SCANNING:   return "SCANNING";
+        case BLUETOOTH_LINK_CONNECTING: return "CONNECTING";
+        case BLUETOOTH_LINK_PAIRING:    return "PAIRING";
+        case BLUETOOTH_LINK_CONNECTED:  return status->bonded ? "PAIRED" : "CONNECTED";
+        case BLUETOOTH_LINK_IDLE:
+        default:                        return "READY";
+    }
+}
+
+static void rebuild_bluetooth_content(void)
+{
+    if(s_content == NULL || s_selected != UI_SETTINGS_BLUETOOTH) return;
+    lv_obj_clean(s_content);
+    build_bluetooth_content();
+    refresh_tab_styles();
+}
+
+static void bt_refresh_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if(s_selected != UI_SETTINGS_BLUETOOTH) return;
+
+    bluetooth_status_t status = {0};
+    get_bluetooth_status(&status);
+    if(status.generation == s_bt_last_generation) return;
+
+    s_bt_last_generation = status.generation;
+    rebuild_bluetooth_content();
+}
+
+static void start_bt_refresh_timer(void)
+{
+    if(s_bt_refresh_timer == NULL) {
+        s_bt_refresh_timer = lv_timer_create(bt_refresh_timer_cb, 400, NULL);
+    }
+}
+
+static void stop_bt_refresh_timer(void)
+{
+    if(s_bt_refresh_timer != NULL) {
+        lv_timer_delete(s_bt_refresh_timer);
+        s_bt_refresh_timer = NULL;
+    }
+}
+
 static void build_bluetooth_content(void)
 {
-    lv_obj_t *icon = ui_system_icon_bluetooth(
-        s_content, s_bt_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(icon, 61, 22);
+    bluetooth_status_t status = {0};
+    get_bluetooth_status(&status);
+    s_bt_enabled = status.enabled;
+    s_bt_last_generation = status.generation;
 
-    lv_obj_t *state = make_label(s_content,
-                                 s_bt_enabled ? "ON" : "OFF",
-                                 s_bt_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, 67, 78);
+    lv_obj_t *icon = ui_system_icon_bluetooth(
+        s_content, status.enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(icon, 61, 18);
+
+    lv_obj_t *state = make_label(s_content, bluetooth_state_text(&status),
+                                 (status.enabled && status.ready)
+                                     ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, 48, 72);
 
     lv_obj_t *hit = plain_obj(s_content);
-    lv_obj_set_size(hit, 118, 100);
-    lv_obj_set_pos(hit, 18, 8);
+    lv_obj_set_size(hit, 118, 104);
+    lv_obj_set_pos(hit, 18, 6);
     lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(hit, bt_icon_event_cb, LV_EVENT_CLICKED, NULL);
 
     add_status_divider(s_content);
 
-    lv_obj_t *title = make_label(s_content,
-                                 s_bt_enabled ? "BLUETOOTH READY" : "BLUETOOTH DISABLED",
-                                 s_bt_enabled ? UI_COLOR_FG : UI_COLOR_MUTED);
-    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 22, 24);
-
-    lv_obj_t *detail = make_label(
-        s_content,
-        s_bt_enabled
-            ? "Real device scanning/pairing will use the NimBLE service."
-            : "Tap the Bluetooth icon to enable.",
-        UI_COLOR_MUTED);
-    lv_obj_set_pos(detail, UI_STATUS_RIGHT_X + 22, 54);
-    lv_obj_set_width(detail, UI_STATUS_RIGHT_W - 44);
-    lv_label_set_long_mode(detail, LV_LABEL_LONG_WRAP);
-
-    if(s_bt_enabled) {
-        lv_obj_t *scan = add_action_button(s_content, "SCAN",
-                                           UI_STATUS_RIGHT_X + 22, 88, 92,
-                                           UI_COLOR_PANEL_2, UI_COLOR_MUTED);
-        lv_obj_add_state(scan, LV_STATE_DISABLED);
+    if(!status.enabled) {
+        lv_obj_t *title = make_label(s_content, "BLUETOOTH OFF", UI_COLOR_MUTED);
+        lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 22, 28);
+        lv_obj_t *hint = make_label(s_content,
+                                    "Tap the Bluetooth icon to enable.",
+                                    UI_COLOR_MUTED);
+        lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 22, 56);
+        start_bt_refresh_timer();
+        return;
     }
+
+    if(!status.ready) {
+        lv_obj_t *title = make_label(s_content, "STARTING BLUETOOTH", UI_COLOR_FG);
+        lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 22, 28);
+        lv_obj_t *hint = make_label(s_content, "NimBLE host is starting...", UI_COLOR_MUTED);
+        lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 22, 56);
+        start_bt_refresh_timer();
+        return;
+    }
+
+    if(status.connected) {
+        lv_obj_t *name = make_label(
+            s_content,
+            status.peer_name[0] ? status.peer_name : "BLE device",
+            UI_COLOR_FG);
+        lv_obj_set_pos(name, UI_STATUS_RIGHT_X + 16, 14);
+
+        lv_obj_t *addr = make_label(s_content, status.peer_address, UI_COLOR_MUTED);
+        lv_obj_set_pos(addr, UI_STATUS_RIGHT_X + 16, 38);
+
+        lv_obj_t *security = make_label(
+            s_content,
+            status.state == BLUETOOTH_LINK_PAIRING
+                ? "PAIRING..."
+                : (status.bonded ? "BONDED" : "LINK CONNECTED"),
+            status.bonded ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+        lv_obj_set_pos(security, UI_STATUS_RIGHT_X + 16, 62);
+
+        lv_obj_t *disconnect = add_action_button(
+            s_content, "DISCONNECT",
+            UI_STATUS_RIGHT_X + 16, 88, 105,
+            UI_COLOR_PANEL_2, UI_COLOR_FG);
+        lv_obj_add_event_cb(disconnect, bt_disconnect_event_cb, LV_EVENT_CLICKED, NULL);
+
+        lv_obj_t *forget = add_action_button(
+            s_content, "FORGET",
+            UI_STATUS_RIGHT_X + 132, 88, 80,
+            UI_COLOR_PANEL_2, UI_COLOR_DANGER);
+        lv_obj_add_event_cb(forget, bt_forget_event_cb, LV_EVENT_CLICKED, NULL);
+
+        start_bt_refresh_timer();
+        return;
+    }
+
+    lv_obj_t *scan = add_action_button(
+        s_content,
+        status.scanning ? "SCANNING..." : "SCAN",
+        UI_STATUS_RIGHT_X + 14, 8, 96,
+        status.scanning ? UI_COLOR_TAB_ACTIVE : UI_COLOR_PANEL_2,
+        status.scanning ? UI_COLOR_MUTED : UI_COLOR_ACCENT);
+    if(!status.scanning) {
+        lv_obj_add_event_cb(scan, bt_scan_event_cb, LV_EVENT_CLICKED, NULL);
+    }
+
+    if(status.last_error != 0 && !status.scanning) {
+        lv_obj_t *err = make_label(s_content, "LAST CONNECT/SCAN FAILED", UI_COLOR_DANGER);
+        lv_obj_set_pos(err, UI_STATUS_RIGHT_X + 126, 13);
+    }
+    else {
+        lv_obj_t *hint = make_label(
+            s_content,
+            status.scanning ? "Searching nearby BLE devices" : "Tap a device to connect",
+            UI_COLOR_MUTED);
+        lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 126, 13);
+    }
+
+    bluetooth_scan_result_t results[BLUETOOTH_MAX_SCAN_RESULTS] = {0};
+    size_t count = get_bluetooth_results(results, BLUETOOTH_MAX_SCAN_RESULTS);
+
+    lv_obj_t *list = plain_obj(s_content);
+    lv_obj_set_pos(list, UI_STATUS_RIGHT_X + 14, 40);
+    lv_obj_set_size(list, UI_STATUS_RIGHT_W - 28, 76);
+    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+
+    if(count == 0) {
+        lv_obj_t *empty = make_label(
+            list,
+            status.scanning ? "Scanning..." : "No scan results yet",
+            UI_COLOR_MUTED);
+        lv_obj_set_pos(empty, 8, 14);
+    }
+    else {
+        for(size_t i = 0; i < count; ++i) {
+            lv_obj_t *row = plain_obj(list);
+            lv_obj_set_pos(row, 0, (int32_t)i * 32);
+            lv_obj_set_size(row, UI_STATUS_RIGHT_W - 42, 29);
+            lv_obj_set_style_bg_color(row, UI_COLOR_PANEL, 0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(row, 7, 0);
+            lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(row, bt_device_event_cb, LV_EVENT_CLICKED,
+                                (void *)(uintptr_t)i);
+
+            lv_obj_t *name = make_label(row, results[i].name, UI_COLOR_FG);
+            lv_obj_set_pos(name, 8, 5);
+            lv_obj_set_width(name, 190);
+            lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+
+            lv_obj_t *addr = make_label(row, results[i].address, UI_COLOR_MUTED);
+            lv_obj_set_pos(addr, 205, 5);
+
+            lv_obj_t *rssi = lv_label_create(row);
+            lv_label_set_text_fmt(rssi, "%d", (int)results[i].rssi);
+            lv_obj_set_style_text_color(rssi, UI_COLOR_MUTED, 0);
+            lv_obj_set_pos(rssi, 340, 5);
+        }
+    }
+
+    start_bt_refresh_timer();
 }
 
 static void bt_icon_event_cb(lv_event_t *e)
 {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    s_bt_enabled = !s_bt_enabled;
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+
+    bluetooth_status_t status = {0};
+    get_bluetooth_status(&status);
+#if defined(ESP_PLATFORM)
+    (void)bluetooth_service_set_enabled(!status.enabled);
+#else
+    s_bt_enabled = !status.enabled;
+#endif
     note_activity();
-    show_tab(UI_SETTINGS_BLUETOOTH);
+    s_bt_last_generation = UINT32_MAX;
+    rebuild_bluetooth_content();
 }
 
+static void bt_scan_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+#if defined(ESP_PLATFORM)
+    (void)bluetooth_service_start_scan();
+#endif
+    note_activity();
+    s_bt_last_generation = UINT32_MAX;
+    rebuild_bluetooth_content();
+}
+
+static void bt_device_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    size_t index = (size_t)(uintptr_t)lv_event_get_user_data(e);
+#if defined(ESP_PLATFORM)
+    (void)bluetooth_service_connect(index);
+#else
+    (void)index;
+#endif
+    note_activity();
+    s_bt_last_generation = UINT32_MAX;
+    rebuild_bluetooth_content();
+}
+
+static void bt_disconnect_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+#if defined(ESP_PLATFORM)
+    (void)bluetooth_service_disconnect();
+#endif
+    note_activity();
+}
+
+static void bt_forget_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+#if defined(ESP_PLATFORM)
+    (void)bluetooth_service_forget_peer();
+    (void)bluetooth_service_disconnect();
+#endif
+    note_activity();
+}
 
 static void build_ai_content(void)
 {
@@ -596,6 +865,7 @@ static void refresh_tab_styles(void)
 static void show_tab(ui_settings_tab_t tab)
 {
     if (s_content == NULL) return;
+    if (tab != UI_SETTINGS_BLUETOOTH) stop_bt_refresh_timer();
     s_selected = tab;
     lv_obj_clean(s_content);
     s_slider_ctx = (slider_ctx_t){0};
@@ -673,6 +943,7 @@ lv_obj_t *ui_page_settings_build(lv_obj_t *parent,
 
 void ui_page_settings_stop(void)
 {
+    stop_bt_refresh_timer();
     s_root = NULL;
     s_content = NULL;
     s_activity_cb = NULL;
