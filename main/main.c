@@ -13,7 +13,14 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "ESP32 AI Robot booting");
 
-    esp_err_t err = board_init();
+    /* Bring up BLE before the display and Wi-Fi consume internal DRAM.
+     * The UI only reads service state later, so this ordering is safe. */
+    esp_err_t err = bluetooth_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Bluetooth service init failed: %s", esp_err_to_name(err));
+    }
+
+    err = board_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "board startup failed: %s", esp_err_to_name(err));
         return;
@@ -51,11 +58,6 @@ void app_main(void)
     err = network_service_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
-    }
-
-    err = bluetooth_service_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Bluetooth service init failed: %s", esp_err_to_name(err));
     }
 
     ESP_LOGI(TAG, "UI ready at logical resolution 640x172");
