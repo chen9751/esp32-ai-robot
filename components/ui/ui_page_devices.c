@@ -50,15 +50,17 @@
 
 #define TMIN 32
 #define TMAX 62
-#define TSTEP 12
+#define TSTEP 28
 #define FMIN 1
 #define FMAX 7
 
 #define BATH_TMIN_X10 160
 #define BATH_TMAX_X10 310
 #define BATH_TSTEP_X10 5
-#define BATH_DRAG_STEP 12
+#define BATH_DRAG_STEP 28
 #define GESTURE_LOCK_PX 6
+#define QUICK_SWIPE_MS 260u
+#define QUICK_SWIPE_PX 26
 
 #define RI_POWER         "\xEF\x84\xA6" /* ri-shut-down-line U+F126 */
 #define RI_COOL          "\xEF\x94\x92" /* ri-snowflake-line U+F512 */
@@ -159,6 +161,9 @@ static bool fan_auto;
 static center_t center = CENTER_TEMP;
 static int32_t temp_x;
 static int32_t temp_y;
+static int32_t temp_press_y0;
+static int temp_start2;
+static uint32_t temp_press_tick;
 static gesture_axis_t temp_axis = GESTURE_PENDING;
 
 static curtain_view_t curtain_views[CURTAIN_VIEW_N];
@@ -174,6 +179,9 @@ static int32_t bath_target_x10 = 260;
 static int32_t bath_current_x10 = 240;
 static int32_t bath_temp_x;
 static int32_t bath_temp_y;
+static int32_t bath_press_y0;
+static int32_t bath_start_x10;
+static uint32_t bath_press_tick;
 static gesture_axis_t bath_temp_axis = GESTURE_PENDING;
 
 static drying_view_t drying_views[DRYING_VIEW_N];
@@ -475,6 +483,9 @@ static void temp_cb(lv_event_t *e)
     if(c == LV_EVENT_PRESSED) {
         temp_x = p.x;
         temp_y = p.y;
+        temp_press_y0 = p.y;
+        temp_start2 = temp2;
+        temp_press_tick = lv_tick_get();
         temp_axis = GESTURE_PENDING;
         activity();
         return;
@@ -517,6 +528,19 @@ static void temp_cb(lv_event_t *e)
     }
 
     if(c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) {
+        if(c == LV_EVENT_RELEASED && temp_axis != GESTURE_HORIZONTAL) {
+            const int32_t total_dy = p.y - temp_press_y0;
+            const uint32_t elapsed = lv_tick_get() - temp_press_tick;
+            if(elapsed <= QUICK_SWIPE_MS && iabs32(total_dy) >= QUICK_SWIPE_PX) {
+                /* A deliberate flick is one whole degree regardless of travel.
+                 * temp2 uses half-degree units, so +/-2 == +/-1.0 C. */
+                int target = temp_start2 + (total_dy < 0 ? 2 : -2);
+                if(target < TMIN) target = TMIN;
+                if(target > TMAX) target = TMAX;
+                temp2 = target;
+                refresh_aircon();
+            }
+        }
         temp_axis = GESTURE_PENDING;
         activity();
     }
@@ -813,6 +837,9 @@ static void bath_temp_cb(lv_event_t *e)
     if(code == LV_EVENT_PRESSED) {
         bath_temp_x = p.x;
         bath_temp_y = p.y;
+        bath_press_y0 = p.y;
+        bath_start_x10 = bath_target_x10;
+        bath_press_tick = lv_tick_get();
         bath_temp_axis = GESTURE_PENDING;
         activity();
         return;
@@ -861,6 +888,18 @@ static void bath_temp_cb(lv_event_t *e)
     }
 
     if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        if(code == LV_EVENT_RELEASED && bath_temp_axis != GESTURE_HORIZONTAL) {
+            const int32_t total_dy = p.y - bath_press_y0;
+            const uint32_t elapsed = lv_tick_get() - bath_press_tick;
+            if(elapsed <= QUICK_SWIPE_MS && iabs32(total_dy) >= QUICK_SWIPE_PX) {
+                /* Fast flick = exactly 1 C. Slow drag remains 0.5 C per step. */
+                int32_t target = bath_start_x10 + (total_dy < 0 ? 10 : -10);
+                if(target < BATH_TMIN_X10) target = BATH_TMIN_X10;
+                if(target > BATH_TMAX_X10) target = BATH_TMAX_X10;
+                bath_target_x10 = target;
+                refresh_bath();
+            }
+        }
         bath_temp_axis = GESTURE_PENDING;
         activity();
     }
