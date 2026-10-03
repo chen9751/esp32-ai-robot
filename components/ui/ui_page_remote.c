@@ -301,15 +301,15 @@ static void orientation_timer_cb(lv_timer_t *timer)
      *
      * Real-device validation shows that, after the board-level 180-degree
      * sensor correction, that physical clockwise pose is reported as
-     * PORTRAIT_LEFT. LVGL image rotation on this final screen orientation
-     * needs 900 to produce the intended visual CCW quarter-turn. */
+     * PORTRAIT_LEFT. Real-device validation shows the final LCD mapping makes
+     * 2700 the upright icon orientation for this pose. */
     if (orientation == BOARD_ORIENTATION_LANDSCAPE) {
         s_last_orientation = orientation;
         set_icon_angle(0, true);
     }
     else if (orientation == BOARD_ORIENTATION_PORTRAIT_LEFT) {
         s_last_orientation = orientation;
-        set_icon_angle(900, true);
+        set_icon_angle(2700, true);
     }
 }
 #endif
