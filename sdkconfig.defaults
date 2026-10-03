@@ -44,3 +44,8 @@ CONFIG_BT_NIMBLE_SM_SC=y
 # Keep NimBLE host allocations out of scarce internal DRAM. The BT controller
 # and HCI transport still use internal memory; host buffers go to 8 MB PSRAM.
 CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+
+# ESP32-S3 has one 2.4 GHz RF shared by Wi-Fi and BLE. Enable Espressif's
+# software coexistence scheduler because this product keeps Wi-Fi connected
+# while the Settings page performs BLE active scans.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
