@@ -49,11 +49,12 @@
 #define BOARD_POWER_SYS_OUT_PIN         GPIO_NUM_16
 
 /*
- * The AXS15231B QSPI path used by Waveshare expects complete, sequential
- * native-frame writes. LVGL therefore renders a full logical frame in PSRAM,
- * rotates it to the native 172x640 layout, then the board driver feeds it to
- * the SPI DMA engine in 64-row strips. This mirrors Waveshare's verified V2
- * LVGL v9 implementation and avoids partial-refresh line corruption.
+ * The product UI is permanently 640x172 while the physical AXS15231B panel is
+ * wired as 172x640. LVGL renders a complete 640x172 logical RGB565 frame in
+ * PSRAM. The board flush callback explicitly maps that frame into a linear
+ * 172x640 native framebuffer, then feeds the panel in 64-row DMA strips.
+ * Keeping rotation outside LVGL makes the framebuffer layout deterministic
+ * across LVGL versions and keeps every UI page authored in 640x172 space.
  */
 #define BOARD_LCD_BYTES_PER_PIXEL       2
 #define BOARD_LCD_FRAME_PIXELS          (BOARD_LCD_NATIVE_H_RES * BOARD_LCD_NATIVE_V_RES)
