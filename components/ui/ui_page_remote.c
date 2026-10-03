@@ -297,16 +297,19 @@ static void orientation_timer_cb(lv_timer_t *timer)
 
     /* Product behavior intentionally has only two states:
      * normal landscape -> normal icons;
-     * one clockwise physical quarter-turn -> icons rotate CCW 90 degrees.
-     * Ignore the opposite portrait/upside-down states instead of behaving
-     * like a phone with four-way auto-rotation. */
+     * physical clockwise quarter-turn -> icons rotate CCW 90 degrees.
+     *
+     * Real-device validation shows that, after the board-level 180-degree
+     * sensor correction, that physical clockwise pose is reported as
+     * PORTRAIT_LEFT. LVGL image rotation on this final screen orientation
+     * needs 900 to produce the intended visual CCW quarter-turn. */
     if (orientation == BOARD_ORIENTATION_LANDSCAPE) {
         s_last_orientation = orientation;
         set_icon_angle(0, true);
     }
-    else if (orientation == BOARD_ORIENTATION_PORTRAIT_RIGHT) {
+    else if (orientation == BOARD_ORIENTATION_PORTRAIT_LEFT) {
         s_last_orientation = orientation;
-        set_icon_angle(2700, true);
+        set_icon_angle(900, true);
     }
 }
 #endif
