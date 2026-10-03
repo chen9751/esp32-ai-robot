@@ -17,15 +17,6 @@ void app_main(void)
         return;
     }
 
-    ESP_LOGI(TAG, "starting direct LCD color test");
-    err = board_display_run_color_test();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "direct LCD color test failed: %s", esp_err_to_name(err));
-    }
-    else {
-        ESP_LOGI(TAG, "direct LCD color test complete");
-    }
-
     /* LVGL is owned by the board runtime task. Build the complete first UI
      * tree under the shared mutex, then force one synchronous refresh before
      * revealing the backlight. This makes first-frame delivery deterministic
@@ -44,10 +35,9 @@ void app_main(void)
 
     board_display_unlock();
 
-    /* Reveal the screen only after the first frame has been pushed. Use full
-     * brightness during the initial hardware bring-up so a PWM polarity or
-     * marginal brightness issue cannot look like an LCD/flush failure. */
-    err = board_backlight_set_percent(100);
+    /* Reveal the screen only after the first frame has been pushed. Hardware
+     * bring-up is complete, so start at the product default brightness. */
+    err = board_backlight_set_percent(60);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "backlight setup failed: %s", esp_err_to_name(err));
     }
