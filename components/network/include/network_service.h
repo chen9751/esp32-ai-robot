@@ -43,6 +43,12 @@ esp_err_t network_service_get_wifi_credentials(char *ssid,
                                                size_t password_size);
 void network_service_get_wifi_status(network_wifi_status_t *status);
 
+esp_err_t network_service_start_setup_portal(void);
+esp_err_t network_service_stop_setup_portal(void);
+bool network_service_setup_portal_active(void);
+const char *network_service_setup_ssid(void);
+const char *network_service_setup_url(void);
+
 esp_err_t network_service_set_backend_config(const network_backend_config_t *config);
 esp_err_t network_service_get_backend_config(network_backend_config_t *config);
 
