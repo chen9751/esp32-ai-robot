@@ -184,19 +184,18 @@ static void draw_colon(int32_t x, int32_t y)
     draw_pixel(x, y + 4 * PIXEL_STEP);
 }
 
-static void read_clock(int *hour12, int *minute)
+static void read_clock(int *hour24, int *minute)
 {
     time_t now = time(NULL);
     struct tm local_tm;
 
     if (now <= 0 || localtime_r(&now, &local_tm) == NULL) {
-        *hour12 = 12;
+        *hour24 = 0;
         *minute = 0;
         return;
     }
 
-    const int h = local_tm.tm_hour % 12;
-    *hour12 = (h == 0) ? 12 : h;
+    *hour24 = local_tm.tm_hour;
     *minute = local_tm.tm_min;
 }
 
@@ -206,20 +205,22 @@ static void redraw_clock(void)
         return;
     }
 
-    int hour12 = 12;
+    int hour24 = 0;
     int minute = 0;
-    read_clock(&hour12, &minute);
+    read_clock(&hour24, &minute);
 
-    if (hour12 == s_last_hour && minute == s_last_minute) {
+    if (hour24 == s_last_hour && minute == s_last_minute) {
         return;
     }
 
-    s_last_hour = hour12;
+    s_last_hour = hour24;
     s_last_minute = minute;
     s_rect_used = 0;
 
-    const int hour_digits = (hour12 >= 10) ? 2 : 1;
-    const int hour_w = hour_digits * DIGIT_W + (hour_digits - 1) * DIGIT_GAP;
+    /* Always render HH:MM in 24-hour format. Keeping four digits at all
+     * times makes the clock's bounding box constant, so 03:00, 12:00 and
+     * 23:59 share exactly the same visual center on the 640x172 canvas. */
+    const int hour_w = 2 * DIGIT_W + DIGIT_GAP;
     const int minute_w = 2 * DIGIT_W + DIGIT_GAP;
     const int total_w = hour_w + COLON_GAP + COLON_W + COLON_GAP + minute_w;
     const int x0 = (UI_SCREEN_W - total_w) / 2;
@@ -227,12 +228,9 @@ static void redraw_clock(void)
 
     int x = x0;
 
-    if (hour_digits == 2) {
-        draw_digit((uint8_t)(hour12 / 10), x, y0);
-        x += DIGIT_W + DIGIT_GAP;
-    }
-
-    draw_digit((uint8_t)(hour12 % 10), x, y0);
+    draw_digit((uint8_t)(hour24 / 10), x, y0);
+    x += DIGIT_W + DIGIT_GAP;
+    draw_digit((uint8_t)(hour24 % 10), x, y0);
     x += DIGIT_W + COLON_GAP;
 
     draw_colon(x, y0);
