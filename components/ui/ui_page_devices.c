@@ -1006,15 +1006,6 @@ void ui_page_devices_set_drying_rack_position(uint8_t percent)
 
 /* ---------- Pager ---------- */
 
-static void normalize(void)
-{
-    if(!pager || wrapping) return;
-    int32_t x = lv_obj_get_scroll_x(pager); wrapping = true;
-    if(x <= 0) lv_obj_scroll_to_x(pager, PAGE_N * W, LV_ANIM_OFF);
-    else if(x >= (PAGE_N + 1) * W) lv_obj_scroll_to_x(pager, W, LV_ANIM_OFF);
-    wrapping = false;
-}
-
 static void pager_cb(lv_event_t *e)
 {
     lv_event_code_t c = lv_event_get_code(e);
@@ -1023,7 +1014,6 @@ static void pager_cb(lv_event_t *e)
     if(c == LV_EVENT_SCROLL_BEGIN && power_on && center != CENTER_TEMP) {
         center = CENTER_TEMP; refresh_aircon();
     }
-    if(c == LV_EVENT_SCROLL_END) normalize();
 }
 
 lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
@@ -1046,15 +1036,16 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
     lv_obj_set_flex_flow(pager, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(pager, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
-    build_drying(pager);
+    /* Keep only the four real pages on-device. The previous circular pager
+     * duplicated drying + aircon views, creating six heavy LVGL pages at once
+     * and exhausting real-device heap when entering Devices. */
     build_aircon(pager);
     build_curtain(pager);
     build_bath(pager);
     build_drying(pager);
-    build_aircon(pager);
 
     lv_obj_add_event_cb(pager, pager_cb, LV_EVENT_ALL, NULL);
-    lv_obj_scroll_to_x(pager, W, LV_ANIM_OFF);
+    lv_obj_scroll_to_x(pager, 0, LV_ANIM_OFF);
     return root;
 }
 
