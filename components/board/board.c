@@ -81,7 +81,9 @@ static esp_err_t init_backlight_pwm(void)
         .channel = LEDC_CHANNEL_1,
         .intr_type = LEDC_INTR_DISABLE,
         .timer_sel = LEDC_TIMER_3,
-        .duty = 0,
+        /* Waveshare V2 backlight PWM is active-low: duty 0 = brightest,
+         * duty 255 = off. Keep it off until the first frame is ready. */
+        .duty = 255,
         .hpoint = 0,
         .flags = {
             .output_invert = 0,
@@ -638,7 +640,11 @@ esp_err_t board_backlight_set_percent(uint8_t percent)
     }
 
     if (percent > 100) percent = 100;
-    const uint32_t duty = ((uint32_t)percent * 255U + 50U) / 100U;
+    /* Waveshare V2 defines LCD_PWM_MODE_x as (0xff - x): the GPIO42
+     * brightness PWM is active-low. Therefore 100% brightness must drive
+     * duty=0, while 0% brightness must drive duty=255. */
+    const uint32_t brightness = ((uint32_t)percent * 255U + 50U) / 100U;
+    const uint32_t duty = 255U - brightness;
 
     esp_err_t err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty);
     if (err != ESP_OK) return err;
