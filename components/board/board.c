@@ -8,6 +8,7 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include "driver/usb_serial_jtag.h"
 #include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_err.h"
@@ -57,6 +58,9 @@ static uint16_t *s_dma_buffer = NULL;
 static adc_oneshot_unit_handle_t s_battery_adc = NULL;
 static adc_cali_handle_t s_battery_adc_cali = NULL;
 static bool s_power_monitor_ready = false;
+static uint16_t s_last_logged_battery_mv = UINT16_MAX;
+static int s_last_logged_usb_connected = -1;
+static int s_last_logged_sys_out = -1;
 
 static bool s_lvgl_started = false;
 static bool s_display_ready = false;
@@ -814,23 +818,44 @@ esp_err_t board_power_get_status(board_power_status_t *status)
     esp_err_t err = read_battery_mv(&battery_mv);
     if (err != ESP_OK) return err;
 
-    /* In Waveshare's official BATT_PWR test GPIO16 high is treated as
-     * battery-powered mode. Therefore low means the external/USB power path
-     * is active. There is no dedicated charger-current/status signal exposed
-     * by the reference example, so "charging" here means external power is
-     * present while a battery voltage is present. */
-    const bool battery_power_path =
-        gpio_get_level(BOARD_POWER_SYS_OUT_PIN) != 0;
+    /* GPIO16 SYS_OUT belongs to the PWR/battery hold circuit; it is not a
+     * USB VBUS detector. For the native ESP32-S3 USB port used for flashing
+     * and monitoring, the USB Serial/JTAG peripheral can reliably tell us
+     * whether a USB host is actively connected (SOF packets present). */
+    const bool usb_connected = usb_serial_jtag_is_connected();
+    const int sys_out = gpio_get_level(BOARD_POWER_SYS_OUT_PIN);
 
     status->available = true;
     status->battery_mv = battery_mv;
     status->battery_present = battery_mv >= 2500;
-    status->external_power = !battery_power_path;
-    status->charging = status->external_power && status->battery_present;
+    status->external_power = usb_connected;
+
+    /* The V2 reference design does not expose a dedicated charger-current
+     * status GPIO through the official examples. For the product UI, show the
+     * charging/external-power glyph whenever the native USB host is connected.
+     * Battery voltage remains a real ADC measurement. */
+    status->charging = usb_connected;
     status->low_battery =
         status->battery_present &&
-        !status->external_power &&
+        !usb_connected &&
         battery_mv <= BOARD_BATTERY_LOW_MV;
+
+    /* Keep this quiet during normal operation: only log meaningful changes. */
+    if (s_last_logged_battery_mv == UINT16_MAX ||
+        (battery_mv > s_last_logged_battery_mv
+             ? battery_mv - s_last_logged_battery_mv
+             : s_last_logged_battery_mv - battery_mv) >= 50 ||
+        s_last_logged_usb_connected != (int)usb_connected ||
+        s_last_logged_sys_out != sys_out) {
+        ESP_LOGI(TAG, "power: vbat=%u mV usb_host=%d sys_out=%d battery=%d",
+                 (unsigned)battery_mv,
+                 usb_connected ? 1 : 0,
+                 sys_out,
+                 status->battery_present ? 1 : 0);
+        s_last_logged_battery_mv = battery_mv;
+        s_last_logged_usb_connected = usb_connected ? 1 : 0;
+        s_last_logged_sys_out = sys_out;
+    }
 
     return ESP_OK;
 }
