@@ -79,6 +79,13 @@ static void register_icon(lv_obj_t *image)
     lv_image_set_rotation(image, s_icons_ccw90 ? 2700 : 0);
 }
 
+static void display_rotation_toggle_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    ui_page_remote_set_icons_ccw90(!s_icons_ccw90, true);
+    note_activity();
+}
+
 static void button_event_cb(lv_event_t *e)
 {
     lv_obj_t *button = lv_event_get_current_target(e);
@@ -262,7 +269,12 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     create_circle_button(root, 398, 22, &s_home);
     create_circle_button(root, 398, 98, &s_back);
     create_circle_button(root, 474, 22, &s_setup);
-    create_circle_button(root, 549, 22, &s_display);
+    lv_obj_t *display_button = create_circle_button(root, 549, 22, &s_display);
+    /* Short press keeps the normal DISPLAY remote action. Long press is the
+     * on-device control for the runtime icon-orientation feature that was
+     * previously reachable only from the web preview. */
+    lv_obj_add_event_cb(display_button, display_rotation_toggle_cb,
+                        LV_EVENT_LONG_PRESSED, NULL);
     create_volume_rocker(root);
 }
 
