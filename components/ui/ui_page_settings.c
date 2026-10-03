@@ -368,6 +368,7 @@ static void load_runtime_settings(void)
 #if defined(ESP_PLATFORM)
     network_wifi_status_t status = {0};
     network_service_get_wifi_status(&status);
+    s_wifi_enabled = status.enabled;
     s_wifi_configured = status.configured;
     s_wifi_connected = status.connected;
 
@@ -524,7 +525,7 @@ static lv_obj_t *build_setting_field(lv_obj_t *parent,
     lv_obj_set_pos(n, 8, 5);
 
     const char *display = value;
-    if(secret && value != NULL && value[0] != '\0') display = "••••••••";
+    if(secret && value != NULL && value[0] != '\0') display = "********";
     if(display == NULL || display[0] == '\0') display = "TAP TO SET";
 
     lv_obj_t *v = make_label(row, display, UI_COLOR_FG);
@@ -564,47 +565,55 @@ static void build_wifi_left(lv_obj_t *parent)
 
 static void build_wifi_right(lv_obj_t *parent)
 {
-    const int32_t rx = UI_STATUS_RIGHT_X + 16;
+    load_runtime_settings();
 
-    if (!s_wifi_enabled) {
-        lv_obj_t *label = make_label(parent, "WI-FI DISABLED", UI_COLOR_MUTED);
-        lv_obj_align(label, LV_ALIGN_CENTER, 80, 0);
-        return;
+    network_wifi_status_t status = {0};
+#if defined(ESP_PLATFORM)
+    network_service_get_wifi_status(&status);
+#else
+    status.enabled = s_wifi_enabled;
+    status.configured = s_wifi_ssid[0] != '\0';
+    status.connected = false;
+#endif
+
+    build_setting_field(parent, "SSID", s_wifi_ssid, 8,
+                        EDIT_WIFI_SSID, false);
+    build_setting_field(parent, "PASS", s_wifi_password, 40,
+                        EDIT_WIFI_PASSWORD, true);
+
+    lv_obj_t *save = add_action_button(parent, "SAVE",
+                                       UI_STATUS_RIGHT_X + 16, 77, 82,
+                                       UI_COLOR_PANEL_2, UI_COLOR_ACCENT);
+    lv_obj_add_event_cb(save, wifi_save_event_cb, LV_EVENT_CLICKED, NULL);
+
+    const char *state_text = !status.enabled
+                                 ? "OFF"
+                                 : (status.connected ? "CONNECTED" :
+                                    (status.configured ? "CONNECTING" : "NOT SET"));
+    lv_obj_t *state = make_label(parent, state_text,
+                                 status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, UI_STATUS_RIGHT_X + 114, 82);
+
+    if(status.connected) {
+        lv_obj_t *ip = make_label(parent, status.ip, UI_COLOR_FG);
+        lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 230, 82);
+        lv_obj_t *sync = make_label(parent,
+                                    status.time_synced ? "TIME OK" : "SYNCING TIME",
+                                    status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+        lv_obj_set_pos(sync, UI_STATUS_RIGHT_X + 230, 102);
     }
+}
 
-    if (!s_wifi_configured || !s_wifi_connected) {
-        build_qr_placeholder(parent, UI_STATUS_RIGHT_X + 36, 20);
-        lv_obj_t *title = make_label(parent,
-                                     s_wifi_configured ? "NO CONNECTION" : "SCAN TO CONFIGURE",
-                                     UI_COLOR_MUTED);
-        lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 138, 43);
-        lv_obj_t *hint = make_label(parent, "PHONE SETUP", UI_COLOR_ACCENT);
-        lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 138, 68);
-        return;
-    }
-
-    lv_obj_t *ssid = make_label(parent, "ChenHome_5G", UI_COLOR_FG);
-    lv_obj_set_pos(ssid, rx, 8);
-    lv_obj_t *connected = make_label(parent, "CONNECTED", UI_COLOR_ACCENT);
-    lv_obj_align(connected, LV_ALIGN_TOP_RIGHT, -12, 8);
-
-    const char *names[] = {"IP", "MAC", "DNS"};
-    const char *values[] = {
-        "192.168.50.88",
-        "AA:BB:CC:DD:EE:FF",
-        "192.168.50.2",
-    };
-    for (int i = 0; i < 3; ++i) {
-        lv_obj_t *name = make_label(parent, names[i], UI_COLOR_MUTED);
-        lv_obj_set_pos(name, rx, 33 + i * 22);
-        lv_obj_t *value = make_label(parent, values[i], UI_COLOR_FG);
-        lv_obj_set_pos(value, rx + 46, 33 + i * 22);
-    }
-
-    add_action_button(parent, "DISCONNECT", rx + 238, 36, 112,
-                      UI_COLOR_PANEL_2, UI_COLOR_FG);
-    add_action_button(parent, "FORGET", rx + 238, 70, 112,
-                      lv_color_hex(0x2A171A), UI_COLOR_DANGER);
+static void wifi_save_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+#if defined(ESP_PLATFORM)
+    (void)network_service_set_wifi_credentials(s_wifi_ssid, s_wifi_password);
+#endif
+    s_wifi_configured = s_wifi_ssid[0] != '\0';
+    s_wifi_connected = false;
+    note_activity();
+    show_tab(UI_SETTINGS_WIFI);
 }
 
 static void build_wifi_content(void)
@@ -618,6 +627,9 @@ static void wifi_toggle_event_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     s_wifi_enabled = !s_wifi_enabled;
+#if defined(ESP_PLATFORM)
+    (void)network_service_set_wifi_enabled(s_wifi_enabled);
+#endif
     if (!s_wifi_enabled) s_wifi_connected = false;
     note_activity();
     show_tab(UI_SETTINGS_WIFI);
@@ -804,43 +816,55 @@ static void bt_available_event_cb(lv_event_t *e)
     show_tab(UI_SETTINGS_BLUETOOTH);
 }
 
+static void ai_save_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+#if defined(ESP_PLATFORM)
+    network_backend_config_t cfg = {0};
+    strncpy(cfg.ai_url, s_ai_url, sizeof(cfg.ai_url) - 1);
+    strncpy(cfg.ha_url, s_ha_url, sizeof(cfg.ha_url) - 1);
+    strncpy(cfg.ha_token, s_ha_token, sizeof(cfg.ha_token) - 1);
+    (void)network_service_set_backend_config(&cfg);
+#endif
+    s_ai_configured = s_ai_url[0] != '\0';
+    note_activity();
+    show_tab(UI_SETTINGS_AI);
+}
+
 static void build_ai_content(void)
 {
-    lv_obj_t *icon = ui_system_icon_ai_robot2(s_content,
-                                               s_ai_online ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(icon, 61, 24);
+    load_runtime_settings();
 
-    lv_obj_t *state = make_label(s_content,
-                                 s_ai_configured ? (s_ai_online ? "ONLINE" : "OFFLINE") : "NOT SET",
-                                 s_ai_online ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, 52, 79);
+    lv_obj_t *icon = ui_system_icon_ai_robot2(
+        s_content, s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(icon, 61, 18);
+
+    lv_obj_t *state = make_label(
+        s_content,
+        s_ai_configured ? "CONFIGURED" : "NOT SET",
+        s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, 43, 72);
 
     add_status_divider(s_content);
 
-    if (!s_ai_configured) {
-        build_qr_placeholder(s_content, UI_STATUS_RIGHT_X + 36, 20);
-        lv_obj_t *title = make_label(s_content, "SCAN TO CONFIGURE", UI_COLOR_MUTED);
-        lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 138, 43);
-        lv_obj_t *hint = make_label(s_content, "AI SERVER SETUP", UI_COLOR_ACCENT);
-        lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 138, 68);
-        return;
-    }
+    build_setting_field(s_content, "AI URL", s_ai_url, 4,
+                        EDIT_AI_URL, false);
+    build_setting_field(s_content, "HA URL", s_ha_url, 36,
+                        EDIT_HA_URL, false);
+    build_setting_field(s_content, "HA TOKEN", s_ha_token, 68,
+                        EDIT_HA_TOKEN, true);
 
-    const int32_t x = UI_STATUS_RIGHT_X + 18;
-    const char *names[] = {"SERVER", "PORT", "MODEL", "STATUS"};
-    const char *values[] = {
-        "192.168.50.149",
-        "8000",
-        "qwen3.5:9b",
-        s_ai_online ? "ONLINE" : "OFFLINE",
-    };
-    for (int i = 0; i < 4; ++i) {
-        lv_obj_t *name = make_label(s_content, names[i], UI_COLOR_MUTED);
-        lv_obj_set_pos(name, x, 12 + i * 24);
-        lv_obj_t *value = make_label(s_content, values[i],
-                                     (i == 3 && s_ai_online) ? UI_COLOR_ACCENT : UI_COLOR_FG);
-        lv_obj_set_pos(value, x + 72, 12 + i * 24);
-    }
+    lv_obj_t *save = add_action_button(s_content, "SAVE",
+                                       UI_STATUS_RIGHT_X + 16, 98, 82,
+                                       UI_COLOR_PANEL_2, UI_COLOR_ACCENT);
+    lv_obj_add_event_cb(save, ai_save_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *hint = make_label(s_content,
+                                "HA REST API",
+                                (s_ha_url[0] != '\0' && s_ha_token[0] != '\0')
+                                    ? UI_COLOR_ACCENT
+                                    : UI_COLOR_MUTED);
+    lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 118, 103);
 }
 
 static void refresh_tab_styles(void)
@@ -915,6 +939,7 @@ lv_obj_t *ui_page_settings_build(lv_obj_t *parent,
 {
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
+    load_runtime_settings();
     s_selected = UI_SETTINGS_SOUND;
 
     s_root = plain_obj(parent);
@@ -934,6 +959,7 @@ lv_obj_t *ui_page_settings_build(lv_obj_t *parent,
 
 void ui_page_settings_stop(void)
 {
+    close_editor();
     s_root = NULL;
     s_content = NULL;
     s_activity_cb = NULL;
