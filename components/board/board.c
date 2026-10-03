@@ -220,7 +220,13 @@ static esp_err_t init_lcd_panel(void)
     err = esp_lcd_panel_init(s_lcd_panel);
     if (err != ESP_OK) return err;
 
-    return esp_lcd_panel_disp_on_off(s_lcd_panel, true);
+    /* The Waveshare V2 init sequence already sends 0x29 (Display ON).
+     * Do not call esp_lcd_panel_disp_on_off(panel, true) here: in
+     * esp_lcd_axs15231b 2.1.1 the driver's callback interprets its boolean
+     * as "off", while ESP-IDF's public API defines true as "on". Calling the
+     * public API with true therefore sends DISPOFF and leaves a fully working
+     * backlight/flush path showing only black. */
+    return ESP_OK;
 }
 
 static esp_err_t init_touch(void)
