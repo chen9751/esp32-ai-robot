@@ -295,16 +295,19 @@ static void orientation_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    s_last_orientation = orientation;
-    int16_t angle = 0;
-    switch (orientation) {
-        case BOARD_ORIENTATION_PORTRAIT_RIGHT:      angle = 900;  break;
-        case BOARD_ORIENTATION_LANDSCAPE_INVERTED: angle = 1800; break;
-        case BOARD_ORIENTATION_PORTRAIT_LEFT:       angle = 2700; break;
-        case BOARD_ORIENTATION_LANDSCAPE:
-        default:                                    angle = 0;    break;
+    /* Product behavior intentionally has only two states:
+     * normal landscape -> normal icons;
+     * one clockwise physical quarter-turn -> icons rotate CCW 90 degrees.
+     * Ignore the opposite portrait/upside-down states instead of behaving
+     * like a phone with four-way auto-rotation. */
+    if (orientation == BOARD_ORIENTATION_LANDSCAPE) {
+        s_last_orientation = orientation;
+        set_icon_angle(0, true);
     }
-    set_icon_angle(angle, true);
+    else if (orientation == BOARD_ORIENTATION_PORTRAIT_RIGHT) {
+        s_last_orientation = orientation;
+        set_icon_angle(2700, true);
+    }
 }
 #endif
 
