@@ -91,63 +91,38 @@ static slider_ctx_t s_slider_ctx = {0};
 static int32_t s_sound_value = 70;
 static int32_t s_brightness_value = 60;
 
-typedef enum {
-    EDIT_NONE = 0,
-    EDIT_WIFI_SSID,
-    EDIT_WIFI_PASSWORD,
-    EDIT_AI_URL,
-    EDIT_HA_URL,
-    EDIT_HA_TOKEN,
-} edit_field_t;
-
-static edit_field_t s_edit_field = EDIT_NONE;
-static lv_obj_t *s_editor_overlay = NULL;
-static char s_wifi_ssid[33] = "";
-static char s_wifi_password[65] = "";
-static char s_ai_url[128] = "";
-static char s_ha_url[128] = "";
-static char s_ha_token[256] = "";
-
-/* UI-only state for now. Networking/AI/BLE modules inject real state later. */
+/* Runtime state mirrored from the network service for rendering. */
 static bool s_wifi_enabled = true;
 static bool s_wifi_configured = false;
 static bool s_wifi_connected = false;
 static bool s_ai_configured = false;
-static bool s_ai_online = false;
-
 static bool s_bt_enabled = true;
-static bool s_bt_scan_view = false;
-static bool s_bt_scanning = false;
-static bool s_bt_connected_visible = true;
-static bool s_bt_connected_selected = false;
-static int32_t s_bt_pairing_available = -1;
-
-static const char *s_bt_available_names[] = {
-    "BLE Remote",
-    "Room Sensor",
-    "Desk Light",
-    "Smart Button",
-    "Thermo Sensor",
-    "BLE Controller",
-};
-
-static const char *s_bt_available_rssi[] = {
-    "-58 dBm",
-    "-72 dBm",
-    "-81 dBm",
-    "-63 dBm",
-    "-76 dBm",
-    "-69 dBm",
-};
-
-#define UI_BT_AVAILABLE_COUNT ((int)(sizeof(s_bt_available_names) / sizeof(s_bt_available_names[0])))
 
 static void show_tab(ui_settings_tab_t tab);
 static void bt_icon_event_cb(lv_event_t *e);
-static void bt_scan_event_cb(lv_event_t *e);
-static void bt_connected_event_cb(lv_event_t *e);
-static void bt_forget_event_cb(lv_event_t *e);
-static void bt_available_event_cb(lv_event_t *e);
+
+static void load_runtime_settings(void)
+{
+#if defined(ESP_PLATFORM)
+    network_wifi_status_t status = {0};
+    network_service_get_wifi_status(&status);
+    s_wifi_enabled = status.enabled;
+    s_wifi_configured = status.configured;
+    s_wifi_connected = status.connected;
+
+    network_backend_config_t backend = {0};
+    if (network_service_get_backend_config(&backend) == ESP_OK) {
+        s_ai_configured = backend.ai_url[0] != '\0' ||
+                          backend.ha_url[0] != '\0' ||
+                          backend.ha_token[0] != '\0';
+    }
+#else
+    /* Web preview has no device network service. Keep its local defaults. */
+    s_wifi_configured = false;
+    s_wifi_connected = false;
+    s_ai_configured = false;
+#endif
+}
 
 static void note_activity(void)
 {
@@ -478,36 +453,6 @@ static void wifi_toggle_event_cb(lv_event_t *e)
     show_tab(UI_SETTINGS_WIFI);
 }
 
-static lv_obj_t *build_bt_row(lv_obj_t *parent, const char *name,
-                              int32_t y, int32_t w, bool active)
-{
-    lv_obj_t *row = plain_obj(parent);
-    lv_obj_set_size(row, w, 28);
-    lv_obj_set_pos(row, 0, y);
-    lv_obj_set_style_bg_color(row, active ? UI_COLOR_PANEL_2 : UI_COLOR_PANEL, 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(row, 8, 0);
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *label = make_label(row, name, active ? UI_COLOR_FG : UI_COLOR_MUTED);
-    lv_obj_set_pos(label, 10, 5);
-    return row;
-}
-
-static lv_obj_t *build_bt_scroll_list(lv_obj_t *parent, int32_t x, int32_t y,
-                                      int32_t w, int32_t h)
-{
-    lv_obj_t *list = plain_obj(parent);
-    lv_obj_set_size(list, w, h);
-    lv_obj_set_pos(list, x, y);
-    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
-    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_pad_all(list, 0, 0);
-    return list;
-}
-
 static void build_bluetooth_content(void)
 {
     lv_obj_t *icon = ui_system_icon_bluetooth(
@@ -558,10 +503,6 @@ static void bt_icon_event_cb(lv_event_t *e)
     show_tab(UI_SETTINGS_BLUETOOTH);
 }
 
-static void bt_scan_event_cb(lv_event_t *e) { (void)e; }
-static void bt_connected_event_cb(lv_event_t *e) { (void)e; }
-static void bt_forget_event_cb(lv_event_t *e) { (void)e; }
-static void bt_available_event_cb(lv_event_t *e) { (void)e; }
 
 static void build_ai_content(void)
 {
@@ -686,7 +627,6 @@ lv_obj_t *ui_page_settings_build(lv_obj_t *parent,
 
 void ui_page_settings_stop(void)
 {
-    close_editor();
     s_root = NULL;
     s_content = NULL;
     s_activity_cb = NULL;
