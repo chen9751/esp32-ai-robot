@@ -134,6 +134,8 @@ static lv_timer_t *s_bt_refresh_timer = NULL;
 static uint32_t s_bt_last_generation = UINT32_MAX;
 
 static void show_tab(ui_settings_tab_t tab);
+static void refresh_tab_styles(void);
+static void build_bluetooth_content(void);
 static void bt_icon_event_cb(lv_event_t *e);
 static void bt_scan_event_cb(lv_event_t *e);
 static void bt_device_event_cb(lv_event_t *e);
