@@ -71,6 +71,10 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     struct ble_hs_adv_fields fields = {0};
     char name[BLUETOOTH_DEVICE_NAME_MAX] = {0};
 
+    /* In an active BLE scan the local name is often not in the first
+     * advertising packet. Many devices put it in the scan-response packet
+     * sent immediately afterwards. Parse every packet and merge it into the
+     * existing entry instead of replacing the whole entry each time. */
     if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) == 0 &&
         fields.name != NULL && fields.name_len > 0) {
         size_t len = fields.name_len;
@@ -82,7 +86,9 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     lock();
 
     int idx = find_result(&disc->addr);
-    if (idx < 0) {
+    bool is_new = idx < 0;
+
+    if (is_new) {
         if (s_result_count >= BLUETOOTH_MAX_SCAN_RESULTS) {
             /* Keep the strongest devices visible on the tiny settings screen. */
             int weakest = 0;
@@ -101,17 +107,23 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     }
 
     bluetooth_scan_result_t *dst = &s_results[idx];
-    memset(dst, 0, sizeof(*dst));
-    memcpy(dst->addr, disc->addr.val, sizeof(dst->addr));
-    dst->addr_type = disc->addr.type;
-    dst->rssi = disc->rssi;
-    format_addr(dst->addr, dst->address);
 
+    if (is_new || memcmp(dst->addr, disc->addr.val, sizeof(dst->addr)) != 0 ||
+        dst->addr_type != disc->addr.type) {
+        memset(dst, 0, sizeof(*dst));
+        memcpy(dst->addr, disc->addr.val, sizeof(dst->addr));
+        dst->addr_type = disc->addr.type;
+        format_addr(dst->addr, dst->address);
+        strlcpy(dst->name, "BLE device", sizeof(dst->name));
+    }
+
+    /* Always refresh signal strength, but never erase a previously discovered
+     * name just because a later advertisement omits the Local Name field. */
+    dst->rssi = disc->rssi;
     if (name[0] != '\0') {
         strlcpy(dst->name, name, sizeof(dst->name));
-    }
-    else {
-        strlcpy(dst->name, "BLE device", sizeof(dst->name));
+        ESP_LOGI(TAG, "device name: %s (%s), rssi=%d",
+                 dst->name, dst->address, (int)dst->rssi);
     }
 
     bump_generation();
@@ -368,8 +380,11 @@ esp_err_t bluetooth_service_start_scan(void)
     unlock();
 
     struct ble_gap_disc_params params = {0};
-    params.filter_duplicates = 1;
-    params.passive = 0; /* active scan improves device-name discovery */
+    /* Do not filter duplicates in the controller: active scan responses often
+     * carry the Local Name while the initial ADV packet does not. We merge
+     * packets by address in save_discovery(). */
+    params.filter_duplicates = 0;
+    params.passive = 0;
     params.itvl = 0;
     params.window = 0;
     params.filter_policy = 0;
