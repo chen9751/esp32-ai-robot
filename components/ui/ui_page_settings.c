@@ -1,8 +1,8 @@
 #include "ui_page_settings.h"
-#include "board.h"
 #include "ui_system_icons.h"
 #include <stdbool.h>
 #if defined(ESP_PLATFORM)
+#include "board.h"
 #include "network_service.h"
 #else
 typedef struct {
@@ -16,6 +16,11 @@ typedef struct {
     char mac[18];
     char dns[16];
 } network_wifi_status_t;
+static int board_backlight_set_percent(unsigned char percent)
+{
+    (void)percent;
+    return 0;
+}
 #endif
 
 #include <stdint.h>
