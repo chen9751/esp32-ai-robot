@@ -1,8 +1,13 @@
 #include "ui_page_settings.h"
 #include "board.h"
 #include "ui_system_icons.h"
+#if defined(ESP_PLATFORM)
+#include "network_service.h"
+#endif
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #define UI_SCREEN_W               640
 #define UI_SCREEN_H               172
@@ -68,6 +73,23 @@ static ui_settings_tab_t s_selected = UI_SETTINGS_SOUND;
 static slider_ctx_t s_slider_ctx = {0};
 static int32_t s_sound_value = 70;
 static int32_t s_brightness_value = 60;
+
+typedef enum {
+    EDIT_NONE = 0,
+    EDIT_WIFI_SSID,
+    EDIT_WIFI_PASSWORD,
+    EDIT_AI_URL,
+    EDIT_HA_URL,
+    EDIT_HA_TOKEN,
+} edit_field_t;
+
+static edit_field_t s_edit_field = EDIT_NONE;
+static lv_obj_t *s_editor_overlay = NULL;
+static char s_wifi_ssid[33] = "";
+static char s_wifi_password[65] = "";
+static char s_ai_url[128] = "";
+static char s_ha_url[128] = "";
+static char s_ha_token[256] = "";
 
 /* UI-only state for now. Networking/AI/BLE modules inject real state later. */
 static bool s_wifi_enabled = true;
@@ -331,12 +353,186 @@ static void build_qr_placeholder(lv_obj_t *parent, int32_t x, int32_t y)
 }
 
 static void wifi_toggle_event_cb(lv_event_t *e);
+static void edit_field_event_cb(lv_event_t *e);
+static void wifi_save_event_cb(lv_event_t *e);
+static void ai_save_event_cb(lv_event_t *e);
 static void bt_icon_event_cb(lv_event_t *e);
 static void bt_scan_event_cb(lv_event_t *e);
 static void bt_connected_event_cb(lv_event_t *e);
 static void bt_forget_event_cb(lv_event_t *e);
 static void bt_available_event_cb(lv_event_t *e);
 static void show_tab(ui_settings_tab_t tab);
+
+static void load_runtime_settings(void)
+{
+#if defined(ESP_PLATFORM)
+    network_wifi_status_t status = {0};
+    network_service_get_wifi_status(&status);
+    s_wifi_configured = status.configured;
+    s_wifi_connected = status.connected;
+
+    (void)network_service_get_wifi_credentials(
+        s_wifi_ssid, sizeof(s_wifi_ssid),
+        s_wifi_password, sizeof(s_wifi_password));
+
+    network_backend_config_t backend = {0};
+    if (network_service_get_backend_config(&backend) == ESP_OK) {
+        strncpy(s_ai_url, backend.ai_url, sizeof(s_ai_url) - 1);
+        strncpy(s_ha_url, backend.ha_url, sizeof(s_ha_url) - 1);
+        strncpy(s_ha_token, backend.ha_token, sizeof(s_ha_token) - 1);
+        s_ai_configured = s_ai_url[0] != '\0';
+    }
+#endif
+}
+
+static const char *edit_value_for_field(edit_field_t field)
+{
+    switch(field) {
+        case EDIT_WIFI_SSID: return s_wifi_ssid;
+        case EDIT_WIFI_PASSWORD: return s_wifi_password;
+        case EDIT_AI_URL: return s_ai_url;
+        case EDIT_HA_URL: return s_ha_url;
+        case EDIT_HA_TOKEN: return s_ha_token;
+        default: return "";
+    }
+}
+
+static void store_editor_value(edit_field_t field, const char *value)
+{
+    if(value == NULL) value = "";
+    switch(field) {
+        case EDIT_WIFI_SSID:
+            strncpy(s_wifi_ssid, value, sizeof(s_wifi_ssid) - 1);
+            s_wifi_ssid[sizeof(s_wifi_ssid) - 1] = '\0';
+            break;
+        case EDIT_WIFI_PASSWORD:
+            strncpy(s_wifi_password, value, sizeof(s_wifi_password) - 1);
+            s_wifi_password[sizeof(s_wifi_password) - 1] = '\0';
+            break;
+        case EDIT_AI_URL:
+            strncpy(s_ai_url, value, sizeof(s_ai_url) - 1);
+            s_ai_url[sizeof(s_ai_url) - 1] = '\0';
+            break;
+        case EDIT_HA_URL:
+            strncpy(s_ha_url, value, sizeof(s_ha_url) - 1);
+            s_ha_url[sizeof(s_ha_url) - 1] = '\0';
+            break;
+        case EDIT_HA_TOKEN:
+            strncpy(s_ha_token, value, sizeof(s_ha_token) - 1);
+            s_ha_token[sizeof(s_ha_token) - 1] = '\0';
+            break;
+        default:
+            break;
+    }
+}
+
+static void close_editor(void)
+{
+    if(s_editor_overlay != NULL) {
+        lv_obj_delete(s_editor_overlay);
+        s_editor_overlay = NULL;
+    }
+    s_edit_field = EDIT_NONE;
+}
+
+static void editor_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if(code != LV_EVENT_READY && code != LV_EVENT_CANCEL) return;
+
+    if(code == LV_EVENT_READY && s_editor_overlay != NULL) {
+        lv_obj_t *textarea = lv_obj_get_child(s_editor_overlay, 1);
+        if(textarea != NULL) {
+            store_editor_value(s_edit_field, lv_textarea_get_text(textarea));
+        }
+    }
+
+    close_editor();
+    show_tab(s_selected);
+    note_activity();
+}
+
+static void open_editor(edit_field_t field)
+{
+    if(s_root == NULL) return;
+    close_editor();
+    s_edit_field = field;
+
+    s_editor_overlay = plain_obj(s_root);
+    lv_obj_set_size(s_editor_overlay, UI_SCREEN_W, UI_SCREEN_H);
+    lv_obj_set_pos(s_editor_overlay, 0, 0);
+    lv_obj_set_style_bg_color(s_editor_overlay, UI_COLOR_BG, 0);
+    lv_obj_set_style_bg_opa(s_editor_overlay, LV_OPA_COVER, 0);
+
+    const char *title = "EDIT";
+    if(field == EDIT_WIFI_SSID) title = "WI-FI SSID";
+    else if(field == EDIT_WIFI_PASSWORD) title = "WI-FI PASSWORD";
+    else if(field == EDIT_AI_URL) title = "AI SERVER URL";
+    else if(field == EDIT_HA_URL) title = "HOME ASSISTANT URL";
+    else if(field == EDIT_HA_TOKEN) title = "HA ACCESS TOKEN";
+
+    lv_obj_t *label = make_label(s_editor_overlay, title, UI_COLOR_MUTED);
+    lv_obj_set_pos(label, 10, 9);
+
+    lv_obj_t *textarea = lv_textarea_create(s_editor_overlay);
+    lv_obj_set_pos(textarea, 150, 2);
+    lv_obj_set_size(textarea, 478, 38);
+    lv_textarea_set_one_line(textarea, true);
+    lv_textarea_set_text(textarea, edit_value_for_field(field));
+    if(field == EDIT_WIFI_PASSWORD || field == EDIT_HA_TOKEN) {
+        lv_textarea_set_password_mode(textarea, true);
+    }
+
+    lv_obj_t *keyboard = lv_keyboard_create(s_editor_overlay);
+    lv_obj_set_pos(keyboard, 0, 44);
+    lv_obj_set_size(keyboard, UI_SCREEN_W, UI_SCREEN_H - 44);
+    lv_keyboard_set_textarea(keyboard, textarea);
+    lv_obj_add_event_cb(keyboard, editor_event_cb, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(keyboard, editor_event_cb, LV_EVENT_CANCEL, NULL);
+
+    lv_obj_move_foreground(s_editor_overlay);
+    lv_group_focus_obj(textarea);
+}
+
+static void edit_field_event_cb(lv_event_t *e)
+{
+    if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    open_editor((edit_field_t)(uintptr_t)lv_event_get_user_data(e));
+    note_activity();
+}
+
+static lv_obj_t *build_setting_field(lv_obj_t *parent,
+                                     const char *name,
+                                     const char *value,
+                                     int32_t y,
+                                     edit_field_t field,
+                                     bool secret)
+{
+    const int32_t x = UI_STATUS_RIGHT_X + 12;
+    const int32_t w = UI_STATUS_RIGHT_W - 24;
+    lv_obj_t *row = plain_obj(parent);
+    lv_obj_set_pos(row, x, y);
+    lv_obj_set_size(row, w, 28);
+    lv_obj_set_style_bg_color(row, UI_COLOR_PANEL, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(row, 7, 0);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, edit_field_event_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)field);
+
+    lv_obj_t *n = make_label(row, name, UI_COLOR_MUTED);
+    lv_obj_set_pos(n, 8, 5);
+
+    const char *display = value;
+    if(secret && value != NULL && value[0] != '\0') display = "••••••••";
+    if(display == NULL || display[0] == '\0') display = "TAP TO SET";
+
+    lv_obj_t *v = make_label(row, display, UI_COLOR_FG);
+    lv_obj_set_pos(v, 92, 5);
+    lv_obj_set_width(v, w - 100);
+    lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+    return row;
+}
 
 static void build_wifi_left(lv_obj_t *parent)
 {
