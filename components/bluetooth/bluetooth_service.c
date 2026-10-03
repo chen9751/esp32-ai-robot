@@ -13,7 +13,6 @@
 #include "host/ble_hs.h"
 #include "host/ble_hs_adv.h"
 #include "host/util/util.h"
-#include "services/gap/ble_svc_gap.h"
 
 static const char *TAG = "bluetooth";
 
@@ -279,8 +278,9 @@ esp_err_t bluetooth_service_init(void)
     ble_hs_cfg.sm_mitm = 0;
     ble_hs_cfg.sm_sc = 1;
 
-    ble_svc_gap_init();
-    (void)ble_svc_gap_device_name_set("AI-Robot");
+    /* Central/observer-only role: no local GAP peripheral service is needed.
+     * Avoid ble_svc_gap_* here because those symbols are not linked when the
+     * peripheral role is disabled in ESP-IDF 5.5.x. */
     ble_store_config_init();
 
     lock();
