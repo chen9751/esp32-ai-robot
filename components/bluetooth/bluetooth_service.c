@@ -1,0 +1,456 @@
+#include "bluetooth_service.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+#include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
+#include "host/ble_gap.h"
+#include "host/ble_hs.h"
+#include "host/ble_hs_adv.h"
+#include "host/util/util.h"
+#include "services/gap/ble_svc_gap.h"
+
+static const char *TAG = "bluetooth";
+
+static bluetooth_status_t s_status = {
+    .enabled = true,
+    .state = BLUETOOTH_LINK_IDLE,
+};
+static bluetooth_scan_result_t s_results[BLUETOOTH_MAX_SCAN_RESULTS];
+static size_t s_result_count = 0;
+static SemaphoreHandle_t s_lock = NULL;
+static uint8_t s_own_addr_type = 0;
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static bool s_host_started = false;
+
+void ble_store_config_init(void);
+
+static int gap_event_cb(struct ble_gap_event *event, void *arg);
+
+static void lock(void)
+{
+    if (s_lock != NULL) xSemaphoreTake(s_lock, portMAX_DELAY);
+}
+
+static void unlock(void)
+{
+    if (s_lock != NULL) xSemaphoreGive(s_lock);
+}
+
+static void bump_generation(void)
+{
+    ++s_status.generation;
+}
+
+static void format_addr(const uint8_t addr[6], char out[BLUETOOTH_ADDRESS_STR_MAX])
+{
+    snprintf(out, BLUETOOTH_ADDRESS_STR_MAX,
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
+}
+
+static int find_result(const ble_addr_t *addr)
+{
+    for (size_t i = 0; i < s_result_count; ++i) {
+        if (s_results[i].addr_type == addr->type &&
+            memcmp(s_results[i].addr, addr->val, sizeof(addr->val)) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void save_discovery(const struct ble_gap_disc_desc *disc)
+{
+    struct ble_hs_adv_fields fields = {0};
+    char name[BLUETOOTH_DEVICE_NAME_MAX] = {0};
+
+    if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) == 0 &&
+        fields.name != NULL && fields.name_len > 0) {
+        size_t len = fields.name_len;
+        if (len >= sizeof(name)) len = sizeof(name) - 1;
+        memcpy(name, fields.name, len);
+        name[len] = '\0';
+    }
+
+    lock();
+
+    int idx = find_result(&disc->addr);
+    if (idx < 0) {
+        if (s_result_count >= BLUETOOTH_MAX_SCAN_RESULTS) {
+            /* Keep the strongest devices visible on the tiny settings screen. */
+            int weakest = 0;
+            for (size_t i = 1; i < s_result_count; ++i) {
+                if (s_results[i].rssi < s_results[weakest].rssi) weakest = (int)i;
+            }
+            if (disc->rssi <= s_results[weakest].rssi) {
+                unlock();
+                return;
+            }
+            idx = weakest;
+        }
+        else {
+            idx = (int)s_result_count++;
+        }
+    }
+
+    bluetooth_scan_result_t *dst = &s_results[idx];
+    memset(dst, 0, sizeof(*dst));
+    memcpy(dst->addr, disc->addr.val, sizeof(dst->addr));
+    dst->addr_type = disc->addr.type;
+    dst->rssi = disc->rssi;
+    format_addr(dst->addr, dst->address);
+
+    if (name[0] != '\0') {
+        strlcpy(dst->name, name, sizeof(dst->name));
+    }
+    else {
+        strlcpy(dst->name, "BLE device", sizeof(dst->name));
+    }
+
+    bump_generation();
+    unlock();
+}
+
+static void host_task(void *param)
+{
+    (void)param;
+    ESP_LOGI(TAG, "NimBLE host task started");
+    nimble_port_run();
+    nimble_port_freertos_deinit();
+}
+
+static void on_reset(int reason)
+{
+    lock();
+    s_status.ready = false;
+    s_status.scanning = false;
+    s_status.connected = false;
+    s_status.bonded = false;
+    s_status.state = BLUETOOTH_LINK_IDLE;
+    s_status.last_error = reason;
+    s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    bump_generation();
+    unlock();
+    ESP_LOGW(TAG, "NimBLE reset, reason=%d", reason);
+}
+
+static void on_sync(void)
+{
+    int rc = ble_hs_util_ensure_addr(0);
+    if (rc == 0) rc = ble_hs_id_infer_auto(0, &s_own_addr_type);
+
+    lock();
+    s_status.ready = rc == 0;
+    s_status.last_error = rc;
+    bump_generation();
+    unlock();
+
+    if (rc == 0) ESP_LOGI(TAG, "NimBLE ready");
+    else ESP_LOGE(TAG, "NimBLE address setup failed: %d", rc);
+}
+
+static int gap_event_cb(struct ble_gap_event *event, void *arg)
+{
+    (void)arg;
+    struct ble_gap_conn_desc desc = {0};
+
+    switch (event->type) {
+        case BLE_GAP_EVENT_DISC:
+            save_discovery(&event->disc);
+            return 0;
+
+        case BLE_GAP_EVENT_DISC_COMPLETE:
+            lock();
+            s_status.scanning = false;
+            if (!s_status.connected) s_status.state = BLUETOOTH_LINK_IDLE;
+            s_status.last_error = event->disc_complete.reason;
+            bump_generation();
+            unlock();
+            ESP_LOGI(TAG, "scan complete, reason=%d, results=%u",
+                     event->disc_complete.reason, (unsigned)s_result_count);
+            return 0;
+
+        case BLE_GAP_EVENT_CONNECT:
+            if (event->connect.status != 0) {
+                lock();
+                s_status.connected = false;
+                s_status.bonded = false;
+                s_status.state = BLUETOOTH_LINK_IDLE;
+                s_status.last_error = event->connect.status;
+                s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+                bump_generation();
+                unlock();
+                ESP_LOGW(TAG, "connect failed: %d", event->connect.status);
+                return 0;
+            }
+
+            s_conn_handle = event->connect.conn_handle;
+            if (ble_gap_conn_find(s_conn_handle, &desc) == 0) {
+                lock();
+                s_status.connected = true;
+                s_status.state = BLUETOOTH_LINK_PAIRING;
+                s_status.last_error = 0;
+                s_status.bonded = desc.sec_state.bonded;
+                format_addr(desc.peer_id_addr.val, s_status.peer_address);
+                bump_generation();
+                unlock();
+            }
+
+            /* Initiate security immediately. Just-Works peers complete without
+             * user input; peers that need a passkey will stay connected but
+             * report the security error for the next UI iteration. */
+            {
+                int rc = ble_gap_security_initiate(s_conn_handle);
+                if (rc != 0) {
+                    lock();
+                    s_status.state = BLUETOOTH_LINK_CONNECTED;
+                    s_status.last_error = rc;
+                    bump_generation();
+                    unlock();
+                    ESP_LOGW(TAG, "security initiate returned %d", rc);
+                }
+            }
+            return 0;
+
+        case BLE_GAP_EVENT_ENC_CHANGE:
+            if (ble_gap_conn_find(event->enc_change.conn_handle, &desc) == 0) {
+                lock();
+                s_status.connected = true;
+                s_status.bonded = desc.sec_state.bonded;
+                s_status.state = BLUETOOTH_LINK_CONNECTED;
+                s_status.last_error = event->enc_change.status;
+                bump_generation();
+                unlock();
+                ESP_LOGI(TAG, "security changed: status=%d encrypted=%d bonded=%d",
+                         event->enc_change.status,
+                         desc.sec_state.encrypted,
+                         desc.sec_state.bonded);
+            }
+            return 0;
+
+        case BLE_GAP_EVENT_DISCONNECT:
+            lock();
+            s_status.connected = false;
+            s_status.bonded = false;
+            s_status.state = BLUETOOTH_LINK_IDLE;
+            s_status.last_error = event->disconnect.reason;
+            s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+            s_status.peer_name[0] = '\0';
+            s_status.peer_address[0] = '\0';
+            bump_generation();
+            unlock();
+            ESP_LOGI(TAG, "disconnected, reason=%d", event->disconnect.reason);
+            return 0;
+
+        case BLE_GAP_EVENT_REPEAT_PAIRING:
+            if (ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc) == 0) {
+                ble_store_util_delete_peer(&desc.peer_id_addr);
+            }
+            return BLE_GAP_REPEAT_PAIRING_RETRY;
+
+        default:
+            return 0;
+    }
+}
+
+esp_err_t bluetooth_service_init(void)
+{
+    if (s_status.initialized) return ESP_OK;
+
+    s_lock = xSemaphoreCreateMutex();
+    if (s_lock == NULL) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = nimble_port_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nimble_port_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    ble_hs_cfg.reset_cb = on_reset;
+    ble_hs_cfg.sync_cb = on_sync;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_sc = 1;
+
+    ble_svc_gap_init();
+    (void)ble_svc_gap_device_name_set("AI-Robot");
+    ble_store_config_init();
+
+    lock();
+    s_status.initialized = true;
+    s_status.enabled = true;
+    bump_generation();
+    unlock();
+
+    if (!s_host_started) {
+        s_host_started = true;
+        nimble_port_freertos_init(host_task);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t bluetooth_service_set_enabled(bool enabled)
+{
+    lock();
+    s_status.enabled = enabled;
+    bump_generation();
+    unlock();
+
+    if (!enabled) {
+        (void)bluetooth_service_stop_scan();
+        (void)bluetooth_service_disconnect();
+    }
+    return ESP_OK;
+}
+
+void bluetooth_service_get_status(bluetooth_status_t *status)
+{
+    if (status == NULL) return;
+    lock();
+    *status = s_status;
+    unlock();
+}
+
+esp_err_t bluetooth_service_start_scan(void)
+{
+    bluetooth_status_t status;
+    bluetooth_service_get_status(&status);
+    if (!status.initialized || !status.ready) return ESP_ERR_INVALID_STATE;
+    if (!status.enabled) return ESP_ERR_INVALID_STATE;
+    if (status.connected) return ESP_ERR_INVALID_STATE;
+
+    (void)ble_gap_disc_cancel();
+
+    lock();
+    memset(s_results, 0, sizeof(s_results));
+    s_result_count = 0;
+    s_status.scanning = true;
+    s_status.state = BLUETOOTH_LINK_SCANNING;
+    s_status.last_error = 0;
+    bump_generation();
+    unlock();
+
+    struct ble_gap_disc_params params = {0};
+    params.filter_duplicates = 1;
+    params.passive = 0; /* active scan improves device-name discovery */
+    params.itvl = 0;
+    params.window = 0;
+    params.filter_policy = 0;
+    params.limited = 0;
+
+    int rc = ble_gap_disc(s_own_addr_type, 7000, &params, gap_event_cb, NULL);
+    if (rc != 0) {
+        lock();
+        s_status.scanning = false;
+        s_status.state = BLUETOOTH_LINK_IDLE;
+        s_status.last_error = rc;
+        bump_generation();
+        unlock();
+        ESP_LOGE(TAG, "scan start failed: %d", rc);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "scan started");
+    return ESP_OK;
+}
+
+esp_err_t bluetooth_service_stop_scan(void)
+{
+    int rc = ble_gap_disc_cancel();
+    lock();
+    s_status.scanning = false;
+    if (!s_status.connected) s_status.state = BLUETOOTH_LINK_IDLE;
+    bump_generation();
+    unlock();
+
+    return (rc == 0 || rc == BLE_HS_EALREADY) ? ESP_OK : ESP_FAIL;
+}
+
+size_t bluetooth_service_get_scan_results(bluetooth_scan_result_t *results,
+                                          size_t capacity)
+{
+    lock();
+    size_t count = s_result_count;
+    if (results != NULL && capacity > 0) {
+        if (count > capacity) count = capacity;
+        memcpy(results, s_results, count * sizeof(results[0]));
+    }
+    unlock();
+    return count;
+}
+
+esp_err_t bluetooth_service_connect(size_t index)
+{
+    bluetooth_scan_result_t peer;
+
+    lock();
+    if (!s_status.enabled || !s_status.ready || index >= s_result_count) {
+        unlock();
+        return ESP_ERR_INVALID_ARG;
+    }
+    peer = s_results[index];
+    strlcpy(s_status.peer_name, peer.name, sizeof(s_status.peer_name));
+    strlcpy(s_status.peer_address, peer.address, sizeof(s_status.peer_address));
+    s_status.scanning = false;
+    s_status.state = BLUETOOTH_LINK_CONNECTING;
+    s_status.last_error = 0;
+    bump_generation();
+    unlock();
+
+    (void)ble_gap_disc_cancel();
+
+    ble_addr_t addr = {
+        .type = peer.addr_type,
+    };
+    memcpy(addr.val, peer.addr, sizeof(addr.val));
+
+    int rc = ble_gap_connect(s_own_addr_type, &addr, 15000,
+                             NULL, gap_event_cb, NULL);
+    if (rc != 0) {
+        lock();
+        s_status.state = BLUETOOTH_LINK_IDLE;
+        s_status.last_error = rc;
+        bump_generation();
+        unlock();
+        ESP_LOGE(TAG, "connect start failed: %d", rc);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "connecting to %s (%s)", peer.name, peer.address);
+    return ESP_OK;
+}
+
+esp_err_t bluetooth_service_disconnect(void)
+{
+    uint16_t handle = s_conn_handle;
+    if (handle == BLE_HS_CONN_HANDLE_NONE) return ESP_OK;
+
+    int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+    return rc == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t bluetooth_service_forget_peer(void)
+{
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) return ESP_ERR_INVALID_STATE;
+
+    struct ble_gap_conn_desc desc = {0};
+    int rc = ble_gap_conn_find(s_conn_handle, &desc);
+    if (rc != 0) return ESP_FAIL;
+
+    rc = ble_store_util_delete_peer(&desc.peer_id_addr);
+    if (rc != 0) return ESP_FAIL;
+
+    lock();
+    s_status.bonded = false;
+    bump_generation();
+    unlock();
+    return ESP_OK;
+}
