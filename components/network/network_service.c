@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 
 #include "esp_event.h"
 #include "esp_http_server.h"
@@ -119,6 +120,24 @@ static esp_err_t save_string_pair(const char *key1, const char *value1,
     return err;
 }
 
+static void time_sync_notification_cb(struct timeval *tv)
+{
+    if (tv == NULL) return;
+
+    s_status.time_synced = true;
+
+    time_t now = tv->tv_sec;
+    struct tm local_tm;
+    char stamp[32] = {0};
+    if (localtime_r(&now, &local_tm) != NULL) {
+        strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local_tm);
+        ESP_LOGI(TAG, "SNTP synchronized: %s (TZ=CST-8 / UTC+8)", stamp);
+    }
+    else {
+        ESP_LOGI(TAG, "SNTP synchronized");
+    }
+}
+
 static void start_time_sync(void)
 {
     if (s_sntp_started) return;
@@ -130,6 +149,7 @@ static void start_time_sync(void)
     tzset();
 
     esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    config.sync_cb = time_sync_notification_cb;
     esp_err_t err = esp_netif_sntp_init(&config);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SNTP init failed: %s", esp_err_to_name(err));
