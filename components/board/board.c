@@ -286,10 +286,20 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
                                                         &point_count,
                                                         1);
     if (pressed && point_count > 0) {
-        /* x/y are native 172x640 here. LVGL 9.2 rotates pointer coordinates
-         * together with the associated display, yielding logical 640x172. */
-        data->point.x = x;
-        data->point.y = y;
+        /* Touch driver coordinates are in the panel's native 172x640 space.
+         * The display path maps logical (lx, ly) to native:
+         *     nx = ly
+         *     ny = 639 - lx
+         * Apply the inverse transform here so LVGL always sees 640x172. */
+        int32_t logical_x = (BOARD_UI_H_RES - 1) - (int32_t)y;
+        int32_t logical_y = (int32_t)x;
+        if (logical_x < 0) logical_x = 0;
+        if (logical_x >= BOARD_UI_H_RES) logical_x = BOARD_UI_H_RES - 1;
+        if (logical_y < 0) logical_y = 0;
+        if (logical_y >= BOARD_UI_V_RES) logical_y = BOARD_UI_V_RES - 1;
+
+        data->point.x = logical_x;
+        data->point.y = logical_y;
         data->state = LV_INDEV_STATE_PRESSED;
     }
     else {
@@ -314,32 +324,44 @@ static void display_flush_cb(lv_display_t *display,
         return;
     }
 
-    /* FULL render mode guarantees one complete logical frame. AXS15231B QSPI
-     * writes are sequential, so partial invalidated rectangles must never be
-     * sent directly to the panel. */
+    /* LVGL always renders a complete 640x172 logical frame. Do not use
+     * LVGL's display-rotation path here: this board is physically 172x640,
+     * while the product UI is permanently 640x172. Convert the framebuffer
+     * explicitly so its memory layout is deterministic across LVGL versions.
+     *
+     * Mapping (90 degrees):
+     *     native_x = logical_y
+     *     native_y = 639 - logical_x
+     *
+     * AXS15231B expects RGB565 bytes in wire order, so swap each 16-bit
+     * pixel while copying into the native framebuffer. */
     const int32_t logical_width = lv_area_get_width(area);
     const int32_t logical_height = lv_area_get_height(area);
-    const uint32_t pixel_count = (uint32_t)logical_width * (uint32_t)logical_height;
+    if (logical_width != BOARD_UI_H_RES ||
+        logical_height != BOARD_UI_V_RES ||
+        area->x1 != 0 || area->y1 != 0) {
+        ESP_LOGE(TAG, "unexpected LVGL FULL area: (%ld,%ld)-(%ld,%ld)",
+                 (long)area->x1, (long)area->y1,
+                 (long)area->x2, (long)area->y2);
+        lv_display_flush_ready(display);
+        return;
+    }
 
-    lv_draw_sw_rgb565_swap(color_map, pixel_count);
+    const uint16_t *logical_pixels = (const uint16_t *)color_map;
+    uint16_t *native_pixels_mut = (uint16_t *)s_rotate_buffer;
 
-    lv_area_t native_area = *area;
-    lv_display_rotate_area(display, &native_area);
-
-    const lv_color_format_t color_format = lv_display_get_color_format(display);
-    const uint32_t source_stride = lv_draw_buf_width_to_stride(logical_width,
-                                                                color_format);
-    const uint32_t native_stride = lv_draw_buf_width_to_stride(
-        lv_area_get_width(&native_area), color_format);
-
-    lv_draw_sw_rotate(color_map,
-                      s_rotate_buffer,
-                      logical_width,
-                      logical_height,
-                      source_stride,
-                      native_stride,
-                      lv_display_get_rotation(display),
-                      color_format);
+    for (int32_t logical_y = 0; logical_y < BOARD_UI_V_RES; ++logical_y) {
+        const size_t src_row = (size_t)logical_y * BOARD_UI_H_RES;
+        for (int32_t logical_x = 0; logical_x < BOARD_UI_H_RES; ++logical_x) {
+            const uint16_t pixel = logical_pixels[src_row + (size_t)logical_x];
+            const uint16_t wire_pixel =
+                (uint16_t)((pixel << 8) | (pixel >> 8));
+            const int32_t native_x = logical_y;
+            const int32_t native_y = (BOARD_UI_H_RES - 1) - logical_x;
+            native_pixels_mut[(size_t)native_y * BOARD_LCD_NATIVE_H_RES +
+                              (size_t)native_x] = wire_pixel;
+        }
+    }
 
     /* Drain a stale completion token if a previous aborted flush left one. */
     while (xSemaphoreTake(s_flush_done, 0) == pdTRUE) {
@@ -430,8 +452,8 @@ static esp_err_t init_lvgl(void)
 
     lv_init();
 
-    s_display = lv_display_create(BOARD_LCD_NATIVE_H_RES,
-                                  BOARD_LCD_NATIVE_V_RES);
+    s_display = lv_display_create(BOARD_UI_H_RES,
+                                  BOARD_UI_V_RES);
     if (s_display == NULL) return ESP_ERR_NO_MEM;
 
     lv_display_set_color_format(s_display, LV_COLOR_FORMAT_RGB565);
@@ -441,8 +463,6 @@ static esp_err_t init_lvgl(void)
                            s_frame_buffer_2,
                            BOARD_LCD_FRAME_BYTES,
                            LV_DISPLAY_RENDER_MODE_FULL);
-    lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
-
     s_touch_indev = lv_indev_create();
     if (s_touch_indev == NULL) return ESP_ERR_NO_MEM;
     lv_indev_set_type(s_touch_indev, LV_INDEV_TYPE_POINTER);
@@ -474,7 +494,7 @@ static esp_err_t init_lvgl(void)
     }
 
     ESP_LOGI(TAG,
-             "LVGL full-frame runtime: 2x%u-byte render + %u-byte rotate + %u-byte DMA",
+             "LVGL 640x172 full-frame runtime: 2x%u-byte render + %u-byte native-map + %u-byte DMA",
              (unsigned)BOARD_LCD_FRAME_BYTES,
              (unsigned)BOARD_LCD_FRAME_BYTES,
              (unsigned)BOARD_LCD_DMA_BYTES);
@@ -547,8 +567,8 @@ esp_err_t board_init(void)
     }
 
     lv_init();
-    s_display = lv_display_create(BOARD_LCD_NATIVE_H_RES,
-                                  BOARD_LCD_NATIVE_V_RES);
+    s_display = lv_display_create(BOARD_UI_H_RES,
+                                  BOARD_UI_V_RES);
     if (s_display == NULL) {
         err = ESP_ERR_NO_MEM;
         goto fail;
@@ -560,8 +580,6 @@ esp_err_t board_init(void)
                            s_frame_buffer_2,
                            BOARD_LCD_FRAME_BYTES,
                            LV_DISPLAY_RENDER_MODE_FULL);
-    lv_display_set_rotation(s_display, LV_DISPLAY_ROTATION_90);
-
     s_touch_indev = lv_indev_create();
     if (s_touch_indev == NULL) {
         err = ESP_ERR_NO_MEM;
@@ -598,9 +616,9 @@ esp_err_t board_init(void)
 
     s_display_ready = true;
     ESP_LOGI(TAG,
-             "display/touch/LVGL ready: FULL render, 90deg software rotation; backlight off");
+             "display/touch/LVGL ready: logical 640x172, manual native mapping; backlight off");
     ESP_LOGI(TAG,
-             "LVGL buffers: 2x%u frame + %u rotate + %u DMA bytes",
+             "LVGL buffers: 2x%u logical frame + %u native frame + %u DMA bytes",
              (unsigned)BOARD_LCD_FRAME_BYTES,
              (unsigned)BOARD_LCD_FRAME_BYTES,
              (unsigned)BOARD_LCD_DMA_BYTES);
