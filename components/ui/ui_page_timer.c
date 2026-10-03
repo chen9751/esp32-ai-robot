@@ -12,11 +12,11 @@
 #define TIMER_GROUP_X0                4
 #define TIMER_ACTION_X              396
 #define TIMER_ACTION_W              (TIMER_CONTENT_W - TIMER_ACTION_X)
-#define TIMER_DRAG_STEP_PX           32
+#define TIMER_DRAG_STEP_PX           22
 #define TIMER_MAX_SECONDS         43200u
 #define TIMER_TICK_PERIOD_MS         100u
-#define TIMER_QUICK_SWIPE_MS         260u
-#define TIMER_QUICK_SWIPE_PX          26
+#define TIMER_QUICK_SWIPE_MS         220u
+#define TIMER_QUICK_SWIPE_PX          36
 
 #define TIMER_BG                    lv_color_hex(0x000000)
 #define TIMER_FG                    lv_color_hex(0xFFFFFF)
@@ -408,9 +408,15 @@ static void column_event_cb(lv_event_t *e)
     if (!column->pressed) return;
 
     if (code == LV_EVENT_PRESSING) {
-        int delta = column->press_y - point.y;
-        int steps = delta / TIMER_DRAG_STEP_PX;
-        int max_value = column->kind == 0 ? 12 : 59;
+        /* Absolute displacement from the initial press gives a stable,
+         * finger-coupled control: moving back toward the press point also
+         * moves the value back predictably. */
+        const int delta = column->press_y - point.y;
+        int steps = 0;
+        if (delta >= TIMER_DRAG_STEP_PX) steps = delta / TIMER_DRAG_STEP_PX;
+        else if (delta <= -TIMER_DRAG_STEP_PX) steps = -((-delta) / TIMER_DRAG_STEP_PX);
+
+        const int max_value = column->kind == 0 ? 12 : 59;
         update_setting_from_column(
             column,
             clamp_u8((int)column->start_value + steps, 0, max_value));
