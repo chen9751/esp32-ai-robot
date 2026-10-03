@@ -660,3 +660,91 @@ uint8_t board_backlight_get_percent(void)
 {
     return s_backlight_percent;
 }
+
+static uint16_t rgb565_to_wire(uint16_t color)
+{
+    return (uint16_t)((color << 8) | (color >> 8));
+}
+
+static esp_err_t fill_panel_rgb565(uint16_t color)
+{
+    if (s_lcd_panel == NULL || s_dma_buffer == NULL || s_flush_done == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const uint16_t wire_color = rgb565_to_wire(color);
+    const size_t pixels_per_chunk = BOARD_LCD_DMA_BYTES / sizeof(uint16_t);
+
+    for (size_t i = 0; i < pixels_per_chunk; ++i) {
+        s_dma_buffer[i] = wire_color;
+    }
+
+    while (xSemaphoreTake(s_flush_done, 0) == pdTRUE) {
+    }
+
+    for (int chunk = 0; chunk < BOARD_LCD_DMA_CHUNKS; ++chunk) {
+        const int y_start = chunk * BOARD_LCD_DMA_ROWS;
+        const int y_end = y_start + BOARD_LCD_DMA_ROWS;
+
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_lcd_panel,
+                                                   0,
+                                                   y_start,
+                                                   BOARD_LCD_NATIVE_H_RES,
+                                                   y_end,
+                                                   s_dma_buffer);
+        if (err != ESP_OK) {
+            return err;
+        }
+
+        if (xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(200)) != pdTRUE) {
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t board_display_run_color_test(void)
+{
+    if (!s_display_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!board_display_lock(0)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t err = board_backlight_set_percent(100);
+    if (err != ESP_OK) {
+        board_display_unlock();
+        return err;
+    }
+
+    static const struct {
+        const char *name;
+        uint16_t color;
+    } test_frames[] = {
+        { "RED",   0xF800 },
+        { "GREEN", 0x07E0 },
+        { "BLUE",  0x001F },
+        { "WHITE", 0xFFFF },
+        { "BLACK", 0x0000 },
+    };
+
+    for (size_t i = 0; i < sizeof(test_frames) / sizeof(test_frames[0]); ++i) {
+        ESP_LOGI(TAG, "direct LCD color test: %s", test_frames[i].name);
+        err = fill_panel_rgb565(test_frames[i].color);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "direct LCD color test failed on %s: %s",
+                     test_frames[i].name, esp_err_to_name(err));
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(i + 1 ==
+                                 sizeof(test_frames) / sizeof(test_frames[0])
+                                 ? 250
+                                 : 1200));
+    }
+
+    board_display_unlock();
+    return err;
+}
