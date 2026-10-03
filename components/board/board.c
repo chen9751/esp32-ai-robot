@@ -5,6 +5,9 @@
 #include <string.h>
 
 #include "driver/i2c_master.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 #include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_err.h"
@@ -51,6 +54,10 @@ static uint8_t *s_frame_buffer_2 = NULL;
 static uint8_t *s_rotate_buffer = NULL;
 static uint16_t *s_dma_buffer = NULL;
 
+static adc_oneshot_unit_handle_t s_battery_adc = NULL;
+static adc_cali_handle_t s_battery_adc_cali = NULL;
+static bool s_power_monitor_ready = false;
+
 static bool s_lvgl_started = false;
 static bool s_display_ready = false;
 static bool s_backlight_ready = false;
@@ -73,6 +80,93 @@ static const axs15231b_lcd_init_cmd_t s_lcd_init_cmds[] = {
     {0x11, NULL, 0, 100},
     {0x29, NULL, 0, 100},
 };
+
+static esp_err_t init_power_monitor(void)
+{
+    /* Waveshare V2 reference:
+     * - GPIO4 / ADC1 channel 3 reads battery voltage through a 3:1 divider.
+     * - GPIO16 SYS_OUT is sampled by the official BATT_PWR example to tell
+     *   whether the unit is running from the battery-controlled power path. */
+    gpio_config_t sys_out_cfg = {
+        .pin_bit_mask = 1ULL << BOARD_POWER_SYS_OUT_PIN,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    esp_err_t err = gpio_config(&sys_out_cfg);
+    if (err != ESP_OK) return err;
+
+    adc_oneshot_unit_init_cfg_t unit_cfg = {
+        .unit_id = ADC_UNIT_1,
+    };
+    err = adc_oneshot_new_unit(&unit_cfg, &s_battery_adc);
+    if (err != ESP_OK) return err;
+
+    adc_oneshot_chan_cfg_t chan_cfg = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    err = adc_oneshot_config_channel(s_battery_adc,
+                                     BOARD_BATTERY_ADC_CHANNEL,
+                                     &chan_cfg);
+    if (err != ESP_OK) return err;
+
+    adc_cali_curve_fitting_config_t cali_cfg = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    err = adc_cali_create_scheme_curve_fitting(&cali_cfg,
+                                                &s_battery_adc_cali);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "battery ADC calibration unavailable: %s",
+                 esp_err_to_name(err));
+        s_battery_adc_cali = NULL;
+    }
+
+    s_power_monitor_ready = true;
+    return ESP_OK;
+}
+
+static esp_err_t read_battery_mv(uint16_t *battery_mv)
+{
+    if (!s_power_monitor_ready || s_battery_adc == NULL || battery_mv == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Average several one-shot readings. The official Waveshare ADC example
+     * multiplies the calibrated ADC pin voltage by 3 to recover VBAT. */
+    int raw_sum = 0;
+    const int samples = 8;
+    for (int i = 0; i < samples; ++i) {
+        int raw = 0;
+        esp_err_t err = adc_oneshot_read(s_battery_adc,
+                                         BOARD_BATTERY_ADC_CHANNEL,
+                                         &raw);
+        if (err != ESP_OK) return err;
+        raw_sum += raw;
+    }
+    int raw_avg = raw_sum / samples;
+
+    int pin_mv = 0;
+    if (s_battery_adc_cali != NULL) {
+        esp_err_t err = adc_cali_raw_to_voltage(s_battery_adc_cali,
+                                                raw_avg,
+                                                &pin_mv);
+        if (err != ESP_OK) return err;
+    }
+    else {
+        /* 12-bit fallback only; calibrated path is expected on ESP32-S3. */
+        pin_mv = (raw_avg * 3300) / 4095;
+    }
+
+    int mv = pin_mv * 3;
+    if (mv < 0) mv = 0;
+    if (mv > 65535) mv = 65535;
+    *battery_mv = (uint16_t)mv;
+    return ESP_OK;
+}
 
 static esp_err_t init_backlight_pwm(void)
 {
@@ -579,6 +673,12 @@ esp_err_t board_init(void)
     esp_err_t err = init_backlight_pwm();
     if (err != ESP_OK) goto fail;
 
+    err = init_power_monitor();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "power monitor init failed: %s", esp_err_to_name(err));
+        s_power_monitor_ready = false;
+    }
+
     err = init_i2c_bus(BOARD_SYS_I2C_PORT,
                        BOARD_SYS_I2C_SCL,
                        BOARD_SYS_I2C_SDA,
@@ -701,6 +801,38 @@ fail:
     ESP_LOGE(TAG, "board init failed: %s", esp_err_to_name(err));
     s_display_ready = false;
     return err;
+}
+
+esp_err_t board_power_get_status(board_power_status_t *status)
+{
+    if (status == NULL) return ESP_ERR_INVALID_ARG;
+    memset(status, 0, sizeof(*status));
+
+    if (!s_power_monitor_ready) return ESP_ERR_INVALID_STATE;
+
+    uint16_t battery_mv = 0;
+    esp_err_t err = read_battery_mv(&battery_mv);
+    if (err != ESP_OK) return err;
+
+    /* In Waveshare's official BATT_PWR test GPIO16 high is treated as
+     * battery-powered mode. Therefore low means the external/USB power path
+     * is active. There is no dedicated charger-current/status signal exposed
+     * by the reference example, so "charging" here means external power is
+     * present while a battery voltage is present. */
+    const bool battery_power_path =
+        gpio_get_level(BOARD_POWER_SYS_OUT_PIN) != 0;
+
+    status->available = true;
+    status->battery_mv = battery_mv;
+    status->battery_present = battery_mv >= 2500;
+    status->external_power = !battery_power_path;
+    status->charging = status->external_power && status->battery_present;
+    status->low_battery =
+        status->battery_present &&
+        !status->external_power &&
+        battery_mv <= BOARD_BATTERY_LOW_MV;
+
+    return ESP_OK;
 }
 
 bool board_display_ready(void)
