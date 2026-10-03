@@ -50,17 +50,17 @@
 
 #define TMIN 32
 #define TMAX 62
-#define TSTEP 28
+#define TSTEP 22
 #define FMIN 1
 #define FMAX 7
 
 #define BATH_TMIN_X10 160
 #define BATH_TMAX_X10 310
 #define BATH_TSTEP_X10 5
-#define BATH_DRAG_STEP 28
+#define BATH_DRAG_STEP 22
 #define GESTURE_LOCK_PX 6
-#define QUICK_SWIPE_MS 260u
-#define QUICK_SWIPE_PX 26
+#define QUICK_SWIPE_MS 220u
+#define QUICK_SWIPE_PX 36
 
 #define RI_POWER         "\xEF\x84\xA6" /* ri-shut-down-line U+F126 */
 #define RI_COOL          "\xEF\x94\x92" /* ri-snowflake-line U+F512 */
@@ -492,12 +492,12 @@ static void temp_cb(lv_event_t *e)
     }
 
     if(c == LV_EVENT_PRESSING) {
-        int32_t dx = p.x - temp_x;
-        int32_t dy = p.y - temp_y;
+        const int32_t dx = p.x - temp_x;
+        const int32_t total_dy = p.y - temp_press_y0;
 
         if(temp_axis == GESTURE_PENDING) {
-            int32_t ax = iabs32(dx);
-            int32_t ay = iabs32(dy);
+            const int32_t ax = iabs32(dx);
+            const int32_t ay = iabs32(total_dy);
             if(ax < GESTURE_LOCK_PX && ay < GESTURE_LOCK_PX) {
                 activity();
                 return;
@@ -515,14 +515,20 @@ static void temp_cb(lv_event_t *e)
             return;
         }
 
-        bool ch = false;
-        while(dy <= -TSTEP && temp2 < TMAX) {
-            ++temp2; temp_y -= TSTEP; dy += TSTEP; ch = true;
+        /* Track from the original press point instead of ratcheting/rebasing
+         * after every half-degree. This keeps the displayed value coupled to
+         * finger travel and avoids the "sticky then suddenly jumps" feel. */
+        int steps = 0;
+        if(total_dy <= -TSTEP) steps = (-total_dy) / TSTEP;
+        else if(total_dy >= TSTEP) steps = -(total_dy / TSTEP);
+
+        int target = temp_start2 + steps;
+        if(target < TMIN) target = TMIN;
+        if(target > TMAX) target = TMAX;
+        if(target != temp2) {
+            temp2 = target;
+            refresh_aircon();
         }
-        while(dy >= TSTEP && temp2 > TMIN) {
-            --temp2; temp_y += TSTEP; dy -= TSTEP; ch = true;
-        }
-        if(ch) refresh_aircon();
         activity();
         return;
     }
@@ -846,12 +852,12 @@ static void bath_temp_cb(lv_event_t *e)
     }
 
     if(code == LV_EVENT_PRESSING) {
-        int32_t dx = p.x - bath_temp_x;
-        int32_t dy = p.y - bath_temp_y;
+        const int32_t dx = p.x - bath_temp_x;
+        const int32_t total_dy = p.y - bath_press_y0;
 
         if(bath_temp_axis == GESTURE_PENDING) {
-            int32_t ax = iabs32(dx);
-            int32_t ay = iabs32(dy);
+            const int32_t ax = iabs32(dx);
+            const int32_t ay = iabs32(total_dy);
             if(ax < GESTURE_LOCK_PX && ay < GESTURE_LOCK_PX) {
                 activity();
                 return;
@@ -869,20 +875,17 @@ static void bath_temp_cb(lv_event_t *e)
             return;
         }
 
-        bool changed = false;
-        while(dy <= -BATH_DRAG_STEP && bath_target_x10 < BATH_TMAX_X10) {
-            bath_target_x10 += BATH_TSTEP_X10;
-            bath_temp_y -= BATH_DRAG_STEP;
-            dy += BATH_DRAG_STEP;
-            changed = true;
+        int steps = 0;
+        if(total_dy <= -BATH_DRAG_STEP) steps = (-total_dy) / BATH_DRAG_STEP;
+        else if(total_dy >= BATH_DRAG_STEP) steps = -(total_dy / BATH_DRAG_STEP);
+
+        int32_t target = bath_start_x10 + steps * BATH_TSTEP_X10;
+        if(target < BATH_TMIN_X10) target = BATH_TMIN_X10;
+        if(target > BATH_TMAX_X10) target = BATH_TMAX_X10;
+        if(target != bath_target_x10) {
+            bath_target_x10 = target;
+            refresh_bath();
         }
-        while(dy >= BATH_DRAG_STEP && bath_target_x10 > BATH_TMIN_X10) {
-            bath_target_x10 -= BATH_TSTEP_X10;
-            bath_temp_y += BATH_DRAG_STEP;
-            dy -= BATH_DRAG_STEP;
-            changed = true;
-        }
-        if(changed) refresh_bath();
         activity();
         return;
     }
