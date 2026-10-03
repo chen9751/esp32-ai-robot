@@ -23,6 +23,10 @@ void board_display_unlock(void);
 esp_err_t board_backlight_set_percent(uint8_t percent);
 uint8_t board_backlight_get_percent(void);
 
+/* Bring-up helper: bypass LVGL and write solid RGB565 frames directly to the
+ * AXS15231B. Intended only for real-hardware display diagnostics. */
+esp_err_t board_display_run_color_test(void);
+
 #ifdef __cplusplus
 }
 #endif
