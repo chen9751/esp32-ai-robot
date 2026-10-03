@@ -1,4 +1,5 @@
 #include "ui_page_settings.h"
+#include "board.h"
 #include "ui_system_icons.h"
 
 #include <stdint.h>
@@ -208,8 +209,15 @@ static void slider_event_cb(lv_event_t *e)
             s_slider_ctx.adjusting = false;
         }
         int32_t value = lv_slider_get_value(s_slider_ctx.slider);
-        if (s_slider_ctx.tab == UI_SETTINGS_SOUND) s_sound_value = value;
-        else if (s_slider_ctx.tab == UI_SETTINGS_DISPLAY) s_brightness_value = value;
+        if (s_slider_ctx.tab == UI_SETTINGS_SOUND) {
+            s_sound_value = value;
+        }
+        else if (s_slider_ctx.tab == UI_SETTINGS_DISPLAY) {
+            s_brightness_value = value;
+            /* Display brightness is a real board service now, not a preview-only
+             * UI value. Keep the UI responsive even if hardware reports an error. */
+            (void)board_backlight_set_percent((uint8_t)value);
+        }
         update_value_label();
         set_value_label_visible(true);
     }
