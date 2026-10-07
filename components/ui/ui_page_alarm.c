@@ -1,8 +1,10 @@
 #include "ui_page_alarm.h"
+#include "audio_service.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define UI_SCREEN_W              640
 #define UI_SCREEN_H              172
@@ -76,6 +78,61 @@ static uint8_t s_custom_days = 0;
 static int32_t s_edit_index = -1;
 static ui_alarm_item_t s_alarms[UI_ALARM_MAX];
 static uint8_t s_alarm_count = 0;
+static lv_timer_t *s_alarm_scheduler = NULL;
+static int64_t s_last_trigger_minute = -1;
+
+static void rebuild_list(void);
+
+static bool alarm_matches_day(const ui_alarm_item_t *alarm,
+                              const struct tm *tm_now)
+{
+    if (alarm->repeat == UI_ALARM_REPEAT_NEVER ||
+        alarm->repeat == UI_ALARM_REPEAT_DAILY) {
+        return true;
+    }
+
+    /* UI bit 0=Mon ... bit 6=Sun, while tm_wday uses 0=Sun. */
+    int ui_day = (tm_now->tm_wday + 6) % 7;
+    return (alarm->custom_days & (1u << ui_day)) != 0;
+}
+
+static void alarm_scheduler_cb(lv_timer_t *timer)
+{
+    (void)timer;
+
+    time_t now = time(NULL);
+    if (now < 1700000000) return;
+
+    struct tm local_tm;
+    if (localtime_r(&now, &local_tm) == NULL) return;
+
+    int64_t minute_key = (int64_t)now / 60;
+    if (minute_key == s_last_trigger_minute) return;
+
+    for (uint8_t i = 0; i < s_alarm_count; ++i) {
+        ui_alarm_item_t *alarm = &s_alarms[i];
+        if (!alarm->enabled) continue;
+        if (alarm->hour != local_tm.tm_hour ||
+            alarm->minute != local_tm.tm_min) continue;
+        if (!alarm_matches_day(alarm, &local_tm)) continue;
+
+        s_last_trigger_minute = minute_key;
+        (void)audio_service_play_alarm();
+
+        if (alarm->repeat == UI_ALARM_REPEAT_NEVER) {
+            alarm->enabled = false;
+        }
+        if (s_list != NULL) rebuild_list();
+        break;
+    }
+}
+
+static void ensure_alarm_scheduler(void)
+{
+    if (s_alarm_scheduler == NULL) {
+        s_alarm_scheduler = lv_timer_create(alarm_scheduler_cb, 1000, NULL);
+    }
+}
 
 static void note_activity(void)
 {
@@ -559,6 +616,7 @@ lv_obj_t *ui_page_alarm_build(lv_obj_t *parent,
 {
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
+    ensure_alarm_scheduler();
 
     s_root = plain_obj(parent);
     lv_obj_set_size(s_root, UI_SCREEN_W, UI_SCREEN_H);
