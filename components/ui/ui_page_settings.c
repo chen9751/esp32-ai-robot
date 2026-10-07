@@ -136,6 +136,10 @@ static bool s_wifi_configured = false;
 static bool s_wifi_connected = false;
 static bool s_ai_configured = false;
 static bool s_bt_enabled = true;
+/* Deliberately not persisted: after reboot Settings returns to the compact
+ * SETUP button. Once expanded in this boot session, Wi-Fi and AI share the
+ * same QR/setup state. */
+static bool s_setup_expanded = false;
 static lv_timer_t *s_bt_refresh_timer = NULL;
 static uint32_t s_bt_last_generation = UINT32_MAX;
 static lv_timer_t *s_system_refresh_timer = NULL;
@@ -449,20 +453,46 @@ static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
     lv_obj_set_pos(image, 0, 0);
 }
 
-static void ensure_setup_portal_if_needed(void)
+static void setup_button_event_cb(lv_event_t *e)
 {
-#if defined(ESP_PLATFORM)
-    network_wifi_status_t status = {0};
-    network_service_get_wifi_status(&status);
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
 
-    /* Merely viewing Wi-Fi/AI settings must not switch a connected device
-     * into AP+STA mode. Starting the captive portal allocates extra Wi-Fi,
-     * HTTP and DNS resources and can exhaust internal SRAM on this product.
-     * Auto-start provisioning only when Wi-Fi has never been configured. */
-    if (!status.configured && !network_service_setup_portal_active()) {
-        (void)network_service_start_setup_portal();
+#if defined(ESP_PLATFORM)
+    esp_err_t err = network_service_start_setup_portal();
+    if (err != ESP_OK) {
+        /* Keep the button visible if the portal could not be started; this
+         * avoids presenting a QR code that the phone cannot actually use. */
+        note_activity();
+        return;
     }
 #endif
+
+    s_setup_expanded = true;
+    note_activity();
+    show_tab(s_selected);
+}
+
+static void build_setup_entry(lv_obj_t *parent, int32_t x, int32_t y)
+{
+    if (s_setup_expanded) {
+        build_setup_qr(parent, x, y);
+        return;
+    }
+
+    lv_obj_t *button = plain_obj(parent);
+    lv_obj_set_size(button, SETUP_QR_PIXELS, 64);
+    lv_obj_set_pos(button, x, y + 24);
+    lv_obj_set_style_bg_color(button, UI_COLOR_PANEL_2, 0);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(button, 1, 0);
+    lv_obj_set_style_border_color(button, UI_COLOR_ACCENT, 0);
+    lv_obj_set_style_border_opa(button, LV_OPA_70, 0);
+    lv_obj_set_style_radius(button, 12, 0);
+    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(button, setup_button_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *label = make_label(button, "SETUP", UI_COLOR_ACCENT);
+    lv_obj_center(label);
 }
 
 static void wifi_toggle_event_cb(lv_event_t *e);
@@ -498,7 +528,6 @@ static void build_wifi_left(lv_obj_t *parent)
 static void build_wifi_right(lv_obj_t *parent)
 {
     load_runtime_settings();
-    ensure_setup_portal_if_needed();
 
     network_wifi_status_t status = {0};
 #if defined(ESP_PLATFORM)
@@ -509,9 +538,11 @@ static void build_wifi_right(lv_obj_t *parent)
     status.connected = s_wifi_connected;
 #endif
 
-    build_setup_qr(parent, UI_STATUS_RIGHT_X + 12, 6);
+    build_setup_entry(parent, UI_STATUS_RIGHT_X + 12, 6);
 
-    lv_obj_t *title = make_label(parent, "PHONE SETUP", UI_COLOR_ACCENT);
+    lv_obj_t *title = make_label(parent,
+                                 s_setup_expanded ? "PHONE SETUP" : "CONFIG",
+                                 UI_COLOR_ACCENT);
     lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 10);
 
     lv_obj_t *ap_label = make_label(parent, "AP", UI_COLOR_MUTED);
@@ -863,7 +894,6 @@ static void bt_forget_event_cb(lv_event_t *e)
 static void build_ai_content(void)
 {
     load_runtime_settings();
-    ensure_setup_portal_if_needed();
 
     lv_obj_t *icon = ui_system_icon_ai_robot2(
         s_content, s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
@@ -876,9 +906,11 @@ static void build_ai_content(void)
     lv_obj_set_pos(state, 43, 72);
 
     add_status_divider(s_content);
-    build_setup_qr(s_content, UI_STATUS_RIGHT_X + 12, 6);
+    build_setup_entry(s_content, UI_STATUS_RIGHT_X + 12, 6);
 
-    lv_obj_t *title = make_label(s_content, "PHONE SETUP", UI_COLOR_ACCENT);
+    lv_obj_t *title = make_label(s_content,
+                                 s_setup_expanded ? "PHONE SETUP" : "CONFIG",
+                                 UI_COLOR_ACCENT);
     lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 10);
 
     network_backend_config_t backend = {0};
