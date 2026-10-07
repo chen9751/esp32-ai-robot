@@ -38,6 +38,11 @@ typedef struct {
  * not expose a dedicated charger-current status through the reference API. */
 esp_err_t board_power_get_status(board_power_status_t *status);
 
+/* Software power-off path used by the physical PWR key. On battery power this
+ * drops Waveshare's EXIO6/SYS_EN rail. USB-powered operation may remain alive
+ * electrically, so the application uses deep sleep as a fallback. */
+esp_err_t board_power_off(void);
+
 typedef enum {
     BOARD_ORIENTATION_UNKNOWN = 0,
     BOARD_ORIENTATION_LANDSCAPE,
