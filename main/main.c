@@ -2,6 +2,7 @@
 #include "ui_manager.h"
 #include "network_service.h"
 #include "bluetooth_service.h"
+#include "audio_service.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -53,6 +54,11 @@ void app_main(void)
     else {
         ESP_LOGI(TAG, "backlight enabled at %u%%",
                  (unsigned)board_backlight_get_percent());
+    }
+
+    err = audio_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
     }
 
     err = network_service_init();
