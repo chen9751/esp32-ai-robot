@@ -239,7 +239,8 @@ static esp_err_t init_io_expander(void)
 
     const uint32_t outputs = BOARD_EXIO_PIN_BL_EN |
                              BOARD_EXIO_PIN_LCD_RST |
-                             BOARD_EXIO_PIN_SYS_EN;
+                             BOARD_EXIO_PIN_SYS_EN |
+                             BOARD_EXIO_PIN_NS_MODE;
     err = esp_io_expander_set_dir(s_io_expander, outputs, IO_EXPANDER_OUTPUT);
     if (err != ESP_OK) return err;
 
@@ -248,6 +249,14 @@ static esp_err_t init_io_expander(void)
 
     err = esp_io_expander_set_level(s_io_expander, BOARD_EXIO_PIN_SYS_EN, 1);
     if (err != ESP_OK) return err;
+
+    /* Waveshare's official 08_Audio_Test explicitly drives TCA9554 bit 7
+     * (NS_MODE) high before playback. Our previous board init never configured
+     * this pin, leaving the audio output path muted even though ES8311/I2S
+     * initialized successfully. */
+    err = esp_io_expander_set_level(s_io_expander, BOARD_EXIO_PIN_NS_MODE, 1);
+    if (err != ESP_OK) return err;
+    ESP_LOGI(TAG, "audio NS_MODE enabled");
 
     return esp_io_expander_set_level(s_io_expander, BOARD_EXIO_PIN_LCD_RST, 1);
 }
