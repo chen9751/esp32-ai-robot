@@ -5,6 +5,7 @@
 #include "board.h"
 #include "network_service.h"
 #include "bluetooth_service.h"
+#include "audio_service.h"
 #else
 typedef struct {
     bool initialized;
@@ -50,6 +51,11 @@ typedef struct {
 } bluetooth_status_t;
 
 static int board_backlight_set_percent(unsigned char percent)
+{
+    (void)percent;
+    return 0;
+}
+static int audio_service_set_volume(unsigned char percent)
 {
     (void)percent;
     return 0;
@@ -277,6 +283,7 @@ static void slider_event_cb(lv_event_t *e)
         int32_t value = lv_slider_get_value(s_slider_ctx.slider);
         if (s_slider_ctx.tab == UI_SETTINGS_SOUND) {
             s_sound_value = value;
+            (void)audio_service_set_volume((uint8_t)value);
         }
         else if (s_slider_ctx.tab == UI_SETTINGS_DISPLAY) {
             s_brightness_value = value;
