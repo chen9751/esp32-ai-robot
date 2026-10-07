@@ -932,6 +932,20 @@ uint8_t board_backlight_get_percent(void)
     return s_backlight_percent;
 }
 
+esp_err_t board_power_off(void)
+{
+    /* Match Waveshare's 07_BATT_PWR_Test: EXIO6/SYS_EN low cuts the
+     * battery-powered system rail. With USB still attached the MCU can remain
+     * powered, so the application enters deep sleep as a software fallback. */
+    (void)board_backlight_set_percent(0);
+
+    if (s_io_expander == NULL) return ESP_ERR_INVALID_STATE;
+    ESP_LOGI(TAG, "power off: SYS_EN -> 0");
+    return esp_io_expander_set_level(s_io_expander,
+                                     BOARD_EXIO_PIN_SYS_EN,
+                                     0);
+}
+
 esp_err_t board_imu_get_orientation(board_orientation_t *orientation)
 {
     if (orientation == NULL) return ESP_ERR_INVALID_ARG;
