@@ -495,33 +495,46 @@ static void build_wifi_right(lv_obj_t *parent)
 
     build_setup_qr(parent, UI_STATUS_RIGHT_X + 12, 6);
 
-    lv_obj_t *title = make_label(parent, "SCAN WITH PHONE", UI_COLOR_ACCENT);
-    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 12);
+    lv_obj_t *title = make_label(parent, "PHONE SETUP", UI_COLOR_ACCENT);
+    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 10);
 
+    lv_obj_t *ap_label = make_label(parent, "AP", UI_COLOR_MUTED);
+    lv_obj_set_pos(ap_label, UI_STATUS_RIGHT_X + 137, 34);
     lv_obj_t *ap = make_label(parent, "AI-Robot-Setup", UI_COLOR_FG);
-    lv_obj_set_pos(ap, UI_STATUS_RIGHT_X + 137, 36);
+    lv_obj_set_pos(ap, UI_STATUS_RIGHT_X + 164, 34);
+    lv_obj_set_width(ap, 118);
+    lv_label_set_long_mode(ap, LV_LABEL_LONG_DOT);
 
-    lv_obj_t *hint = make_label(parent, "Captive setup page", UI_COLOR_MUTED);
-    lv_obj_set_pos(hint, UI_STATUS_RIGHT_X + 137, 58);
+    lv_obj_t *web_label = make_label(parent, "WEB", UI_COLOR_MUTED);
+    lv_obj_set_pos(web_label, UI_STATUS_RIGHT_X + 137, 58);
+    lv_obj_t *fallback = make_label(parent, "192.168.4.1", UI_COLOR_FG);
+    lv_obj_set_pos(fallback, UI_STATUS_RIGHT_X + 178, 58);
 
-    lv_obj_t *fallback = make_label(parent, "192.168.4.1", UI_COLOR_MUTED);
-    lv_obj_set_pos(fallback, UI_STATUS_RIGHT_X + 137, 80);
-
-    const char *state_text = status.connected ? "CONNECTED" :
-                             (status.configured ? "NOT CONNECTED" : "NOT SET");
+    const char *state_text = status.connected ? "ONLINE" :
+                             (status.configured ? "OFFLINE" : "NOT SET");
     lv_obj_t *state = make_label(parent, state_text,
                                  status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, UI_STATUS_RIGHT_X + 272, 12);
+    lv_obj_set_pos(state, UI_STATUS_RIGHT_X + 300, 10);
 
     if(status.connected) {
+        lv_obj_t *ssid_label = make_label(parent, "SSID", UI_COLOR_MUTED);
+        lv_obj_set_pos(ssid_label, UI_STATUS_RIGHT_X + 300, 34);
         lv_obj_t *ssid = make_label(parent, status.ssid, UI_COLOR_FG);
-        lv_obj_set_pos(ssid, UI_STATUS_RIGHT_X + 272, 36);
+        lv_obj_set_pos(ssid, UI_STATUS_RIGHT_X + 342, 34);
+        lv_obj_set_width(ssid, 72);
+        lv_label_set_long_mode(ssid, LV_LABEL_LONG_DOT);
+
+        lv_obj_t *ip_label = make_label(parent, "IP", UI_COLOR_MUTED);
+        lv_obj_set_pos(ip_label, UI_STATUS_RIGHT_X + 300, 58);
         lv_obj_t *ip = make_label(parent, status.ip, UI_COLOR_FG);
-        lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 272, 58);
+        lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 324, 58);
+        lv_obj_set_width(ip, 92);
+        lv_label_set_long_mode(ip, LV_LABEL_LONG_DOT);
+
         lv_obj_t *sync = make_label(parent,
-                                    status.time_synced ? "TIME SYNCED" : "TIME SYNCING",
+                                    status.time_synced ? "TIME OK" : "SYNCING",
                                     status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-        lv_obj_set_pos(sync, UI_STATUS_RIGHT_X + 272, 80);
+        lv_obj_set_pos(sync, UI_STATUS_RIGHT_X + 300, 82);
     }
 }
 
@@ -843,17 +856,36 @@ static void build_ai_content(void)
     add_status_divider(s_content);
     build_setup_qr(s_content, UI_STATUS_RIGHT_X + 12, 6);
 
-    lv_obj_t *title = make_label(s_content, "PHONE WEB SETUP", UI_COLOR_ACCENT);
-    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 13);
+    lv_obj_t *title = make_label(s_content, "PHONE SETUP", UI_COLOR_ACCENT);
+    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 10);
 
-    lv_obj_t *line1 = make_label(s_content, "AI Server + Home Assistant", UI_COLOR_FG);
-    lv_obj_set_pos(line1, UI_STATUS_RIGHT_X + 137, 38);
+    network_backend_config_t backend = {0};
+#if defined(ESP_PLATFORM)
+    (void)network_service_get_backend_config(&backend);
+#endif
 
-    lv_obj_t *line2 = make_label(s_content, "HA URL + Long-Lived Token", UI_COLOR_MUTED);
-    lv_obj_set_pos(line2, UI_STATUS_RIGHT_X + 137, 61);
+    lv_obj_t *ai_label = make_label(s_content, "AI", UI_COLOR_MUTED);
+    lv_obj_set_pos(ai_label, UI_STATUS_RIGHT_X + 137, 34);
+    lv_obj_t *ai_value = make_label(
+        s_content, backend.ai_url[0] ? backend.ai_url : "NOT SET", UI_COLOR_FG);
+    lv_obj_set_pos(ai_value, UI_STATUS_RIGHT_X + 170, 34);
+    lv_obj_set_width(ai_value, 240);
+    lv_label_set_long_mode(ai_value, LV_LABEL_LONG_DOT);
 
-    lv_obj_t *line3 = make_label(s_content, "AP: AI-Robot-Setup", UI_COLOR_MUTED);
-    lv_obj_set_pos(line3, UI_STATUS_RIGHT_X + 137, 84);
+    lv_obj_t *ha_label = make_label(s_content, "HA", UI_COLOR_MUTED);
+    lv_obj_set_pos(ha_label, UI_STATUS_RIGHT_X + 137, 58);
+    lv_obj_t *ha_value = make_label(
+        s_content, backend.ha_url[0] ? backend.ha_url : "NOT SET", UI_COLOR_FG);
+    lv_obj_set_pos(ha_value, UI_STATUS_RIGHT_X + 170, 58);
+    lv_obj_set_width(ha_value, 240);
+    lv_label_set_long_mode(ha_value, LV_LABEL_LONG_DOT);
+
+    lv_obj_t *token_label = make_label(s_content, "TOKEN", UI_COLOR_MUTED);
+    lv_obj_set_pos(token_label, UI_STATUS_RIGHT_X + 137, 82);
+    lv_obj_t *token_value = make_label(
+        s_content, backend.ha_token[0] ? "SAVED" : "NOT SET",
+        backend.ha_token[0] ? UI_COLOR_ACCENT : UI_COLOR_FG);
+    lv_obj_set_pos(token_value, UI_STATUS_RIGHT_X + 192, 82);
 }
 
 static void refresh_system_battery_value(void)
