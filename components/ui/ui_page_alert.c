@@ -71,7 +71,7 @@ lv_obj_t *ui_page_alert_build(lv_obj_t *parent,
 
     lv_obj_t *left = lv_label_create(s_root);
     lv_label_set_text(left, "((");
-    lv_obj_set_style_text_font(left, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_font(left, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(left, UI_COLOR_ACCENT, 0);
     lv_obj_set_style_text_opa(left, LV_OPA_80, 0);
     lv_obj_align(left, LV_ALIGN_CENTER, -142, 0);
@@ -79,7 +79,7 @@ lv_obj_t *ui_page_alert_build(lv_obj_t *parent,
 
     lv_obj_t *right = lv_label_create(s_root);
     lv_label_set_text(right, "))");
-    lv_obj_set_style_text_font(right, &lv_font_montserrat_40, 0);
+    lv_obj_set_style_text_font(right, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(right, UI_COLOR_ACCENT, 0);
     lv_obj_set_style_text_opa(right, LV_OPA_80, 0);
     lv_obj_align(right, LV_ALIGN_CENTER, 142, 0);
