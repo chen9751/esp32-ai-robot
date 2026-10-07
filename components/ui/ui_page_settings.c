@@ -863,8 +863,10 @@ static void refresh_system_battery_value(void)
 #if defined(ESP_PLATFORM)
     board_power_status_t power = {0};
     if (board_power_get_status(&power) == ESP_OK && power.available) {
-        lv_label_set_text_fmt(s_system_battery_value, "%.2f V",
-                              (double)power.battery_mv / 1000.0);
+        const unsigned volts = power.battery_mv / 1000U;
+        const unsigned centivolts = (power.battery_mv % 1000U) / 10U;
+        lv_label_set_text_fmt(s_system_battery_value, "%u.%02u V",
+                              volts, centivolts);
         lv_obj_set_style_text_color(
             s_system_battery_value,
             power.low_battery ? UI_COLOR_DANGER : UI_COLOR_FG,
