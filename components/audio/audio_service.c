@@ -25,6 +25,7 @@ static const char *TAG = "audio";
 #define AUDIO_I2S_DOUT GPIO_NUM_45
 #define AUDIO_DEFAULT_VOLUME 30
 #define AUDIO_ALERT_MAX_MS (10u * 60u * 1000u)
+#define AUDIO_ALERT_VOLUME 80
 
 typedef enum {
     SOUND_TIMER = 0,
@@ -47,6 +48,7 @@ static volatile uint32_t s_generation = 1;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
 static volatile bool s_alert_active = false;
+static volatile audio_alert_kind_t s_alert_kind = AUDIO_ALERT_NONE;
 
 static bool generation_alive(uint32_t generation)
 {
@@ -142,8 +144,10 @@ static void sound_task(void *arg)
 
     if (generation_alive(req.generation)) {
         ++s_generation; /* 10-minute safety timeout */
+        s_alert_active = false;
+        s_alert_kind = AUDIO_ALERT_NONE;
+        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
     }
-    s_alert_active = false;
     vTaskDelete(NULL);
 }
 
@@ -153,14 +157,29 @@ static esp_err_t start_sound(sound_kind_t kind)
 
     ++s_generation;
     s_alert_active = true;
+    s_alert_kind = kind == SOUND_TIMER ? AUDIO_ALERT_TIMER : AUDIO_ALERT_ALARM;
+
+    /* Alarm/timer alerts use a fixed 80% playback level so they remain audible
+     * even when the normal UI volume is low. s_volume is intentionally not
+     * changed; it is restored as soon as the alert is acknowledged/stops. */
+    (void)esp_codec_dev_set_out_vol(s_playback, AUDIO_ALERT_VOLUME);
+
     sound_task_arg_t *arg = malloc(sizeof(*arg));
-    if (arg == NULL) return ESP_ERR_NO_MEM;
+    if (arg == NULL) {
+        s_alert_active = false;
+        s_alert_kind = AUDIO_ALERT_NONE;
+        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
+        return ESP_ERR_NO_MEM;
+    }
     arg->kind = kind;
     arg->generation = s_generation;
 
     if (xTaskCreate(sound_task, kind == SOUND_TIMER ? "timer_sound" : "alarm_sound",
                     4096, arg, 4, NULL) != pdPASS) {
         free(arg);
+        s_alert_active = false;
+        s_alert_kind = AUDIO_ALERT_NONE;
+        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -299,6 +318,11 @@ esp_err_t audio_service_set_volume(uint8_t percent)
     if (percent > 100) percent = 100;
     s_volume = percent;
     if (!s_ready) return ESP_ERR_INVALID_STATE;
+
+    /* Store user preference while an alert is active, but keep the alert at
+     * its dedicated 80% level until acknowledgement. */
+    if (s_alert_active) return ESP_OK;
+
     return esp_codec_dev_set_out_vol(s_playback, percent) == ESP_CODEC_DEV_OK
                ? ESP_OK : ESP_FAIL;
 }
@@ -323,8 +347,17 @@ bool audio_service_alert_active(void)
     return s_alert_active;
 }
 
+audio_alert_kind_t audio_service_get_alert_kind(void)
+{
+    return s_alert_active ? s_alert_kind : AUDIO_ALERT_NONE;
+}
+
 void audio_service_stop(void)
 {
     ++s_generation;
     s_alert_active = false;
+    s_alert_kind = AUDIO_ALERT_NONE;
+    if (s_ready) {
+        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
+    }
 }
