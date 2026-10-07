@@ -220,6 +220,9 @@ static void alarm_switch_event_cb(lv_event_t *e)
     if (index < 0 || index >= s_alarm_count) return;
     lv_obj_t *sw = lv_event_get_target_obj(e);
     s_alarms[index].enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    if (s_alarms[index].enabled) {
+        s_last_trigger_minute = -1;
+    }
     note_activity();
 }
 
@@ -391,6 +394,12 @@ static void primary_action_event_cb(lv_event_t *e)
         alarm->minute = minute;
         alarm->repeat = s_repeat;
         alarm->custom_days = s_custom_days;
+
+        /* A one-shot alarm disables itself after firing. Editing it is an
+         * explicit re-arm action, so always enable it again. Without this,
+         * changing the time after the first ring left enabled=false and the
+         * scheduler could never fire it a second time. */
+        alarm->enabled = true;
     } else if (s_alarm_count < UI_ALARM_MAX) {
         ui_alarm_item_t *alarm = &s_alarms[s_alarm_count++];
         alarm->hour = hour;
@@ -399,6 +408,11 @@ static void primary_action_event_cb(lv_event_t *e)
         alarm->custom_days = s_custom_days;
         alarm->enabled = true;
     }
+
+    /* Saving a new schedule invalidates the previous minute de-duplication
+     * key. This also allows an explicitly re-armed alarm to trigger normally
+     * at its newly selected time. */
+    s_last_trigger_minute = -1;
 
     sort_alarms();
     rebuild_list();
