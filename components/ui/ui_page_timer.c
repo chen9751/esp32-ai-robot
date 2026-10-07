@@ -1,4 +1,5 @@
 #include "ui_page_timer.h"
+#include "audio_service.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -270,6 +271,7 @@ static void finish_countdown(void)
     stop_tick_timer();
     s_remaining_seconds = 0;
     s_state = TIMER_STATE_FINISHED;
+    (void)audio_service_play_timer();
     refresh_columns();
     rebuild_action_area();
     note_activity();
@@ -300,6 +302,7 @@ static void begin_running(uint32_t seconds)
 {
     if (seconds == 0 || seconds > TIMER_MAX_SECONDS) return;
 
+    audio_service_stop();
     stop_tick_timer();
     s_remaining_seconds = seconds;
     s_deadline_tick = lv_tick_get() + seconds * 1000u;
@@ -332,6 +335,7 @@ static void pause_running(void)
 
 static void restore_setting(void)
 {
+    audio_service_stop();
     stop_tick_timer();
     s_state = TIMER_STATE_SETTING;
     s_remaining_seconds = s_config_seconds;
