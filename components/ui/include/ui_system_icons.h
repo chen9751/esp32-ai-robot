@@ -17,6 +17,8 @@ lv_obj_t *ui_system_icon_bluetooth(lv_obj_t *parent, lv_color_t color);
 lv_obj_t *ui_system_icon_ai(lv_obj_t *parent, lv_color_t color);
 lv_obj_t *ui_system_icon_ai_robot2(lv_obj_t *parent, lv_color_t color);
 lv_obj_t *ui_system_icon_system(lv_obj_t *parent, lv_color_t color);
+lv_obj_t *ui_system_icon_battery_charge(lv_obj_t *parent, lv_color_t color);
+lv_obj_t *ui_system_icon_battery_low(lv_obj_t *parent, lv_color_t color);
 
 void ui_system_icon_set_color(lv_obj_t *icon, lv_color_t color);
 
