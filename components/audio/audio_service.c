@@ -9,6 +9,7 @@
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -176,9 +177,20 @@ esp_err_t audio_service_init(void)
         return err == ESP_OK ? ESP_FAIL : err;
     }
 
+    ESP_LOGI(TAG, "before I2S: internal free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(
         I2S_NUM_AUTO, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
+
+    /* Default I2S DMA sizing is aimed at general streaming and is too large
+     * for this UI appliance once Wi-Fi + BLE + LVGL are already resident.
+     * Alerts only need a small steady PCM pipeline, so 3x128 frames is ample
+     * at 24 kHz while cutting internal DMA usage dramatically. */
+    chan_cfg.dma_desc_num = 3;
+    chan_cfg.dma_frame_num = 128;
     err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
     if (err != ESP_OK) return err;
 
@@ -204,7 +216,15 @@ esp_err_t audio_service_init(void)
     tdm_cfg.slot_cfg.total_slot = 4;
 
     err = i2s_channel_init_tdm_mode(s_tx, &tdm_cfg);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "I2S TDM init failed: %s; internal free=%u largest=%u",
+                 esp_err_to_name(err),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        i2s_del_channel(s_tx);
+        s_tx = NULL;
+        return err;
+    }
     err = i2s_channel_enable(s_tx);
     if (err != ESP_OK) return err;
 
@@ -266,7 +286,11 @@ esp_err_t audio_service_init(void)
     s_volume = AUDIO_DEFAULT_VOLUME;
     esp_codec_dev_set_out_vol(s_playback, s_volume);
     s_ready = true;
-    ESP_LOGI(TAG, "ES8311 playback ready, volume=%u%%", (unsigned)s_volume);
+    ESP_LOGI(TAG,
+             "ES8311 playback ready, volume=%u%%, internal free=%u largest=%u",
+             (unsigned)s_volume,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return ESP_OK;
 }
 
