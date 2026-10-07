@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 28 px
  * Bpp: 4
- * Opts: --font /tmp/tmp.LWv9CzYvu0/remixicon.ttf --symbols  --size 28 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_remix_devices_28 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_remix_devices_28.c
+ * Opts: --font /tmp/tmp.YkiI2FFLwk/remixicon.ttf --symbols  --size 28 --bpp 4 --format lvgl --no-compress --lv-font-name ui_font_remix_devices_28 --lv-include lvgl.h -o /home/runner/work/esp32-ai-robot/esp32-ai-robot/components/ui/ui_font_remix_devices_28.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
