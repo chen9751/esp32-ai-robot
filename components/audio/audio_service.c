@@ -308,7 +308,7 @@ esp_err_t audio_service_init(void)
      * unreliable after Wi-Fi/BLE/LVGL had consumed and fragmented internal
      * SRAM; ESP-IDF also notes that memory from a self-deleted task can be
      * reclaimed later by the idle task. */
-    if (xTaskCreate(sound_task, "alert_audio", 4096, NULL, 4,
+    if (xTaskCreate(sound_task, "alert_audio", 3072, NULL, 4,
                     &s_sound_task) != pdPASS) {
         ESP_LOGE(TAG, "persistent alert task creation failed");
         s_sound_task = NULL;
