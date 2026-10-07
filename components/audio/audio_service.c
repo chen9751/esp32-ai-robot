@@ -32,11 +32,6 @@ typedef enum {
     SOUND_ALARM,
 } sound_kind_t;
 
-typedef struct {
-    sound_kind_t kind;
-    uint32_t generation;
-} sound_task_arg_t;
-
 static esp_codec_dev_handle_t s_playback = NULL;
 static i2s_chan_handle_t s_tx = NULL;
 static const audio_codec_data_if_t *s_data_if = NULL;
@@ -44,6 +39,7 @@ static const audio_codec_gpio_if_t *s_gpio_if = NULL;
 static const audio_codec_ctrl_if_t *s_ctrl_if = NULL;
 static const audio_codec_if_t *s_codec_if = NULL;
 static SemaphoreHandle_t s_write_lock = NULL;
+static TaskHandle_t s_sound_task = NULL;
 static volatile uint32_t s_generation = 1;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
@@ -108,80 +104,85 @@ static bool silence(uint32_t generation, uint32_t duration_ms)
 
 static void sound_task(void *arg)
 {
-    sound_task_arg_t req = *(sound_task_arg_t *)arg;
-    free(arg);
+    (void)arg;
 
-    if (!s_ready || !generation_alive(req.generation)) {
-        vTaskDelete(NULL);
-        return;
-    }
+    for (;;) {
+        uint32_t command = 0;
+        if (xTaskNotifyWait(0, UINT32_MAX, &command, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
 
-    s_alert_active = true;
-    const TickType_t started = xTaskGetTickCount();
-    const TickType_t max_ticks = pdMS_TO_TICKS(AUDIO_ALERT_MAX_MS);
-
-    while (generation_alive(req.generation) &&
-           (xTaskGetTickCount() - started) < max_ticks) {
-        if (req.kind == SOUND_TIMER) {
-            /* Familiar digital kitchen-timer cadence:
-             * four short beeps, then a short pause, repeated until acknowledged. */
-            for (int i = 0; i < 4 && generation_alive(req.generation); ++i) {
-                if (!write_frames(req.generation, 1100, 170, 11000)) break;
-                if (i != 3 && !silence(req.generation, 130)) break;
-            }
-            if (!generation_alive(req.generation)) break;
-            if (!silence(req.generation, 1200)) break;
+        sound_kind_t kind;
+        if (command == 1) {
+            kind = SOUND_TIMER;
+        }
+        else if (command == 2) {
+            kind = SOUND_ALARM;
         }
         else {
-            /* Classic bedside alarm: alternating two-tone buzzer,
-             * repeated until the user touches the screen. */
-            if (!write_frames(req.generation, 880, 280, 12000)) break;
-            if (!silence(req.generation, 90)) break;
-            if (!write_frames(req.generation, 660, 280, 12000)) break;
-            if (!silence(req.generation, 500)) break;
+            continue;
+        }
+
+        const uint32_t generation = s_generation;
+        const TickType_t started = xTaskGetTickCount();
+        const TickType_t max_ticks = pdMS_TO_TICKS(AUDIO_ALERT_MAX_MS);
+
+        while (generation_alive(generation) &&
+               (xTaskGetTickCount() - started) < max_ticks) {
+            if (kind == SOUND_TIMER) {
+                /* Familiar digital kitchen-timer cadence:
+                 * four short beeps, then a short pause, repeated until acknowledged. */
+                for (int i = 0; i < 4 && generation_alive(generation); ++i) {
+                    if (!write_frames(generation, 1100, 170, 11000)) break;
+                    if (i != 3 && !silence(generation, 130)) break;
+                }
+                if (!generation_alive(generation)) break;
+                if (!silence(generation, 1200)) break;
+            }
+            else {
+                /* Classic bedside alarm: alternating two-tone buzzer,
+                 * repeated until the user acknowledges it. */
+                if (!write_frames(generation, 880, 280, 12000)) break;
+                if (!silence(generation, 90)) break;
+                if (!write_frames(generation, 660, 280, 12000)) break;
+                if (!silence(generation, 500)) break;
+            }
+        }
+
+        if (generation_alive(generation)) {
+            ++s_generation; /* 10-minute safety timeout */
+            s_alert_active = false;
+            s_alert_kind = AUDIO_ALERT_NONE;
+            (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
         }
     }
-
-    if (generation_alive(req.generation)) {
-        ++s_generation; /* 10-minute safety timeout */
-        s_alert_active = false;
-        s_alert_kind = AUDIO_ALERT_NONE;
-        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
-    }
-    vTaskDelete(NULL);
 }
 
 static esp_err_t start_sound(sound_kind_t kind)
 {
-    if (!s_ready) return ESP_ERR_INVALID_STATE;
+    if (!s_ready || s_sound_task == NULL) return ESP_ERR_INVALID_STATE;
 
     ++s_generation;
     s_alert_active = true;
     s_alert_kind = kind == SOUND_TIMER ? AUDIO_ALERT_TIMER : AUDIO_ALERT_ALARM;
 
-    /* Alarm/timer alerts use a fixed 80% playback level so they remain audible
-     * even when the normal UI volume is low. s_volume is intentionally not
-     * changed; it is restored as soon as the alert is acknowledged/stops. */
-    (void)esp_codec_dev_set_out_vol(s_playback, AUDIO_ALERT_VOLUME);
+    /* Alert playback is fixed at 80%, independently of the saved user volume. */
+    if (esp_codec_dev_set_out_vol(s_playback, AUDIO_ALERT_VOLUME) != ESP_CODEC_DEV_OK) {
+        s_alert_active = false;
+        s_alert_kind = AUDIO_ALERT_NONE;
+        return ESP_FAIL;
+    }
 
-    sound_task_arg_t *arg = malloc(sizeof(*arg));
-    if (arg == NULL) {
+    const uint32_t command = kind == SOUND_TIMER ? 1u : 2u;
+    if (xTaskNotify(s_sound_task, command, eSetValueWithOverwrite) != pdPASS) {
         s_alert_active = false;
         s_alert_kind = AUDIO_ALERT_NONE;
         (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
-        return ESP_ERR_NO_MEM;
+        return ESP_FAIL;
     }
-    arg->kind = kind;
-    arg->generation = s_generation;
 
-    if (xTaskCreate(sound_task, kind == SOUND_TIMER ? "timer_sound" : "alarm_sound",
-                    4096, arg, 4, NULL) != pdPASS) {
-        free(arg);
-        s_alert_active = false;
-        s_alert_kind = AUDIO_ALERT_NONE;
-        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
-        return ESP_ERR_NO_MEM;
-    }
+    ESP_LOGI(TAG, "%s alert queued at 80%%",
+             kind == SOUND_TIMER ? "timer" : "alarm");
     return ESP_OK;
 }
 
@@ -301,6 +302,18 @@ esp_err_t audio_service_init(void)
 
     s_write_lock = xSemaphoreCreateMutex();
     if (s_write_lock == NULL) return ESP_ERR_NO_MEM;
+
+    /* Allocate the alert worker once, during boot while contiguous internal
+     * RAM is still available. Creating/deleting a 4 KB task for every ring was
+     * unreliable after Wi-Fi/BLE/LVGL had consumed and fragmented internal
+     * SRAM; ESP-IDF also notes that memory from a self-deleted task can be
+     * reclaimed later by the idle task. */
+    if (xTaskCreate(sound_task, "alert_audio", 4096, NULL, 4,
+                    &s_sound_task) != pdPASS) {
+        ESP_LOGE(TAG, "persistent alert task creation failed");
+        s_sound_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
 
     s_volume = AUDIO_DEFAULT_VOLUME;
     esp_codec_dev_set_out_vol(s_playback, s_volume);
