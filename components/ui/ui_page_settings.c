@@ -121,8 +121,8 @@ static lv_obj_t *s_tab_cards[UI_TAB_COUNT] = {0};
 static lv_obj_t *s_tab_icons[UI_TAB_COUNT] = {0};
 static ui_settings_tab_t s_selected = UI_SETTINGS_SOUND;
 static slider_ctx_t s_slider_ctx = {0};
-static int32_t s_sound_value = 70;
-static int32_t s_brightness_value = 60;
+static int32_t s_sound_value = 30;
+static int32_t s_brightness_value = 20;
 
 /* Runtime state mirrored from the network service for rendering. */
 static bool s_wifi_enabled = true;
@@ -132,6 +132,8 @@ static bool s_ai_configured = false;
 static bool s_bt_enabled = true;
 static lv_timer_t *s_bt_refresh_timer = NULL;
 static uint32_t s_bt_last_generation = UINT32_MAX;
+static lv_timer_t *s_system_refresh_timer = NULL;
+static lv_obj_t *s_system_battery_value = NULL;
 
 static void show_tab(ui_settings_tab_t tab);
 static void refresh_tab_styles(void);
@@ -141,6 +143,8 @@ static void bt_scan_event_cb(lv_event_t *e);
 static void bt_device_event_cb(lv_event_t *e);
 static void bt_disconnect_event_cb(lv_event_t *e);
 static void bt_forget_event_cb(lv_event_t *e);
+static void build_system_content(void);
+static void stop_system_refresh_timer(void);
 
 static void load_runtime_settings(void)
 {
@@ -852,6 +856,72 @@ static void build_ai_content(void)
     lv_obj_set_pos(line3, UI_STATUS_RIGHT_X + 137, 84);
 }
 
+static void refresh_system_battery_value(void)
+{
+    if (s_system_battery_value == NULL) return;
+
+#if defined(ESP_PLATFORM)
+    board_power_status_t power = {0};
+    if (board_power_get_status(&power) == ESP_OK && power.available) {
+        lv_label_set_text_fmt(s_system_battery_value, "%.2f V",
+                              (double)power.battery_mv / 1000.0);
+        lv_obj_set_style_text_color(
+            s_system_battery_value,
+            power.low_battery ? UI_COLOR_DANGER : UI_COLOR_FG,
+            0);
+        return;
+    }
+#endif
+
+    lv_label_set_text(s_system_battery_value, "--.-- V");
+    lv_obj_set_style_text_color(s_system_battery_value, UI_COLOR_MUTED, 0);
+}
+
+static void system_refresh_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (s_selected != UI_SETTINGS_SYSTEM) return;
+    refresh_system_battery_value();
+}
+
+static void start_system_refresh_timer(void)
+{
+    if (s_system_refresh_timer == NULL) {
+        s_system_refresh_timer = lv_timer_create(system_refresh_timer_cb, 1000, NULL);
+    }
+}
+
+static void stop_system_refresh_timer(void)
+{
+    if (s_system_refresh_timer != NULL) {
+        lv_timer_delete(s_system_refresh_timer);
+        s_system_refresh_timer = NULL;
+    }
+    s_system_battery_value = NULL;
+}
+
+static void build_system_content(void)
+{
+    lv_obj_t *title = make_label(s_content, "SYSTEM", UI_COLOR_ACCENT);
+    lv_obj_set_pos(title, 22, 12);
+
+    lv_obj_t *row = plain_obj(s_content);
+    lv_obj_set_pos(row, 18, 42);
+    lv_obj_set_size(row, UI_CONTENT_W - 36, 48);
+    lv_obj_set_style_bg_color(row, UI_COLOR_PANEL, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(row, 10, 0);
+
+    lv_obj_t *label = make_label(row, "BATTERY", UI_COLOR_FG);
+    lv_obj_set_pos(label, 16, 14);
+
+    s_system_battery_value = make_label(row, "--.-- V", UI_COLOR_FG);
+    lv_obj_align(s_system_battery_value, LV_ALIGN_RIGHT_MID, -16, 0);
+
+    refresh_system_battery_value();
+    start_system_refresh_timer();
+}
+
 static void refresh_tab_styles(void)
 {
     for (int i = 0; i < UI_TAB_COUNT; ++i) {
@@ -868,6 +938,7 @@ static void show_tab(ui_settings_tab_t tab)
 {
     if (s_content == NULL) return;
     if (tab != UI_SETTINGS_BLUETOOTH) stop_bt_refresh_timer();
+    if (tab != UI_SETTINGS_SYSTEM) stop_system_refresh_timer();
     s_selected = tab;
     lv_obj_clean(s_content);
     s_slider_ctx = (slider_ctx_t){0};
@@ -884,7 +955,9 @@ static void show_tab(ui_settings_tab_t tab)
     else if (tab == UI_SETTINGS_AI) {
         build_ai_content();
     }
-    /* System remains a placeholder for now. */
+    else if (tab == UI_SETTINGS_SYSTEM) {
+        build_system_content();
+    }
 
     refresh_tab_styles();
     note_activity();
@@ -946,6 +1019,7 @@ lv_obj_t *ui_page_settings_build(lv_obj_t *parent,
 void ui_page_settings_stop(void)
 {
     stop_bt_refresh_timer();
+    stop_system_refresh_timer();
     s_root = NULL;
     s_content = NULL;
     s_activity_cb = NULL;
