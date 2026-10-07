@@ -23,6 +23,7 @@ static const char *TAG = "audio";
 #define AUDIO_I2S_WS GPIO_NUM_46
 #define AUDIO_I2S_DOUT GPIO_NUM_45
 #define AUDIO_DEFAULT_VOLUME 30
+#define AUDIO_ALERT_MAX_MS (10u * 60u * 1000u)
 
 typedef enum {
     SOUND_TIMER = 0,
@@ -44,6 +45,7 @@ static SemaphoreHandle_t s_write_lock = NULL;
 static volatile uint32_t s_generation = 1;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
+static volatile bool s_alert_active = false;
 
 static bool generation_alive(uint32_t generation)
 {
@@ -111,19 +113,25 @@ static void sound_task(void *arg)
         return;
     }
 
-    if (req.kind == SOUND_TIMER) {
-        /* Classic digital timer: four short, clean beeps. This compact
-         * synthesized pattern follows the familiar CC0 electronic timer
-         * style without storing a large WAV blob in flash. */
-        for (int i = 0; i < 4 && generation_alive(req.generation); ++i) {
-            if (!write_frames(req.generation, 1100, 170, 11000)) break;
-            if (i != 3 && !silence(req.generation, 130)) break;
+    s_alert_active = true;
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t max_ticks = pdMS_TO_TICKS(AUDIO_ALERT_MAX_MS);
+
+    while (generation_alive(req.generation) &&
+           (xTaskGetTickCount() - started) < max_ticks) {
+        if (req.kind == SOUND_TIMER) {
+            /* Familiar digital kitchen-timer cadence:
+             * four short beeps, then a short pause, repeated until acknowledged. */
+            for (int i = 0; i < 4 && generation_alive(req.generation); ++i) {
+                if (!write_frames(req.generation, 1100, 170, 11000)) break;
+                if (i != 3 && !silence(req.generation, 130)) break;
+            }
+            if (!generation_alive(req.generation)) break;
+            if (!silence(req.generation, 1200)) break;
         }
-    }
-    else {
-        /* Classic bedside/digital alarm: alternating buzzer pitches in
-         * repeated groups, automatically ending after about 30 seconds. */
-        for (int group = 0; group < 24 && generation_alive(req.generation); ++group) {
+        else {
+            /* Classic bedside alarm: alternating two-tone buzzer,
+             * repeated until the user touches the screen. */
             if (!write_frames(req.generation, 880, 280, 12000)) break;
             if (!silence(req.generation, 90)) break;
             if (!write_frames(req.generation, 660, 280, 12000)) break;
@@ -131,6 +139,10 @@ static void sound_task(void *arg)
         }
     }
 
+    if (generation_alive(req.generation)) {
+        ++s_generation; /* 10-minute safety timeout */
+    }
+    s_alert_active = false;
     vTaskDelete(NULL);
 }
 
@@ -139,6 +151,7 @@ static esp_err_t start_sound(sound_kind_t kind)
     if (!s_ready) return ESP_ERR_INVALID_STATE;
 
     ++s_generation;
+    s_alert_active = true;
     sound_task_arg_t *arg = malloc(sizeof(*arg));
     if (arg == NULL) return ESP_ERR_NO_MEM;
     arg->kind = kind;
@@ -281,7 +294,13 @@ esp_err_t audio_service_play_alarm(void)
     return start_sound(SOUND_ALARM);
 }
 
+bool audio_service_alert_active(void)
+{
+    return s_alert_active;
+}
+
 void audio_service_stop(void)
 {
     ++s_generation;
+    s_alert_active = false;
 }
