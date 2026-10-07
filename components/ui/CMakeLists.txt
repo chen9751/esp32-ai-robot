@@ -24,6 +24,7 @@ set(UI_SRCS
     "ui_asset_devices.c"
     "ui_asset_timer.c"
     "ui_asset_alarm.c"
+    "ui_asset_alarm_line.c"
     "ui_asset_settings.c"
     "ui_lights_labels.c"
     "ui_lights_label_living.c"
