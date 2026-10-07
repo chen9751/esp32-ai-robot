@@ -659,22 +659,27 @@ esp_err_t network_service_init(void)
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
 
     /* This product is a low-throughput control panel, not an iperf endpoint.
-     * The IDF defaults reserve considerably more internal RAM than we need.
-     * Keep enough buffers for STA + temporary captive AP operation while
-     * leaving contiguous DMA memory for ES8311/I2S alert playback.
+     * Keep Wi-Fi's permanently allocated internal-RAM footprint small enough
+     * to coexist with LVGL + BLE + ES8311/I2S + the persistent alert worker.
      *
-     * static RX: 10 -> 6  (saves ~6.4 KB permanently)
-     * dynamic RX/TX: 32 -> 16 (lower peak pressure; allocated on demand)
-     * rx_ba_win remains the IDF default 6, which is valid with 6 static RX
-     * buffers because IDF requires rx_ba_win <= 2 * static_rx_buf_num. */
-    init_cfg.static_rx_buf_num = 6;
-    init_cfg.dynamic_rx_buf_num = 16;
-    init_cfg.dynamic_tx_buf_num = 16;
+     * ESP-IDF itself uses static_rx_buf_num=2 in low-memory Wi-Fi tests. Four
+     * static RX buffers gives this product more headroom while still satisfying
+     * the default rx_ba_win=6 relationship (6 <= 2 * 4).
+     *
+     * static RX: 10 -> 4
+     * dynamic RX/TX: 32 -> 12
+     * RX management buffers: 5 -> 3 */
+    init_cfg.static_rx_buf_num = 4;
+    init_cfg.dynamic_rx_buf_num = 12;
+    init_cfg.dynamic_tx_buf_num = 12;
+    init_cfg.rx_mgmt_buf_num = 3;
 
-    ESP_LOGI(TAG, "Wi-Fi low-memory buffers: static_rx=%d dynamic_rx=%d dynamic_tx=%d",
+    ESP_LOGI(TAG,
+             "Wi-Fi low-memory buffers: static_rx=%d dynamic_rx=%d dynamic_tx=%d mgmt_rx=%d",
              init_cfg.static_rx_buf_num,
              init_cfg.dynamic_rx_buf_num,
-             init_cfg.dynamic_tx_buf_num);
+             init_cfg.dynamic_tx_buf_num,
+             init_cfg.rx_mgmt_buf_num);
 
     err = esp_wifi_init(&init_cfg);
     if (err != ESP_OK) return err;
