@@ -47,6 +47,10 @@ void ui_show_standby_clock(void);
 void ui_mark_activity(void);
 bool ui_navigation_transition_active(void);
 
+/* Physical/custom back key contract: alert acknowledgement first, then
+ * feature -> HOME, HOME -> standby clock. */
+void ui_handle_back_action(void);
+
 void ui_init(void);
 
 #ifdef __cplusplus
