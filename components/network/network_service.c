@@ -697,10 +697,10 @@ esp_err_t network_service_init(void)
     refresh_link_metadata();
 
     if (!s_status.configured) {
-        err = network_service_start_setup_portal();
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "setup portal start failed: %s", esp_err_to_name(err));
-        }
+        /* Provisioning is user-initiated from the Settings SETUP button.
+         * Do not allocate AP/HTTP/DNS resources merely because credentials are
+         * absent; this keeps boot memory stable and matches the compact UI. */
+        ESP_LOGI(TAG, "Wi-Fi not configured; waiting for SETUP button");
         return ESP_OK;
     }
 
