@@ -116,8 +116,15 @@ static void alarm_scheduler_cb(lv_timer_t *timer)
             alarm->minute != local_tm.tm_min) continue;
         if (!alarm_matches_day(alarm, &local_tm)) continue;
 
+        esp_err_t play_err = audio_service_play_alarm();
+        if (play_err != ESP_OK) {
+            /* Do not consume/disable an alarm unless the audio service really
+             * accepted it. The scheduler runs again next second, so a transient
+             * playback failure can recover within the same alarm minute. */
+            continue;
+        }
+
         s_last_trigger_minute = minute_key;
-        (void)audio_service_play_alarm();
 
         if (alarm->repeat == UI_ALARM_REPEAT_NEVER) {
             alarm->enabled = false;
