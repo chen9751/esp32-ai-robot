@@ -517,31 +517,37 @@ static void build_wifi_right(lv_obj_t *parent)
     lv_obj_t *fallback = make_label(parent, "192.168.4.1", UI_COLOR_FG);
     lv_obj_set_pos(fallback, UI_STATUS_RIGHT_X + 178, 58);
 
+    /* The physical screen is only 640x172. Keep the connection column
+     * deliberately label-free so IPv4 addresses never wrap onto a second
+     * line and collide with TIME status. */
+    const int32_t net_x = UI_STATUS_RIGHT_X + 296;
+    const int32_t net_w = UI_CONTENT_W - net_x - 8;
+
     const char *state_text = status.connected ? "ONLINE" :
                              (status.configured ? "OFFLINE" : "NOT SET");
     lv_obj_t *state = make_label(parent, state_text,
                                  status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, UI_STATUS_RIGHT_X + 300, 10);
+    lv_obj_set_pos(state, net_x, 10);
+    lv_obj_set_size(state, net_w, 20);
+    lv_label_set_long_mode(state, LV_LABEL_LONG_DOT);
 
     if(status.connected) {
-        lv_obj_t *ssid_label = make_label(parent, "SSID", UI_COLOR_MUTED);
-        lv_obj_set_pos(ssid_label, UI_STATUS_RIGHT_X + 300, 34);
         lv_obj_t *ssid = make_label(parent, status.ssid, UI_COLOR_FG);
-        lv_obj_set_pos(ssid, UI_STATUS_RIGHT_X + 342, 34);
-        lv_obj_set_width(ssid, 72);
+        lv_obj_set_pos(ssid, net_x, 34);
+        lv_obj_set_size(ssid, net_w, 20);
         lv_label_set_long_mode(ssid, LV_LABEL_LONG_DOT);
 
-        lv_obj_t *ip_label = make_label(parent, "IP", UI_COLOR_MUTED);
-        lv_obj_set_pos(ip_label, UI_STATUS_RIGHT_X + 300, 58);
         lv_obj_t *ip = make_label(parent, status.ip, UI_COLOR_FG);
-        lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 324, 58);
-        lv_obj_set_width(ip, 92);
+        lv_obj_set_pos(ip, net_x, 58);
+        lv_obj_set_size(ip, net_w, 20);
         lv_label_set_long_mode(ip, LV_LABEL_LONG_DOT);
 
         lv_obj_t *sync = make_label(parent,
                                     status.time_synced ? "TIME OK" : "SYNCING",
                                     status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-        lv_obj_set_pos(sync, UI_STATUS_RIGHT_X + 300, 82);
+        lv_obj_set_pos(sync, net_x, 82);
+        lv_obj_set_size(sync, net_w, 20);
+        lv_label_set_long_mode(sync, LV_LABEL_LONG_DOT);
     }
 }
 
