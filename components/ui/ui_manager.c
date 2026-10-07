@@ -4,6 +4,7 @@
 #include "ui_page_clock.h"
 #include "ui_page_feature.h"
 #include "ui_assets.h"
+#include "audio_service.h"
 
 #include <stdint.h>
 
@@ -39,6 +40,32 @@ static bool s_transition_animating = false;
 static ui_transition_target_t s_transition_target = UI_TRANSITION_NONE;
 static lv_obj_t *s_transition_overlay = NULL;
 static lv_obj_t *s_transition_underlay = NULL;
+
+static void global_touch_event_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
+
+    /* Alerts are acknowledgement-based: the first touch anywhere on the
+     * touchscreen silences an active timer/alarm immediately. The touch still
+     * continues to the normal UI target, so navigation remains responsive. */
+    if (audio_service_alert_active()) {
+        audio_service_stop();
+        ui_mark_activity();
+    }
+}
+
+static void register_global_touch_listener(void)
+{
+    lv_indev_t *indev = NULL;
+    while ((indev = lv_indev_get_next(indev)) != NULL) {
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
+            lv_indev_add_event_cb(indev,
+                                  global_touch_event_cb,
+                                  LV_EVENT_PRESSED,
+                                  NULL);
+        }
+    }
+}
 
 static int32_t iabs32(int32_t value)
 {
@@ -445,6 +472,7 @@ void ui_show_standby_clock(void)
 void ui_init(void)
 {
     ui_assets_init();
+    register_global_touch_listener();
 
     if (s_idle_timer == NULL) {
         s_idle_timer = lv_timer_create(idle_timer_cb, 1000, NULL);
