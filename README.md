@@ -121,6 +121,7 @@ Alert UI is authored for the fixed **640 × 172** landscape canvas and must use 
 - **Timer finished:** automatically bring the real Timer feature page to the foreground so `00:00:00` and the normal Timer controls remain visible. Touching anywhere acknowledges the timer sound but leaves the Timer page open.
 - **Alert volume:** timer/alarm playback temporarily uses **80% output volume**. This must not overwrite the user's normal Sound setting. When the alert stops, the codec returns to the saved user volume.
 - **Alert timeout:** if nobody acknowledges an alert, audio stops after 10 minutes as a safety limit.
+- **Reliability rule:** the audio alert worker is created once during boot, before Wi-Fi starts, and remains resident. Alarm/timer triggers only send commands to this worker; they must not allocate a new FreeRTOS task for every ring. One-shot alarms disable themselves only after playback has actually been accepted. Editing/saving a previously fired one-shot alarm explicitly re-arms it and the new time takes effect immediately.
 
 The enclosure exposes three physical buttons. Their product behavior is:
 
