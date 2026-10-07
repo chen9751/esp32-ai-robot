@@ -449,10 +449,19 @@ static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
     lv_obj_set_pos(image, 0, 0);
 }
 
-static void ensure_setup_portal(void)
+static void ensure_setup_portal_if_needed(void)
 {
 #if defined(ESP_PLATFORM)
-    (void)network_service_start_setup_portal();
+    network_wifi_status_t status = {0};
+    network_service_get_wifi_status(&status);
+
+    /* Merely viewing Wi-Fi/AI settings must not switch a connected device
+     * into AP+STA mode. Starting the captive portal allocates extra Wi-Fi,
+     * HTTP and DNS resources and can exhaust internal SRAM on this product.
+     * Auto-start provisioning only when Wi-Fi has never been configured. */
+    if (!status.configured && !network_service_setup_portal_active()) {
+        (void)network_service_start_setup_portal();
+    }
 #endif
 }
 
@@ -489,7 +498,7 @@ static void build_wifi_left(lv_obj_t *parent)
 static void build_wifi_right(lv_obj_t *parent)
 {
     load_runtime_settings();
-    ensure_setup_portal();
+    ensure_setup_portal_if_needed();
 
     network_wifi_status_t status = {0};
 #if defined(ESP_PLATFORM)
@@ -854,7 +863,7 @@ static void bt_forget_event_cb(lv_event_t *e)
 static void build_ai_content(void)
 {
     load_runtime_settings();
-    ensure_setup_portal();
+    ensure_setup_portal_if_needed();
 
     lv_obj_t *icon = ui_system_icon_ai_robot2(
         s_content, s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
