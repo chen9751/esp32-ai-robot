@@ -657,6 +657,25 @@ esp_err_t network_service_init(void)
     if (s_sta_netif == NULL || s_ap_netif == NULL) return ESP_FAIL;
 
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
+
+    /* This product is a low-throughput control panel, not an iperf endpoint.
+     * The IDF defaults reserve considerably more internal RAM than we need.
+     * Keep enough buffers for STA + temporary captive AP operation while
+     * leaving contiguous DMA memory for ES8311/I2S alert playback.
+     *
+     * static RX: 10 -> 6  (saves ~6.4 KB permanently)
+     * dynamic RX/TX: 32 -> 16 (lower peak pressure; allocated on demand)
+     * rx_ba_win remains the IDF default 6, which is valid with 6 static RX
+     * buffers because IDF requires rx_ba_win <= 2 * static_rx_buf_num. */
+    init_cfg.static_rx_buf_num = 6;
+    init_cfg.dynamic_rx_buf_num = 16;
+    init_cfg.dynamic_tx_buf_num = 16;
+
+    ESP_LOGI(TAG, "Wi-Fi low-memory buffers: static_rx=%d dynamic_rx=%d dynamic_tx=%d",
+             init_cfg.static_rx_buf_num,
+             init_cfg.dynamic_rx_buf_num,
+             init_cfg.dynamic_tx_buf_num);
+
     err = esp_wifi_init(&init_cfg);
     if (err != ESP_OK) return err;
 
