@@ -1,5 +1,6 @@
 set(UI_SRCS
     "ui_manager.c"
+    "ui_page_alert.c"
     "ui_page_home.c"
     "ui_page_feature.c"
     "ui_page_remote.c"
