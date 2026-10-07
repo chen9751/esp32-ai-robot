@@ -1,4 +1,5 @@
 #include "ui_page_clock.h"
+#include "ui_system_icons.h"
 
 #include <stddef.h>
 #include <time.h>
@@ -27,6 +28,10 @@ static lv_obj_t *s_parent = NULL;
 static int s_last_hour = -1;
 static int s_last_minute = -1;
 static ui_clock_battery_state_t s_battery_state = UI_CLOCK_BATTERY_NORMAL;
+static lv_obj_t *s_battery_charge_icon = NULL;
+static lv_obj_t *s_battery_low_icon = NULL;
+static bool s_low_blink_on = true;
+static uint8_t s_power_poll_divider = 0;
 
 /*
  * The clock used to delete and recreate dozens of LVGL objects every minute.
@@ -60,6 +65,10 @@ void ui_page_clock_stop(void)
     }
 
     s_parent = NULL;
+    s_battery_charge_icon = NULL;
+    s_battery_low_icon = NULL;
+    s_low_blink_on = true;
+    s_power_poll_divider = 0;
     s_last_hour = -1;
     s_last_minute = -1;
     s_rect_count = 0;
@@ -115,54 +124,6 @@ static void finish_rect_frame(void)
 static void draw_pixel(int32_t x, int32_t y)
 {
     (void)use_rect(x, y, PIXEL_SIZE, PIXEL_SIZE, CLOCK_GREEN, 2);
-}
-
-static void draw_status_rect(int32_t x,
-                             int32_t y,
-                             int32_t w,
-                             int32_t h,
-                             lv_color_t color)
-{
-    (void)use_rect(x, y, w, h, color, 0);
-}
-
-static void draw_battery_outline(int32_t x, int32_t y, lv_color_t color)
-{
-    draw_status_rect(x, y, 2, 16, color);
-    draw_status_rect(x + 2, y, 22, 2, color);
-    draw_status_rect(x + 2, y + 14, 22, 2, color);
-    draw_status_rect(x + 24, y, 2, 16, color);
-    draw_status_rect(x + 28, y + 4, 3, 8, color);
-}
-
-static void draw_low_battery_icon(void)
-{
-    const int32_t x = 14;
-    const int32_t y = 12;
-
-    draw_battery_outline(x, y, CLOCK_LOW);
-    draw_status_rect(x + 5, y + 5, 4, 6, CLOCK_LOW);
-}
-
-static void draw_charging_icon(void)
-{
-    const int32_t x = 14;
-    const int32_t y = 12;
-
-    draw_battery_outline(x, y, CLOCK_CHARGING);
-    draw_status_rect(x + 12, y + 3, 3, 5, CLOCK_CHARGING);
-    draw_status_rect(x + 9, y + 7, 6, 3, CLOCK_CHARGING);
-    draw_status_rect(x + 10, y + 9, 3, 4, CLOCK_CHARGING);
-}
-
-static void draw_battery_status(void)
-{
-    if (s_battery_state == UI_CLOCK_BATTERY_LOW) {
-        draw_low_battery_icon();
-    }
-    else if (s_battery_state == UI_CLOCK_BATTERY_CHARGING) {
-        draw_charging_icon();
-    }
 }
 
 static void draw_digit(uint8_t digit, int32_t x, int32_t y)
@@ -244,8 +205,28 @@ static void redraw_clock(void)
     x += DIGIT_W + DIGIT_GAP;
     draw_digit((uint8_t)(minute % 10), x, y0);
 
-    draw_battery_status();
     finish_rect_frame();
+}
+
+static void update_battery_icons(void)
+{
+    if (s_battery_charge_icon != NULL) {
+        if (s_battery_state == UI_CLOCK_BATTERY_CHARGING) {
+            lv_obj_remove_flag(s_battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        else {
+            lv_obj_add_flag(s_battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (s_battery_low_icon != NULL) {
+        if (s_battery_state == UI_CLOCK_BATTERY_LOW && s_low_blink_on) {
+            lv_obj_remove_flag(s_battery_low_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        else {
+            lv_obj_add_flag(s_battery_low_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 static void refresh_power_state(void)
@@ -266,8 +247,10 @@ static void refresh_power_state(void)
 
     if (next != s_battery_state) {
         s_battery_state = next;
+        s_low_blink_on = true;
         s_last_hour = -1;
         s_last_minute = -1;
+        update_battery_icons();
     }
 #endif
 }
@@ -275,7 +258,17 @@ static void refresh_power_state(void)
 static void clock_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    refresh_power_state();
+
+    if (++s_power_poll_divider >= 2) {
+        s_power_poll_divider = 0;
+        refresh_power_state();
+    }
+
+    if (s_battery_state == UI_CLOCK_BATTERY_LOW) {
+        s_low_blink_on = !s_low_blink_on;
+        update_battery_icons();
+    }
+
     redraw_clock();
 }
 
@@ -292,6 +285,8 @@ void ui_page_clock_set_battery_state(ui_clock_battery_state_t state)
     }
 
     s_battery_state = state;
+    s_low_blink_on = true;
+    update_battery_icons();
 
     /* Force an immediate redraw even when the minute has not changed. */
     s_last_hour = -1;
@@ -308,7 +303,18 @@ void ui_page_clock_build(lv_obj_t *parent)
     s_last_hour = -1;
     s_last_minute = -1;
 
+    s_battery_charge_icon =
+        ui_system_icon_battery_charge(s_parent, CLOCK_CHARGING);
+    lv_obj_set_pos(s_battery_charge_icon, 14, 8);
+    lv_obj_add_flag(s_battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
+
+    s_battery_low_icon =
+        ui_system_icon_battery_low(s_parent, CLOCK_LOW);
+    lv_obj_set_pos(s_battery_low_icon, 14, 8);
+    lv_obj_add_flag(s_battery_low_icon, LV_OBJ_FLAG_HIDDEN);
+
     refresh_power_state();
+    update_battery_icons();
     redraw_clock();
-    s_clock_timer = lv_timer_create(clock_timer_cb, 1000, NULL);
+    s_clock_timer = lv_timer_create(clock_timer_cb, 500, NULL);
 }
