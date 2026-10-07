@@ -112,3 +112,18 @@ The Drying Rack page uses three icon-only controls: Remix Icon `arrow-up-line` a
 Timer behavior is defined as follows: the page contains no text labels. It shows only `HH:MM:SS` and circular icon controls. In the setting state, the single large Play control is green. Starting replaces it with two smaller circular controls: an orange Pause control above and a red Stop control below. Pausing freezes the remaining time and changes the upper control to an orange Play/Resume icon. Stop cancels the active countdown and restores the most recently configured duration. When the countdown reaches zero it remains at `00:00:00`; the upper action can immediately replay the last configured duration, while Stop returns to the editable setting state with that duration restored. A zero-duration timer does not start. Button backgrounds are translucent while their icons remain fully colored.
 
 Standby behavior is fixed as follows: after 60 seconds without input, an inactive page returns to the clock. **While a countdown timer is actively running, the automatic 60-second return to the standby clock is suppressed.** Pause, Stop or countdown completion restores the normal idle behavior. The clock/weather/calendar pages loop horizontally. A short tap from any standby page opens HOME. Upward swiping from standby moves the standby page itself upward with the finger, revealing a stationary HOME page underneath. From HOME, a downward swipe brings the clock in from above to cover HOME. These are intentionally asymmetric inverse transitions. These vertical transitions never return to a previously active function page.
+
+## Alert presentation and physical buttons
+
+Alert UI is authored for the fixed **640 × 172** landscape canvas and must use the same approved Remix Icon asset system as the rest of the product.
+
+- **Alarm ringing:** show a full-screen black overlay above the current page. The centered alarm graphic uses the embedded Remix alarm icon scaled large enough to dominate the 172 px height, with symmetric ringing-wave marks on both sides. The previous page remains alive underneath. Touching anywhere acknowledges the alarm, stops the sound and removes only the overlay, revealing the exact previous page.
+- **Timer finished:** automatically bring the real Timer feature page to the foreground so `00:00:00` and the normal Timer controls remain visible. Touching anywhere acknowledges the timer sound but leaves the Timer page open.
+- **Alert volume:** timer/alarm playback temporarily uses **80% output volume**. This must not overwrite the user's normal Sound setting. When the alert stops, the codec returns to the saved user volume.
+- **Alert timeout:** if nobody acknowledges an alert, audio stops after 10 minutes as a safety limit.
+
+The enclosure exposes three physical buttons. Their product behavior is:
+
+- **RESET / CHIP_PU:** hardware reset only; application code does not remap it.
+- **PWR:** GPIO16 is sampled active-low, matching Waveshare's V2 power example. Holding it for **1.5 seconds** requests power-off. On battery, EXIO6 / `SYS_EN` is driven low to cut the system rail. If USB still powers the MCU, the firmware enters deep sleep after the button is released and uses GPIO16 active-low as the wake source.
+- **BOOT / custom key (GPIO0):** after normal boot it acts as Back. While an alarm or timer is ringing it acknowledges/stops the alert first. Otherwise Feature -> HOME, HOME -> standby clock; inside the Alarm editor it closes the editor before leaving the Alarm feature. RESET/download-mode behavior at boot is not changed.
