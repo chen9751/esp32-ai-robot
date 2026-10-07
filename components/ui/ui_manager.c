@@ -3,6 +3,8 @@
 #include "ui_page_standby.h"
 #include "ui_page_clock.h"
 #include "ui_page_feature.h"
+#include "ui_page_alert.h"
+#include "ui_page_alarm.h"
 #include "ui_assets.h"
 #include "audio_service.h"
 
@@ -35,6 +37,8 @@ static ui_top_page_t s_top_page = UI_TOP_STANDBY;
 static ui_standby_view_t s_standby_view = UI_STANDBY_CLOCK;
 static uint32_t s_last_activity_tick = 0;
 static lv_timer_t *s_idle_timer = NULL;
+static lv_timer_t *s_alert_ui_timer = NULL;
+static audio_alert_kind_t s_last_alert_kind = AUDIO_ALERT_NONE;
 
 static bool s_transition_animating = false;
 static ui_transition_target_t s_transition_target = UI_TRANSITION_NONE;
@@ -45,10 +49,10 @@ static void global_touch_event_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
 
-    /* Alerts are acknowledgement-based: the first touch anywhere on the
-     * touchscreen silences an active timer/alarm immediately. The touch still
-     * continues to the normal UI target, so navigation remains responsive. */
-    if (audio_service_alert_active()) {
+    /* Timer acknowledgement leaves the timer page visible. Alarm dismissal is
+     * completed by the full-screen alert overlay itself so the previous page
+     * underneath is revealed without rebuilding or losing its state. */
+    if (audio_service_get_alert_kind() == AUDIO_ALERT_TIMER) {
         audio_service_stop();
         ui_mark_activity();
     }
@@ -406,6 +410,50 @@ static void standby_event_cb(ui_standby_event_t event, void *user_data)
                          NULL);
 }
 
+static void alarm_alert_dismiss_cb(void *user_data)
+{
+    (void)user_data;
+    audio_service_stop();
+    ui_page_alert_stop();
+    s_last_alert_kind = AUDIO_ALERT_NONE;
+    ui_mark_activity();
+}
+
+static void show_timer_alert_page(void)
+{
+    /* Timer completion is a navigation event: always bring the real Timer
+     * feature page to the foreground, keeping its 00:00:00 finished state. */
+    ui_page_alert_stop();
+    ui_show_main_menu();
+    show_feature_page(UI_MENU_TIMER);
+}
+
+static void alert_ui_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+
+    const audio_alert_kind_t kind = audio_service_get_alert_kind();
+
+    if (kind == AUDIO_ALERT_ALARM) {
+        if (!ui_page_alert_active()) {
+            ui_page_alert_build(lv_screen_active(),
+                                alarm_alert_dismiss_cb,
+                                NULL);
+        }
+    }
+    else if (kind == AUDIO_ALERT_TIMER) {
+        if (s_last_alert_kind != AUDIO_ALERT_TIMER) {
+            show_timer_alert_page();
+        }
+    }
+    else if (ui_page_alert_active()) {
+        /* Covers the 10-minute safety timeout or a hardware-key dismissal. */
+        ui_page_alert_stop();
+    }
+
+    s_last_alert_kind = kind;
+}
+
 static void idle_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
@@ -425,6 +473,40 @@ static void idle_timer_cb(lv_timer_t *timer)
     }
 
     ui_show_standby_clock();
+}
+
+void ui_handle_back_action(void)
+{
+    ui_mark_activity();
+
+    if (ui_page_alert_active()) {
+        audio_service_stop();
+        ui_page_alert_stop();
+        s_last_alert_kind = AUDIO_ALERT_NONE;
+        return;
+    }
+
+    if (audio_service_get_alert_kind() == AUDIO_ALERT_TIMER) {
+        /* The custom key acknowledges a ringing timer but intentionally
+         * leaves the Timer page on screen. */
+        audio_service_stop();
+        s_last_alert_kind = AUDIO_ALERT_NONE;
+        return;
+    }
+
+    if (s_top_page == UI_TOP_FEATURE) {
+        if (ui_page_alarm_editor_active()) {
+            ui_page_alarm_close_editor();
+        }
+        else {
+            feature_back_cb(NULL);
+        }
+        return;
+    }
+
+    if (s_top_page == UI_TOP_HOME) {
+        ui_show_standby_clock();
+    }
 }
 
 void ui_set_menu_action_cb(ui_menu_action_cb_t cb, void *user_data)
@@ -476,6 +558,9 @@ void ui_init(void)
 
     if (s_idle_timer == NULL) {
         s_idle_timer = lv_timer_create(idle_timer_cb, 1000, NULL);
+    }
+    if (s_alert_ui_timer == NULL) {
+        s_alert_ui_timer = lv_timer_create(alert_ui_timer_cb, 100, NULL);
     }
 
     ui_show_standby_clock();
