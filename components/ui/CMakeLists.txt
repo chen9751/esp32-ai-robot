@@ -58,7 +58,7 @@ endif()
 idf_component_register(
     SRCS ${UI_SRCS}
     INCLUDE_DIRS "include"
-    REQUIRES lvgl board network bluetooth
+    REQUIRES lvgl board network bluetooth audio
 )
 
 if(UI_ALARM_HAS_SOURCE_HAN)
