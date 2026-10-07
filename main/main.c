@@ -56,14 +56,18 @@ void app_main(void)
                  (unsigned)board_backlight_get_percent());
     }
 
-    err = audio_service_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
-    }
-
+    /* Wi-Fi needs a relatively large block of internal/DMA-capable memory
+     * for RX/TX buffers. Bring networking up before the audio I2S/codec path,
+     * which can otherwise fragment internal DRAM enough for Wi-Fi init to fail
+     * one of its static RX buffer allocations. */
     err = network_service_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
+    }
+
+    err = audio_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
     }
 
     ESP_LOGI(TAG, "UI ready at logical resolution 640x172");
