@@ -46,7 +46,7 @@ void app_main(void)
 
     /* Reveal the screen only after the first frame has been pushed. Hardware
      * bring-up is complete, so start at the product default brightness. */
-    err = board_backlight_set_percent(60);
+    err = board_backlight_set_percent(20);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "backlight setup failed: %s", esp_err_to_name(err));
     }
