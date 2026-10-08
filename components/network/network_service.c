@@ -91,18 +91,26 @@ static esp_err_t load_tf_config(void)
         return ESP_ERR_NOT_FOUND;
     }
 
-    char buffer[TF_CONFIG_MAX_BYTES + 1];
-    size_t size = fread(buffer, 1, sizeof(buffer), file);
+    /* app_main() has a small stack: keep the JSON input on the heap. */
+    char *buffer = malloc(TF_CONFIG_MAX_BYTES + 1);
+    if (!buffer) {
+        fclose(file);
+        s_config_status = "NO MEMORY";
+        return ESP_ERR_NO_MEM;
+    }
+    size_t size = fread(buffer, 1, TF_CONFIG_MAX_BYTES + 1, file);
     bool io_error = ferror(file);
     bool too_large = size > TF_CONFIG_MAX_BYTES;
     fclose(file);
     if (io_error || too_large || size == 0) {
+        free(buffer);
         s_config_status = "CONFIG INVALID";
         return ESP_ERR_INVALID_SIZE;
     }
     buffer[size] = '\0';
 
     cJSON *root = cJSON_ParseWithLength(buffer, size);
+    free(buffer);
     if (!root || !cJSON_IsObject(root)) {
         cJSON_Delete(root);
         s_config_status = "JSON INVALID";
