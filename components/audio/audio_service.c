@@ -11,8 +11,6 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/task.h"
 
 static const char *TAG = "audio";
 
@@ -32,7 +30,6 @@ static const audio_codec_data_if_t *s_data_if = NULL;
 static const audio_codec_gpio_if_t *s_gpio_if = NULL;
 static const audio_codec_ctrl_if_t *s_ctrl_if = NULL;
 static const audio_codec_if_t *s_codec_if = NULL;
-static SemaphoreHandle_t s_write_lock = NULL;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
 
@@ -55,10 +52,7 @@ esp_err_t audio_service_init(void)
         I2S_NUM_AUTO, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
 
-    /* Default I2S DMA sizing is aimed at general streaming and is too large
-     * for this UI appliance once Wi-Fi + BLE + LVGL are already resident.
-     * Alerts only need a small steady PCM pipeline, so 3x128 frames is ample
-     * at 24 kHz while cutting internal DMA usage dramatically. */
+    /* Reserve a compact audio DMA channel for future media playback. */
     chan_cfg.dma_desc_num = 3;
     chan_cfg.dma_frame_num = 128;
     err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
@@ -149,9 +143,6 @@ esp_err_t audio_service_init(void)
         ESP_LOGE(TAG, "ES8311 playback open failed");
         return ESP_FAIL;
     }
-
-    s_write_lock = xSemaphoreCreateMutex();
-    if (s_write_lock == NULL) return ESP_ERR_NO_MEM;
 
     s_volume = AUDIO_DEFAULT_VOLUME;
     esp_codec_dev_set_out_vol(s_playback, s_volume);
