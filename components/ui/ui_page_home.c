@@ -35,6 +35,8 @@ static ui_vertical_drag_cb_t s_vertical_drag_cb = NULL;
 static void *s_vertical_drag_user_data = NULL;
 static lv_point_t s_drag_press = {0, 0};
 static bool s_drag_valid = false;
+static bool s_drag_was_vertical = false;
+static bool s_drag_swipe_seen = false;
 
 static const ui_menu_item_t MENU_ITEMS[] = {
     { &ui_icon_remote,   &ui_label_remote,   UI_MENU_REMOTE,   0x31B9FFu, 0x075EF0u },
@@ -93,7 +95,7 @@ static void menu_item_clicked(lv_event_t *e)
     const ui_menu_item_t *item = (const ui_menu_item_t *)lv_event_get_user_data(e);
     note_activity();
 
-    if (ui_navigation_transition_active()) {
+    if (s_drag_was_vertical || ui_navigation_transition_active()) {
         return;
     }
 
@@ -192,6 +194,8 @@ static void home_drag_event_cb(lv_event_t *e)
     if (code == LV_EVENT_PRESSED) {
         lv_indev_get_point(indev, &s_drag_press);
         s_drag_valid = true;
+        s_drag_was_vertical = false;
+        s_drag_swipe_seen = false;
         note_activity();
         return;
     }
@@ -201,11 +205,23 @@ static void home_drag_event_cb(lv_event_t *e)
         lv_point_t point;
         lv_indev_get_point(indev, &point);
 
-        s_vertical_drag_cb(point.x - s_drag_press.x,
-                           point.y - s_drag_press.y,
-                           code == LV_EVENT_RELEASED,
-                           false,
-                           s_vertical_drag_user_data);
+        int32_t dx = point.x - s_drag_press.x;
+        int32_t dy = point.y - s_drag_press.y;
+        if (dy >= 12 || dy <= -12) {
+            if ((dy < 0 ? -dy : dy) > (dx < 0 ? -dx : dx))
+                s_drag_was_vertical = true;
+        }
+        if (s_drag_was_vertical) {
+            if (!s_drag_swipe_seen) {
+                s_drag_swipe_seen = true;
+                /* Clear any pressed visual on the tile when the user swipes. */
+                lv_obj_t *target = lv_event_get_target(e);
+                if (target && target != lv_event_get_current_target(e))
+                    animate_tile_translate_y(target, 0, UI_MENU_RELEASE_MS);
+            }
+            s_vertical_drag_cb(dx, dy, code == LV_EVENT_RELEASED,
+                               false, s_vertical_drag_user_data);
+        }
 
         if (code == LV_EVENT_RELEASED) {
             s_drag_valid = false;
@@ -217,11 +233,14 @@ static void home_drag_event_cb(lv_event_t *e)
         lv_point_t point;
         lv_indev_get_point(indev, &point);
 
-        s_vertical_drag_cb(point.x - s_drag_press.x,
-                           point.y - s_drag_press.y,
-                           true,
-                           true,
-                           s_vertical_drag_user_data);
+        int32_t dx = point.x - s_drag_press.x;
+        int32_t dy = point.y - s_drag_press.y;
+        if (s_drag_was_vertical ||
+            ((dy >= 12 || dy <= -12) &&
+             (dy < 0 ? -dy : dy) > (dx < 0 ? -dx : dx))) {
+            s_drag_was_vertical = true;
+            s_vertical_drag_cb(dx, dy, true, false, s_vertical_drag_user_data);
+        }
         s_drag_valid = false;
     }
 }
