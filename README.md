@@ -21,7 +21,7 @@ The project has selected the following three open-source type/icon families as t
 | --- | --- | --- |
 | Main UI text | **Source Han Sans CN Normal / 思源黑体 CN Normal** | Chinese UI text, labels, settings and normal interface copy |
 | Retro / clock text | **Fusion Pixel Font / 缝合像素字体** | Clock, retro LCD/old-screen style numbers and selected status text |
-| UI icons | **Remix Icon** | Navigation, remote, music, lights, devices, timer, alarm, settings and later system/device icons |
+| UI icons | **Remix Icon** | Navigation, remote, music, lights, devices, settings and later system/device icons |
 
 Source assets and LVGL-generated subsets are documented under `assets/fonts/README.md`.
 
@@ -33,63 +33,30 @@ Do not replace the selected icon system with enlarged bitmap/pixel icons unless 
 
 For small monochrome UI icons, compact A8 image subsets rasterized directly from the selected Remix Icon SVG source are also acceptable. They must retain the original Remix Icon geometry and be documented with their upstream icon filenames; do not redraw equivalent icons with one-off LVGL geometry.
 
-## Settings and phone configuration model
+## Settings and TF card configuration
 
-The 640 × 172 device screen is intentionally **not** used as a full text-entry configuration console. Complex text entry is delegated to a phone-based Web configuration flow so the embedded UI can stay compact and touch-friendly.
+The device only reads configuration from the TF card; no Wi-Fi setup hotspot,
+HTTP/DNS provisioning server or interactive Wi-Fi / AI editor is provided.
 
-### Device-side settings
-
-Keep frequent, low-complexity controls local on the device:
-
-- volume
-- display brightness
-- microphone or other simple on/off controls
-- Wi-Fi on/off
-- Bluetooth on/off
-- status and diagnostic information
-
-The current settings navigation uses six tabs:
-
-`Sound | Display | Wi-Fi | Bluetooth | AI | System`
-
-Sound and Display provide direct local controls. Wi-Fi and AI primarily act as status/configuration entry pages. Bluetooth and System remain available for later expansion.
-
-### QR-based configuration entry
-
-Configuration that requires typing, long URLs, passwords or other structured text should use a QR-based phone flow rather than an on-screen LVGL keyboard.
-
-Current intended behavior:
-
-- **Wi-Fi not configured / not connected**: show a QR configuration entry on the device.
-- **Wi-Fi connected**: show SSID, connection state, IP, MAC and DNS, plus local `Disconnect` and `Forget` actions.
-- **AI not configured**: show the same QR-based configuration entry pattern.
-- **AI configured**: show current AI server information such as server address, port, model and online/offline state.
-
-The QR shown in the current UI is only a visual placeholder. The real QR payload, local Web page and provisioning transport will be implemented later.
-
-### Future Web configuration service
-
-The planned phone configuration page will be a local Web interface hosted by or associated with the device. It is expected to handle settings that are awkward to enter on a 640 × 172 touch display, especially:
-
-- Wi-Fi SSID and password
-- AI server address / hostname
-- AI server port
-- model selection or model identifier
-- future text-based integration settings such as Home Assistant addresses or tokens
-
-The embedded LVGL layer must stay independent from ESP-IDF networking logic. UI code should display state and emit user actions; networking/provisioning code should own scanning, association, credential persistence, connection state and actual QR/Web endpoint generation.
+- See [tf卡/README.md](tf卡/README.md) and [tf卡/config.json](tf卡/config.json).
+- Copy `tf卡/config.json` to the **root** of a FAT32-formatted TF card.
+- Boot-time SDMMC uses Waveshare V2 CMD=GPIO39, D0=GPIO40, CLK=GPIO41 (1-bit).
+- The firmware mounts `/sdcard` and reads `/sdcard/config.json`.
+- Wi-Fi / AI settings are read-only status views; edits require reboot.
+- Missing or invalid config is nonfatal and shown in Wi-Fi settings.
+- The tab order is `Sound | Display | Bluetooth | Wi-Fi | AI | System`.
+- The AI URL is configuration/status metadata, not an implemented connection probe.
 
 ## UI page architecture
 
 UI pages are intentionally split into separate modules so the project does not grow into one large UI source file.
 
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
-- `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices, Timer, Alarm and Settings.
+- `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices and Settings.
 - `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
 - `ui_page_music.c`: compact music transport page with metadata, seek/progress display, previous/play-pause/next controls and a two-way `TV | Speaker` target selector. It emits UI actions only; Debian playback control, Bluetooth HID and playback-state synchronization stay outside the LVGL page.
 - `ui_page_lights.c`: horizontally scrollable lighting control page. It owns the eight room/light tiles, local on/off presentation and the brightness/color-temperature/RGB adjustment UI while remaining independent from Home Assistant/network business logic.
 - `ui_page_devices.c`: four full-screen horizontally paged device views in the fixed order Air Conditioner, Curtain, Bath Heater and Drying Rack. Each page occupies the complete 640 × 172 canvas, uses page snapping and loops continuously in both horizontal directions; device/HA business logic remains outside the UI module.
-- `ui_page_timer.c`: countdown timer UI and timer state. Hours/minutes/seconds are adjusted with vertical drag, the maximum duration is 12:00:00, and the countdown keeps running independently from page lifetime.
 - `ui_page_settings.c`: settings page content and controls.
 - `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
 - `ui_page_standby.c`: standby gesture/navigation controller only.

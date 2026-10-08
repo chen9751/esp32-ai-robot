@@ -41,8 +41,6 @@ static const ui_menu_item_t MENU_ITEMS[] = {
     { &ui_icon_music,    &ui_label_music,    UI_MENU_MUSIC,    0xFF687Eu, 0xC92D70u },
     { &ui_icon_light,    &ui_label_light,    UI_MENU_LIGHTS,   0xFFD66Au, 0xFF913Eu },
     { &ui_icon_devices,  &ui_label_devices,  UI_MENU_DEVICES,  0x48D8B1u, 0x0AA57Fu },
-    { &ui_icon_timer,    &ui_label_timer,    UI_MENU_TIMER,    0x4E8CFFu, 0x3947D8u },
-    { &ui_icon_alarm,    &ui_label_alarm,    UI_MENU_ALARM,    0x9A68FFu, 0x5D28EBu },
     { &ui_icon_settings, &ui_label_settings, UI_MENU_SETTINGS, 0xA9B8D2u, 0x596985u },
 };
 

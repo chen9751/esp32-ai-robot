@@ -103,8 +103,8 @@ static int audio_service_set_volume(unsigned char percent)
 typedef enum {
     UI_SETTINGS_SOUND = 0,
     UI_SETTINGS_DISPLAY,
-    UI_SETTINGS_WIFI,
     UI_SETTINGS_BLUETOOTH,
+    UI_SETTINGS_WIFI,
     UI_SETTINGS_AI,
     UI_SETTINGS_SYSTEM,
 } ui_settings_tab_t;
@@ -136,10 +136,6 @@ static bool s_wifi_configured = false;
 static bool s_wifi_connected = false;
 static bool s_ai_configured = false;
 static bool s_bt_enabled = true;
-/* Deliberately not persisted: after reboot Settings returns to the compact
- * SETUP button. Once expanded in this boot session, Wi-Fi and AI share the
- * same QR/setup state. */
-static bool s_setup_expanded = false;
 static lv_timer_t *s_bt_refresh_timer = NULL;
 static uint32_t s_bt_last_generation = UINT32_MAX;
 static lv_timer_t *s_system_refresh_timer = NULL;
@@ -370,165 +366,9 @@ static lv_obj_t *add_action_button(lv_obj_t *parent, const char *text,
     return btn;
 }
 
-/* Scannable Wi-Fi QR generated for:
- *     WIFI:T:nopass;S:AI-Robot-Setup;;
- *
- * IMPORTANT: the previous implementation created one LVGL object for every
- * black QR module. On real hardware that meant hundreds of lv_obj allocations
- * in one event callback and caused StoreProhibited inside lv_obj_create().
- *
- * Keep the QR as one A8 image instead. The 111x111 alpha buffer is generated
- * once from the compact 29-row bit matrix, then every settings page only
- * creates a white plate + one image object. */
-#define SETUP_QR_MODULES 29
-#define SETUP_QR_QUIET    4
-#define SETUP_QR_CELL     3
-#define SETUP_QR_PIXELS  ((SETUP_QR_MODULES + SETUP_QR_QUIET * 2) * SETUP_QR_CELL)
-
-static uint8_t s_setup_qr_buf[SETUP_QR_PIXELS * SETUP_QR_PIXELS];
-static bool s_setup_qr_ready = false;
-
-static lv_image_dsc_t s_setup_qr_dsc = {
-    .header = {
-        .magic = LV_IMAGE_HEADER_MAGIC,
-        .cf = LV_COLOR_FORMAT_A8,
-        .flags = 0,
-        .w = SETUP_QR_PIXELS,
-        .h = SETUP_QR_PIXELS,
-        .stride = SETUP_QR_PIXELS,
-        .reserved_2 = 0,
-    },
-    .data_size = sizeof(s_setup_qr_buf),
-    .data = s_setup_qr_buf,
-    .reserved = NULL,
-};
-
-static void prepare_setup_qr(void)
-{
-    if(s_setup_qr_ready) return;
-
-    static const uint32_t rows[SETUP_QR_MODULES] = {
-        0x1FC5EF7Fu, 0x1044F841u, 0x1755A25Du, 0x175C685Du, 0x1759335Du,
-        0x105E0141u, 0x1FD5557Fu, 0x00155700u, 0x17C41E7Cu, 0x1B23EF76u,
-        0x1A57F0A8u, 0x0118A253u, 0x164F61ACu, 0x01393176u, 0x0EDC0DF4u,
-        0x140F5158u, 0x0ACC0A0Bu, 0x1784E63Au, 0x1064F190u, 0x17258051u,
-        0x13735BFCu, 0x00140114u, 0x1FC73154u, 0x105F471Au, 0x175E19F6u,
-        0x175042AFu, 0x175C6076u, 0x1047E0EAu, 0x1FD8FAE4u
-    };
-
-    memset(s_setup_qr_buf, 0, sizeof(s_setup_qr_buf));
-
-    for(int32_t row = 0; row < SETUP_QR_MODULES; ++row) {
-        for(int32_t col = 0; col < SETUP_QR_MODULES; ++col) {
-            if(((rows[row] >> (SETUP_QR_MODULES - 1 - col)) & 1u) == 0) continue;
-
-            const int32_t x0 = (SETUP_QR_QUIET + col) * SETUP_QR_CELL;
-            const int32_t y0 = (SETUP_QR_QUIET + row) * SETUP_QR_CELL;
-
-            for(int32_t py = 0; py < SETUP_QR_CELL; ++py) {
-                uint8_t *dst = &s_setup_qr_buf[
-                    (y0 + py) * SETUP_QR_PIXELS + x0];
-                memset(dst, 0xFF, SETUP_QR_CELL);
-            }
-        }
-    }
-
-    s_setup_qr_ready = true;
-}
-
-static void build_setup_qr(lv_obj_t *parent, int32_t x, int32_t y)
-{
-    prepare_setup_qr();
-
-    lv_obj_t *plate = plain_obj(parent);
-    lv_obj_set_size(plate, SETUP_QR_PIXELS, SETUP_QR_PIXELS);
-    lv_obj_set_pos(plate, x, y);
-    lv_obj_set_style_bg_color(plate, UI_COLOR_FG, 0);
-    lv_obj_set_style_bg_opa(plate, LV_OPA_COVER, 0);
-
-    lv_obj_t *image = lv_image_create(plate);
-    lv_image_set_src(image, &s_setup_qr_dsc);
-    lv_obj_set_style_image_recolor(image, UI_COLOR_BG, 0);
-    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
-    lv_obj_set_pos(image, 0, 0);
-}
-
-static void setup_button_event_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-
-#if defined(ESP_PLATFORM)
-    esp_err_t err = network_service_start_setup_portal();
-    if (err != ESP_OK) {
-        /* Keep the button visible if the portal could not be started; this
-         * avoids presenting a QR code that the phone cannot actually use. */
-        note_activity();
-        return;
-    }
-#endif
-
-    s_setup_expanded = true;
-    note_activity();
-    show_tab(s_selected);
-}
-
-static void build_setup_entry(lv_obj_t *parent, int32_t x, int32_t y)
-{
-    if (s_setup_expanded) {
-        build_setup_qr(parent, x, y);
-        return;
-    }
-
-    lv_obj_t *button = plain_obj(parent);
-    lv_obj_set_size(button, SETUP_QR_PIXELS, 64);
-    lv_obj_set_pos(button, x, y + 24);
-    lv_obj_set_style_bg_color(button, UI_COLOR_PANEL_2, 0);
-    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(button, 1, 0);
-    lv_obj_set_style_border_color(button, UI_COLOR_ACCENT, 0);
-    lv_obj_set_style_border_opa(button, LV_OPA_70, 0);
-    lv_obj_set_style_radius(button, 12, 0);
-    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(button, setup_button_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *label = make_label(button, "SETUP", UI_COLOR_ACCENT);
-    lv_obj_center(label);
-}
-
-static void wifi_toggle_event_cb(lv_event_t *e);
-
-static void build_wifi_left(lv_obj_t *parent)
-{
-    lv_obj_t *icon = ui_system_icon_wifi(
-        parent, s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_align(icon, LV_ALIGN_TOP_MID, -UI_STATUS_RIGHT_W / 2, 20);
-
-    lv_obj_t *toggle = plain_obj(parent);
-    lv_obj_set_size(toggle, 64, 28);
-    lv_obj_set_pos(toggle, 45, 73);
-    lv_obj_set_style_bg_color(toggle,
-                              s_wifi_enabled ? UI_COLOR_ACCENT : UI_COLOR_PANEL_2, 0);
-    lv_obj_set_style_bg_opa(toggle, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(toggle, LV_RADIUS_CIRCLE, 0);
-    lv_obj_add_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(toggle, wifi_toggle_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *knob = plain_obj(toggle);
-    lv_obj_set_size(knob, 22, 22);
-    lv_obj_set_pos(knob, s_wifi_enabled ? 39 : 3, 3);
-    lv_obj_set_style_bg_color(knob, UI_COLOR_FG, 0);
-    lv_obj_set_style_bg_opa(knob, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(knob, LV_RADIUS_CIRCLE, 0);
-
-    lv_obj_t *state = make_label(parent, s_wifi_enabled ? "ON" : "OFF",
-                                 s_wifi_enabled ? UI_COLOR_FG : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, 68, 102);
-}
-
-static void build_wifi_right(lv_obj_t *parent)
+static void build_wifi_content(void)
 {
     load_runtime_settings();
-
     network_wifi_status_t status = {0};
 #if defined(ESP_PLATFORM)
     network_service_get_wifi_status(&status);
@@ -537,77 +377,33 @@ static void build_wifi_right(lv_obj_t *parent)
     status.configured = s_wifi_configured;
     status.connected = s_wifi_connected;
 #endif
-
-    build_setup_entry(parent, UI_STATUS_RIGHT_X + 12, 6);
-
-    lv_obj_t *title = make_label(parent,
-                                 s_setup_expanded ? "PHONE SETUP" : "CONFIG",
-                                 UI_COLOR_ACCENT);
-    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 10);
-
-    lv_obj_t *ap_label = make_label(parent, "AP", UI_COLOR_MUTED);
-    lv_obj_set_pos(ap_label, UI_STATUS_RIGHT_X + 137, 34);
-    lv_obj_t *ap = make_label(parent, "AI-Robot-Setup", UI_COLOR_FG);
-    lv_obj_set_pos(ap, UI_STATUS_RIGHT_X + 164, 34);
-    lv_obj_set_width(ap, 118);
-    lv_label_set_long_mode(ap, LV_LABEL_LONG_DOT);
-
-    lv_obj_t *web_label = make_label(parent, "WEB", UI_COLOR_MUTED);
-    lv_obj_set_pos(web_label, UI_STATUS_RIGHT_X + 137, 58);
-    lv_obj_t *fallback = make_label(parent, "192.168.4.1", UI_COLOR_FG);
-    lv_obj_set_pos(fallback, UI_STATUS_RIGHT_X + 178, 58);
-
-    /* The physical screen is only 640x172. Keep the connection column
-     * deliberately label-free so IPv4 addresses never wrap onto a second
-     * line and collide with TIME status. */
-    const int32_t net_x = UI_STATUS_RIGHT_X + 296;
-    const int32_t net_w = UI_CONTENT_W - net_x - 8;
-
-    const char *state_text = status.connected ? "ONLINE" :
-                             (status.configured ? "OFFLINE" : "NOT SET");
-    lv_obj_t *state = make_label(parent, state_text,
-                                 status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, net_x, 10);
-    lv_obj_set_size(state, net_w, 20);
-    lv_label_set_long_mode(state, LV_LABEL_LONG_DOT);
-
-    if(status.connected) {
-        lv_obj_t *ssid = make_label(parent, status.ssid, UI_COLOR_FG);
-        lv_obj_set_pos(ssid, net_x, 34);
-        lv_obj_set_size(ssid, net_w, 20);
-        lv_label_set_long_mode(ssid, LV_LABEL_LONG_DOT);
-
-        lv_obj_t *ip = make_label(parent, status.ip, UI_COLOR_FG);
-        lv_obj_set_pos(ip, net_x, 58);
-        lv_obj_set_size(ip, net_w, 20);
-        lv_label_set_long_mode(ip, LV_LABEL_LONG_DOT);
-
-        lv_obj_t *sync = make_label(parent,
-                                    status.time_synced ? "TIME OK" : "SYNCING",
-                                    status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-        lv_obj_set_pos(sync, net_x, 82);
-        lv_obj_set_size(sync, net_w, 20);
-        lv_label_set_long_mode(sync, LV_LABEL_LONG_DOT);
-    }
-}
-
-static void build_wifi_content(void)
-{
-    build_wifi_left(s_content);
+    lv_obj_t *icon = ui_system_icon_wifi(s_content,
+        status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(icon, 61, 18);
+    lv_obj_t *state = make_label(s_content,
+        status.connected ? "ONLINE" : (status.configured ? "OFFLINE" : "NOT SET"),
+        status.connected ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, 43, 72);
     add_status_divider(s_content);
-    build_wifi_right(s_content);
-}
-
-static void wifi_toggle_event_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    s_wifi_enabled = !s_wifi_enabled;
+    lv_obj_t *ssid_label = make_label(s_content, "SSID", UI_COLOR_MUTED);
+    lv_obj_set_pos(ssid_label, UI_STATUS_RIGHT_X + 18, 12);
+    lv_obj_t *ssid = make_label(s_content,
+        status.configured ? status.ssid : "NOT SET", UI_COLOR_FG);
+    lv_obj_set_pos(ssid, UI_STATUS_RIGHT_X + 100, 12);
+    lv_obj_set_width(ssid, 270);
+    lv_label_set_long_mode(ssid, LV_LABEL_LONG_DOT);
+    lv_obj_t *ip_label = make_label(s_content, "IP", UI_COLOR_MUTED);
+    lv_obj_set_pos(ip_label, UI_STATUS_RIGHT_X + 18, 44);
+    lv_obj_t *ip = make_label(s_content,
+        status.connected ? status.ip : "--", UI_COLOR_FG);
+    lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 100, 44);
+    const char *diagnostic = status.time_synced ? "TIME SYNCED" : "TIME NOT SYNCED";
 #if defined(ESP_PLATFORM)
-    (void)network_service_set_wifi_enabled(s_wifi_enabled);
+    if (!status.configured) diagnostic = network_service_config_status();
 #endif
-    if (!s_wifi_enabled) s_wifi_connected = false;
-    note_activity();
-    show_tab(UI_SETTINGS_WIFI);
+    lv_obj_t *time = make_label(s_content, diagnostic,
+        status.time_synced && status.configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(time, UI_STATUS_RIGHT_X + 18, 82);
 }
 
 static void get_bluetooth_status(bluetooth_status_t *status)
@@ -894,52 +690,32 @@ static void bt_forget_event_cb(lv_event_t *e)
 static void build_ai_content(void)
 {
     load_runtime_settings();
-
-    lv_obj_t *icon = ui_system_icon_ai_robot2(
-        s_content, s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(icon, 61, 18);
-
-    lv_obj_t *state = make_label(
-        s_content,
-        s_ai_configured ? "CONFIGURED" : "NOT SET",
-        s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
-    lv_obj_set_pos(state, 43, 72);
-
-    add_status_divider(s_content);
-    build_setup_entry(s_content, UI_STATUS_RIGHT_X + 12, 6);
-
-    lv_obj_t *title = make_label(s_content,
-                                 s_setup_expanded ? "PHONE SETUP" : "CONFIG",
-                                 UI_COLOR_ACCENT);
-    lv_obj_set_pos(title, UI_STATUS_RIGHT_X + 137, 10);
-
     network_backend_config_t backend = {0};
 #if defined(ESP_PLATFORM)
     (void)network_service_get_backend_config(&backend);
 #endif
-
-    lv_obj_t *ai_label = make_label(s_content, "AI", UI_COLOR_MUTED);
-    lv_obj_set_pos(ai_label, UI_STATUS_RIGHT_X + 137, 34);
-    lv_obj_t *ai_value = make_label(
-        s_content, backend.ai_url[0] ? backend.ai_url : "NOT SET", UI_COLOR_FG);
-    lv_obj_set_pos(ai_value, UI_STATUS_RIGHT_X + 170, 34);
-    lv_obj_set_width(ai_value, 240);
+    lv_obj_t *icon = ui_system_icon_ai_robot2(s_content,
+        s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(icon, 61, 18);
+    lv_obj_t *state = make_label(s_content,
+        s_ai_configured ? "CONFIGURED" : "NOT SET",
+        s_ai_configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    lv_obj_set_pos(state, 43, 72);
+    add_status_divider(s_content);
+    lv_obj_t *ai_label = make_label(s_content, "AI SERVER", UI_COLOR_MUTED);
+    lv_obj_set_pos(ai_label, UI_STATUS_RIGHT_X + 18, 12);
+    lv_obj_t *ai_value = make_label(s_content,
+        backend.ai_url[0] ? backend.ai_url : "NOT SET", UI_COLOR_FG);
+    lv_obj_set_pos(ai_value, UI_STATUS_RIGHT_X + 18, 40);
+    lv_obj_set_width(ai_value, UI_STATUS_RIGHT_W - 30);
     lv_label_set_long_mode(ai_value, LV_LABEL_LONG_DOT);
-
     lv_obj_t *ha_label = make_label(s_content, "HA", UI_COLOR_MUTED);
-    lv_obj_set_pos(ha_label, UI_STATUS_RIGHT_X + 137, 58);
-    lv_obj_t *ha_value = make_label(
-        s_content, backend.ha_url[0] ? backend.ha_url : "NOT SET", UI_COLOR_FG);
-    lv_obj_set_pos(ha_value, UI_STATUS_RIGHT_X + 170, 58);
-    lv_obj_set_width(ha_value, 240);
+    lv_obj_set_pos(ha_label, UI_STATUS_RIGHT_X + 18, 80);
+    lv_obj_t *ha_value = make_label(s_content,
+        backend.ha_url[0] ? backend.ha_url : "NOT SET", UI_COLOR_FG);
+    lv_obj_set_pos(ha_value, UI_STATUS_RIGHT_X + 65, 80);
+    lv_obj_set_width(ha_value, UI_STATUS_RIGHT_W - 80);
     lv_label_set_long_mode(ha_value, LV_LABEL_LONG_DOT);
-
-    lv_obj_t *token_label = make_label(s_content, "TOKEN", UI_COLOR_MUTED);
-    lv_obj_set_pos(token_label, UI_STATUS_RIGHT_X + 137, 82);
-    lv_obj_t *token_value = make_label(
-        s_content, backend.ha_token[0] ? "SAVED" : "NOT SET",
-        backend.ha_token[0] ? UI_COLOR_ACCENT : UI_COLOR_FG);
-    lv_obj_set_pos(token_value, UI_STATUS_RIGHT_X + 192, 82);
 }
 
 static void refresh_system_battery_value(void)
