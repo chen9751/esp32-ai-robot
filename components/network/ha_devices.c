@@ -162,7 +162,7 @@ static void task(void *arg){
   if(!wifi.connected){vTaskDelay(pdMS_TO_TICKS(750));continue;}
   if(run_queued_command())continue;
   TickType_t now=xTaskGetTickCount();
-  if(!last_accessory||(now-last_accessory)>=pdMS_TO_TICKS(1800)){
+  if(!last_accessory||(now-last_accessory)>=pdMS_TO_TICKS(650)){
    last_accessory=now;
    refresh_accessories();
    continue;
