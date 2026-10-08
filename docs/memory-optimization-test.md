@@ -19,6 +19,6 @@ idf.py build
 idf.py -p /dev/cu.usbmodem201401 flash monitor
 ```
 
-Check for Wi-Fi got IP, WakeNet startup, and repeated Hi ESP detections; then verify UI settings Bluetooth reads OFF and enabling it works. On-demand BLE activation can still fail for insufficient contiguous internal heap while AFE runs; collect the `MEM ...` lines and `bluetooth: before NimBLE` / `nimble_port_init failed` logs to guide next optimization pass. Turning OFF after ON does not recover allocated controller memory.
+Check for Wi-Fi got IP, WakeNet startup, and repeated Hi ESP detections; then verify UI settings Bluetooth reads OFF and enabling it works. On-demand BLE activation can still fail for insufficient contiguous internal heap while AFE runs; collect the `MEM ...` lines and `bluetooth: before NimBLE` / `nimble_port_init failed` logs to guide next optimization pass. Toggle ON/OFF at least 5–10 times and verify scan, Wi-Fi, WakeNet, heap, and no crashes. A failed on-demand BLE init still requires debugging; a default-off boot cannot guarantee future ON fits available internal heap.
 
 Do not interpret this first change as a proven guarantee that Wi-Fi + BLE + WakeNet + UI can all run simultaneously. This requires full load and soak testing.
