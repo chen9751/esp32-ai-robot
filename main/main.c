@@ -1,6 +1,8 @@
 #include "board.h"
 #include "ui_manager.h"
 #include "network_service.h"
+#include "ha_lights.h"
+#include "ha_devices.h"
 #include "bluetooth_service.h"
 #include "audio_service.h"
 #include "voice_wakeup.h"
@@ -200,6 +202,17 @@ void app_main(void)
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
 
+    /* HA state polling and command queues run independently of LVGL. */
+    esp_err_t ha_lights_err = ha_lights_init();
+    if (ha_lights_err != ESP_OK) {
+        ESP_LOGW(TAG, "HA lights init failed: %s", esp_err_to_name(ha_lights_err));
+    }
+    esp_err_t ha_devices_err = ha_devices_init();
+    if (ha_devices_err != ESP_OK) {
+        ESP_LOGW(TAG, "HA devices init failed: %s", esp_err_to_name(ha_devices_err));
+    }
+
+    log_memory("after HA init");
     log_memory("after Wi-Fi init");
 
     /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
