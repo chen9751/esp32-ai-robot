@@ -3,6 +3,7 @@
 #include "cJSON.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -29,6 +30,9 @@ typedef struct {
     int extra;
 } command_t;
 static QueueHandle_t s_commands;
+/* Keep the queue control internal and all 20 task-only command slots in PSRAM. */
+static StaticQueue_t s_queue_control;
+static uint8_t *s_queue_storage;
 static SemaphoreHandle_t s_lock;
 static ha_light_state_t s_states[HA_LIGHT_COUNT];
 static network_backend_config_t s_config;
@@ -76,6 +80,8 @@ bool ha_lights_send(int index, ha_light_command_t type, int value, int extra)
 }
 
 typedef struct { char data[2048]; size_t len; } response_t;
+/* Only worker() calls refresh_one()/send_one(); requests are synchronous. */
+static response_t *s_response;
 static esp_err_t http_event(esp_http_client_event_t *evt)
 {
     if (evt->event_id != HTTP_EVENT_ON_DATA || !evt->user_data) return ESP_OK;
@@ -124,7 +130,7 @@ static void refresh_one(int i)
 {
     char path[120];
     snprintf(path, sizeof(path), "/api/states/%s", s_ids[i]);
-    response_t *reply = calloc(1, sizeof(*reply));
+    response_t *reply = s_response;
     if (!reply) return;
     bool ok = request(path, NULL, reply);
     ha_light_state_t state = {0};
@@ -157,7 +163,6 @@ static void refresh_one(int i)
         }
         cJSON_Delete(root);
     }
-    free(reply);
     if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
         TickType_t now = xTaskGetTickCount();
         bool pending = s_pending_until[i] != 0 &&
@@ -213,7 +218,15 @@ static void worker(void *arg)
 {
     (void)arg;
     TickType_t last_poll = 0;
+    TickType_t next_report = xTaskGetTickCount() + pdMS_TO_TICKS(60000);
     for (;;) {
+        const TickType_t now = xTaskGetTickCount();
+        if ((int32_t)(now - next_report) >= 0) {
+            ESP_LOGI(TAG, "STACK ha_lights: min_free=%u bytes; queued=%u/20",
+                     (unsigned)uxTaskGetStackHighWaterMark(NULL),
+                     (unsigned)uxQueueMessagesWaiting(s_commands));
+            next_report = now + pdMS_TO_TICKS(60000);
+        }
         network_wifi_status_t wifi;
         network_service_get_wifi_status(&wifi);
         if (!wifi.connected) {
@@ -244,9 +257,23 @@ esp_err_t ha_lights_init(void)
         return ESP_ERR_NOT_FOUND;
     }
     s_lock = xSemaphoreCreateMutex();
-    s_commands = xQueueCreate(20, sizeof(command_t));
-    if (!s_lock || !s_commands) return ESP_ERR_NO_MEM;
-    if (xTaskCreate(worker, "ha_lights", 6144, NULL, 3, NULL) != pdPASS) return ESP_ERR_NO_MEM;
+    s_queue_storage = heap_caps_malloc(20 * sizeof(command_t),
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_response = heap_caps_calloc(1, sizeof(*s_response),
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_lock || !s_queue_storage || !s_response) goto no_memory;
+    s_commands = xQueueCreateStatic(20, sizeof(command_t), s_queue_storage,
+                                    &s_queue_control);
+    if (!s_commands) goto no_memory;
+    if (xTaskCreate(worker, "ha_lights", 6144, NULL, 3, NULL) != pdPASS) goto no_memory;
+    ESP_LOGI(TAG, "PSRAM buffers: commands=%u response=%u bytes",
+             (unsigned)(20 * sizeof(command_t)), (unsigned)sizeof(*s_response));
     ESP_LOGI(TAG, "HA light bridge started for %d entities", HA_LIGHT_COUNT);
     return ESP_OK;
+no_memory:
+    if (s_commands) { vQueueDelete(s_commands); s_commands = NULL; }
+    if (s_lock) { vSemaphoreDelete(s_lock); s_lock = NULL; }
+    heap_caps_free(s_queue_storage); s_queue_storage = NULL;
+    heap_caps_free(s_response); s_response = NULL;
+    return ESP_ERR_NO_MEM;
 }

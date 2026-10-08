@@ -48,10 +48,12 @@ static void feed_task(void *arg)
         return;
     }
     const size_t source_frames = (size_t)n * 3 / 2;
-    int16_t *source = heap_caps_malloc(source_frames * 2 * sizeof(int16_t),
-                                      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    /* Scratch PCM is CPU-only: allocate it explicitly in PSRAM.
-     * The codec capture buffer remains internal for DMA compatibility. */
+    /* esp_codec_dev_read -> i2s_channel_read copies from the driver's DMA
+     * buffers into this application buffer. It is not a DMA destination.
+     * Keep driver DMA internal; both CPU-side PCM buffers can use PSRAM. */
+    const size_t source_bytes = source_frames * 2 * sizeof(int16_t);
+    int16_t *source = heap_caps_malloc(source_bytes,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     int16_t *mono = heap_caps_malloc((size_t)n * sizeof(int16_t),
                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!source || !mono) {
@@ -64,6 +66,9 @@ static void feed_task(void *arg)
         return;
     }
     uint32_t errors = 0;
+    ESP_LOGI(TAG, "PCM scratch in PSRAM: source=%u mono=%u bytes",
+             (unsigned)source_bytes, (unsigned)((size_t)n * sizeof(int16_t)));
+    TickType_t next_report = xTaskGetTickCount() + pdMS_TO_TICKS(60000);
     while (s_running) {
         if (audio_service_capture_read(source, source_frames * 2 * sizeof(int16_t)) != ESP_OK) {
             if (++errors % 100 == 1) ESP_LOGW(TAG, "microphone read failed (%lu)", (unsigned long)errors);
@@ -72,6 +77,12 @@ static void feed_task(void *arg)
         }
         convert_24k_to_16k(source, mono, n);
         s_afe->feed(s_afe_data, mono);
+        const TickType_t now = xTaskGetTickCount();
+        if ((int32_t)(now - next_report) >= 0) {
+            ESP_LOGI(TAG, "STACK wn_feed: min_free=%u bytes; read_errors=%lu",
+                     (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned long)errors);
+            next_report = now + pdMS_TO_TICKS(60000);
+        }
     }
     free(source);
     free(mono);
@@ -81,6 +92,7 @@ static void feed_task(void *arg)
 static void detect_task(void *arg)
 {
     (void)arg;
+    TickType_t next_report = xTaskGetTickCount() + pdMS_TO_TICKS(60000);
     while (s_running) {
         afe_fetch_result_t *res = s_afe->fetch(s_afe_data);
         if (!res || res->ret_value == ESP_FAIL) {
@@ -93,6 +105,12 @@ static void detect_task(void *arg)
             s_state = VOICE_WAKE_DETECTED;
             if (s_callback) s_callback(s_state, s_context);
             s_state = VOICE_WAKE_IDLE;
+        }
+        const TickType_t now = xTaskGetTickCount();
+        if ((int32_t)(now - next_report) >= 0) {
+            ESP_LOGI(TAG, "STACK wn_detect: min_free=%u bytes",
+                     (unsigned)uxTaskGetStackHighWaterMark(NULL));
+            next_report = now + pdMS_TO_TICKS(60000);
         }
     }
     s_running = false;

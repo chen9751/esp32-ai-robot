@@ -124,13 +124,28 @@ static void physical_buttons_task(void *arg)
         }
 
         if ((int32_t)(now - next_memory_report) >= 0) {
+            multi_heap_info_t internal, psram, dma;
+            heap_caps_get_info(&internal, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            heap_caps_get_info(&psram, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            heap_caps_get_info(&dma, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
             ESP_LOGI(TAG,
                      "MEM runtime: internal=%u min_internal=%u largest=%u DMA=%u PSRAM=%u",
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
-                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                     (unsigned)internal.total_free_bytes,
+                     (unsigned)internal.minimum_free_bytes,
+                     (unsigned)internal.largest_free_block,
+                     (unsigned)dma.total_free_bytes,
+                     (unsigned)psram.total_free_bytes);
+            /* DMA is a capability subset of internal RAM, not extra RAM.
+             * Allocated bytes exclude firmware static sections and heap overhead. */
+            ESP_LOGI(TAG,
+                     "MEM detail: internal_alloc=%u PSRAM_alloc=%u min_PSRAM=%u "
+                     "largest_PSRAM=%u largest_DMA=%u buttons_stack_min=%u",
+                     (unsigned)internal.total_allocated_bytes,
+                     (unsigned)psram.total_allocated_bytes,
+                     (unsigned)psram.minimum_free_bytes,
+                     (unsigned)psram.largest_free_block,
+                     (unsigned)dma.largest_free_block,
+                     (unsigned)uxTaskGetStackHighWaterMark(NULL));
             next_memory_report = now + pdMS_TO_TICKS(60000);
         }
         vTaskDelay(pdMS_TO_TICKS(PHYS_KEY_POLL_MS));
@@ -202,6 +217,8 @@ void app_main(void)
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
 
+    log_memory("after Wi-Fi init");
+
     /* HA state polling and command queues run independently of LVGL. */
     esp_err_t ha_lights_err = ha_lights_init();
     if (ha_lights_err != ESP_OK) {
@@ -213,7 +230,6 @@ void app_main(void)
     }
 
     log_memory("after HA init");
-    log_memory("after Wi-Fi init");
 
     /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
      * not run simultaneously or steal audio frames. */

@@ -2,6 +2,7 @@
 #include "network_service.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -13,6 +14,10 @@
 static const char *TAG="ha_devices";
 typedef struct { char domain[16],service[32],entity[100],params[128]; } cmd_t;
 static QueueHandle_t q;
+/* Queue control stays internal; the task-only payload storage is in PSRAM.
+ * Preserve all 32 command slots and their FIFO semantics. */
+static StaticQueue_t queue_control;
+static uint8_t *queue_storage;
 static SemaphoreHandle_t lock;
 static network_backend_config_t config;
 static ha_devices_state_t state;
@@ -33,6 +38,9 @@ bool ha_devices_command(const char *domain,const char *service,const char *entit
  return xQueueSend(q,&c,0)==pdTRUE;
 }
 typedef struct{char body[3072];size_t used;}reply_t;
+/* Only this service's worker calls fetch(), sequentially. Reuse one buffer
+ * instead of allocating/freeing internal heap on every HA poll. */
+static reply_t *response;
 static esp_err_t on_event(esp_http_client_event_t *evt) {
  if(evt->event_id==HTTP_EVENT_ON_DATA&&evt->user_data&&evt->data_len>0) {
   reply_t *r=evt->user_data;size_t n=(size_t)evt->data_len;
@@ -56,8 +64,8 @@ static bool call(const char *path,const char *body,reply_t *r) {
 }
 static cJSON *fetch(const char *entity) {
  char path[145];snprintf(path,sizeof(path),"/api/states/%s",entity);
- reply_t *r=calloc(1,sizeof(*r));if(!r)return NULL;
- cJSON *root=call(path,NULL,r)?cJSON_Parse(r->body):NULL;free(r);return root;
+ if(!response)return NULL;
+ return call(path,NULL,response)?cJSON_Parse(response->body):NULL;
 }
 static void update_one(ha_devices_state_t *s,const char *id) {
  cJSON *r=fetch(id);if(!r)return;
@@ -156,7 +164,14 @@ static bool run_queued_command(void){
 static void task(void *arg){
  (void)arg;
  TickType_t last_fast=0,last_accessory=0;
+ TickType_t next_report=xTaskGetTickCount()+pdMS_TO_TICKS(60000);
  for(;;){
+  TickType_t report_now=xTaskGetTickCount();
+  if((int32_t)(report_now-next_report)>=0){
+   ESP_LOGI(TAG,"STACK ha_devices: min_free=%u bytes; queued=%u/32",
+            (unsigned)uxTaskGetStackHighWaterMark(NULL),(unsigned)uxQueueMessagesWaiting(q));
+   next_report=report_now+pdMS_TO_TICKS(60000);
+  }
   network_wifi_status_t wifi;
   network_service_get_wifi_status(&wifi);
   if(!wifi.connected){vTaskDelay(pdMS_TO_TICKS(750));continue;}
@@ -179,8 +194,21 @@ esp_err_t ha_devices_init(void){
  if (q) return ESP_OK;
  network_service_get_backend_config(&config);
  if(!config.ha_url[0]||!config.ha_token[0])return ESP_ERR_NOT_FOUND;
- lock=xSemaphoreCreateMutex();q=xQueueCreate(32,sizeof(cmd_t));if(!lock||!q)return ESP_ERR_NO_MEM;
+ lock=xSemaphoreCreateMutex();
+ queue_storage=heap_caps_malloc(32*sizeof(cmd_t),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+ response=heap_caps_calloc(1,sizeof(*response),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+ if(!lock||!queue_storage||!response)goto no_memory;
+ q=xQueueCreateStatic(32,sizeof(cmd_t),queue_storage,&queue_control);
+ if(!q)goto no_memory;
  state.ac_temp_x2=48;state.ac_fan=4;state.bath_target_x10=250;state.bath_current_x10=200;
- if(xTaskCreate(task,"ha_devices",8192,NULL,3,NULL)!=pdPASS)return ESP_ERR_NO_MEM;
+ if(xTaskCreate(task,"ha_devices",8192,NULL,3,NULL)!=pdPASS)goto no_memory;
+ ESP_LOGI(TAG,"PSRAM buffers: commands=%u response=%u bytes",
+          (unsigned)(32*sizeof(cmd_t)),(unsigned)sizeof(*response));
  ESP_LOGI(TAG,"HA devices worker started");return ESP_OK;
+no_memory:
+ if(q){vQueueDelete(q);q=NULL;}
+ if(lock){vSemaphoreDelete(lock);lock=NULL;}
+ heap_caps_free(queue_storage);queue_storage=NULL;
+ heap_caps_free(response);response=NULL;
+ return ESP_ERR_NO_MEM;
 }
