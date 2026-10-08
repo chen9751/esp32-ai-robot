@@ -148,11 +148,19 @@ static lv_obj_t *pager;
 static bool wrapping;
 static bool updating;
 static lv_timer_t *ha_device_timer;
-static uint32_t ha_device_hold_until;
+static uint32_t ha_aircon_hold_until;
+static uint32_t ha_bath_hold_until;
 static bool device_command(const char *domain,const char *service,const char *entity,const char *params)
 {
     bool sent=ha_devices_command(domain,service,entity,params);
-    if(sent)ha_device_hold_until=lv_tick_get()+5500;
+    if(sent){
+        if(!strcmp(domain,"climate") && strstr(entity,"xiaomi_mt8"))
+            ha_aircon_hold_until=lv_tick_get()+2200;
+        else if(strstr(entity,"xiaomi_mt8"))
+            ha_aircon_hold_until=lv_tick_get()+2200;
+        else if(strstr(entity,"yeelink_v20"))
+            ha_bath_hold_until=lv_tick_get()+2200;
+    }
     return sent;
 }
 static ui_devices_activity_cb_t acb;
@@ -576,7 +584,8 @@ static void temp_cb(lv_event_t *e)
 
 static void auto_cb(lv_event_t *e)
 {
-    if(lv_event_get_code(e) != LV_EVENT_LONG_PRESSED ||
+    lv_event_code_t c=lv_event_get_code(e);
+    if((c!=LV_EVENT_CLICKED && c!=LV_EVENT_LONG_PRESSED) ||
        !power_on || center != CENTER_FAN) return;
     fan_auto = true;
     (void)device_command("climate","set_fan_mode","climate.xiaomi_mt8_b9c8_air_conditioner","{\"fan_mode\":\"auto\"}");
@@ -677,7 +686,8 @@ static void build_aircon(lv_obj_t *p)
     lv_obj_set_style_bg_color(v->slider, FG, LV_PART_INDICATOR); lv_obj_set_style_bg_color(v->slider, FG, LV_PART_KNOB);
     lv_obj_set_style_pad_all(v->slider, 4, LV_PART_KNOB); lv_obj_add_event_cb(v->slider, slider_cb, LV_EVENT_ALL, NULL);
     v->auto_b = tbtn(v->fan_p, "AUTO", 44, 60, 80, 28);
-    lv_obj_clear_flag(v->auto_b, LV_OBJ_FLAG_CHECKABLE); lv_obj_add_event_cb(v->auto_b, auto_cb, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_clear_flag(v->auto_b, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_add_event_cb(v->auto_b, auto_cb, LV_EVENT_CLICKED, NULL);
 
     for(int i = 0; i < 4; ++i) {
         int c = i & 1, r = i >> 1;
@@ -1118,11 +1128,13 @@ static void ha_devices_refresh(lv_timer_t *timer)
     (void)timer;
     ha_devices_state_t st;
     if(!ha_devices_get(&st))return;
-    const bool pending = ha_device_hold_until &&
-        (int32_t)(ha_device_hold_until-lv_tick_get())>0;
+    const bool aircon_pending=ha_aircon_hold_until &&
+        (int32_t)(ha_aircon_hold_until-lv_tick_get())>0;
+    const bool bath_pending=ha_bath_hold_until &&
+        (int32_t)(ha_bath_hold_until-lv_tick_get())>0;
     /* Do not replace gesture values while the user is dragging a control. */
     bool changed=false;
-    if(!pending && temp_axis==GESTURE_PENDING && bath_temp_axis==GESTURE_PENDING) {
+    if(!aircon_pending && temp_axis==GESTURE_PENDING) {
         if(power_on!=st.ac_on||temp2!=st.ac_temp_x2||mode_idx!=st.ac_mode||
            fan_speed!=st.ac_fan||fan_auto!=st.ac_auto||swing_on!=st.ac_swing)changed=true;
         power_on=st.ac_on;
@@ -1132,6 +1144,8 @@ static void ha_devices_refresh(lv_timer_t *timer)
         fan_auto=st.ac_auto;swing_on=st.ac_swing;
         for(int i=0;i<4;i++){if(features[i]!=st.ac_features[i])changed=true;features[i]=st.ac_features[i];}
         if(changed)refresh_aircon();
+    }
+    if(!bath_pending && bath_temp_axis==GESTURE_PENDING) {
         if(st.bath_target_x10>=BATH_TMIN_X10&&st.bath_target_x10<=BATH_TMAX_X10)bath_target_x10=st.bath_target_x10;
         bath_current_x10=st.bath_current_x10;
         for(int i=0;i<3;i++)bath_speed[i]=(uint8_t)st.bath_levels[i];
@@ -1150,6 +1164,7 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
                                 void *ud)
 {
     acb = cb; aud = ud; wrapping = false; updating = false;
+    ha_aircon_hold_until=0;ha_bath_hold_until=0;
     temp_axis = GESTURE_PENDING; bath_temp_axis = GESTURE_PENDING;
     aircon_view_n = 0; curtain_view_n = 0; bath_view_n = 0; drying_view_n = 0;
 
@@ -1187,6 +1202,7 @@ void ui_page_devices_stop(void)
     curtain_stop_animation(); drying_stop_animation();
     root = NULL; pager = NULL; wrapping = false; updating = false;
     temp_axis = GESTURE_PENDING; bath_temp_axis = GESTURE_PENDING;
+    ha_aircon_hold_until=0;ha_bath_hold_until=0;
     aircon_view_n = 0; curtain_view_n = 0; bath_view_n = 0; drying_view_n = 0;
     acb = NULL; aud = NULL;
 }
