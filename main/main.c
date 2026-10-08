@@ -3,9 +3,11 @@
 #include "network_service.h"
 #include "bluetooth_service.h"
 #include "audio_service.h"
+#include "voice_wakeup.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_sleep.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -13,6 +15,17 @@
 #include "lvgl.h"
 
 static const char *TAG = "ai_robot";
+
+static void log_memory(const char *stage)
+{
+    ESP_LOGI(TAG,
+             "MEM %s: internal=%u largest=%u DMA=%u PSRAM=%u",
+             stage,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
 
 #define PHYS_KEY_CUSTOM GPIO_NUM_0
 #define PHYS_KEY_PWR    GPIO_NUM_16
@@ -75,6 +88,7 @@ static void physical_buttons_task(void *arg)
     bool pwr_fired = false;
     TickType_t custom_changed = xTaskGetTickCount();
     TickType_t pwr_pressed_at = 0;
+    TickType_t next_memory_report = xTaskGetTickCount() + pdMS_TO_TICKS(60000);
 
     for (;;) {
         const TickType_t now = xTaskGetTickCount();
@@ -107,6 +121,16 @@ static void physical_buttons_task(void *arg)
             enter_power_off();
         }
 
+        if ((int32_t)(now - next_memory_report) >= 0) {
+            ESP_LOGI(TAG,
+                     "MEM runtime: internal=%u min_internal=%u largest=%u DMA=%u PSRAM=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+            next_memory_report = now + pdMS_TO_TICKS(60000);
+        }
         vTaskDelay(pdMS_TO_TICKS(PHYS_KEY_POLL_MS));
     }
 }
@@ -115,18 +139,16 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "ESP32 AI Robot booting");
 
-    /* Bring up BLE before the display and Wi-Fi consume internal DRAM.
-     * The UI only reads service state later, so this ordering is safe. */
-    esp_err_t err = bluetooth_service_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Bluetooth service init failed: %s", esp_err_to_name(err));
-    }
-
-    err = board_init();
+    /* Bluetooth is opt-in from Settings. Keep the controller and NimBLE
+     * uninitialized at boot to preserve internal DRAM for Wi-Fi and AFE. */
+    log_memory("before board");
+    esp_err_t err = board_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "board startup failed: %s", esp_err_to_name(err));
         return;
     }
+
+    log_memory("after board");
 
     /* LVGL is owned by the board runtime task. Build the complete first UI
      * tree under the shared mutex, then force one synchronous refresh before
@@ -157,6 +179,8 @@ void app_main(void)
                  (unsigned)board_backlight_get_percent());
     }
 
+    log_memory("after UI");
+
     /* I2S DMA requires contiguous internal/DMA-capable RAM. Reserve the
      * small audio DMA ring before Wi-Fi fragments the remaining internal
      * heap. Wi-Fi itself is configured with a reduced buffer profile in
@@ -166,10 +190,28 @@ void app_main(void)
         ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
     }
 
+    log_memory("after audio");
+
+    /* Wi-Fi is initialized before AFE so the radio driver gets its
+     * contiguous internal memory while it is still available. */
+    ESP_LOGI(TAG, "starting Wi-Fi before WakeNet AFE");
     err = network_service_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
+
+    log_memory("after Wi-Fi init");
+
+    /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
+     * not run simultaneously or steal audio frames. */
+    if (audio_service_capture_ready()) {
+        esp_err_t wake_err = voice_wakeup_start(NULL, NULL);
+        if (wake_err != ESP_OK) {
+            ESP_LOGW(TAG, "WakeNet startup failed: %s", esp_err_to_name(wake_err));
+        }
+    }
+
+    log_memory("after WakeNet start");
 
     if (xTaskCreate(physical_buttons_task, "phys_buttons", 3072,
                     NULL, 3, NULL) != pdPASS) {

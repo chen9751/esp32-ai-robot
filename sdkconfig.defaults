@@ -54,3 +54,27 @@ CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 # Keep LFN buffers on the heap to avoid consuming small task stacks.
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+
+# ESP-SR WakeNet9: package only Hi ESP for offline diagnostic.
+CONFIG_SR_WN_WN9_HIESP=y
+CONFIG_SR_MN_CN_NONE=y
+CONFIG_SR_MN_EN_NONE=y
+CONFIG_MODEL_IN_FLASH=y
+
+# External-RAM-first policy for non-DMA Wi-Fi/LwIP allocations.
+# Retain internal RAM for controller, DMA, task stacks and audio callbacks.
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+
+# Runtime voice + UI needs usable heap, not Wi-Fi IRAM fast paths.
+# ESP-IDF may require reconfiguration of an existing local sdkconfig.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+
+# LVGL v9: replace 64 KiB internal static TLSF pool with a PSRAM-only
+# heap_caps allocator. Implementations live in components/board/board.c.
+# Preserve all LVGL widgets, themes, fonts, touch and 640x172 geometry.
+CONFIG_LV_USE_BUILTIN_MALLOC=n
+CONFIG_LV_USE_CUSTOM_MALLOC=y

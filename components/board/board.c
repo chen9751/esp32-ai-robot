@@ -26,6 +26,27 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 
+/* LVGL v9 custom allocator: no static 64 KiB internal DRAM pool.
+ * All LVGL object/style/working allocations use external 8 MiB PSRAM.
+ * Keep LCD DMA buffers explicitly MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA.
+ * Do not fall back to internal RAM silently; an OOM is easier to diagnose
+ * than corrupting the voice/Wi-Fi headroom budget. */
+#if defined(CONFIG_LV_USE_CUSTOM_MALLOC) && CONFIG_LV_USE_CUSTOM_MALLOC
+void lv_mem_init(void) {}
+void *lv_malloc_core(size_t size)
+{
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+void *lv_realloc_core(void *ptr, size_t size)
+{
+    return heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+void lv_free_core(void *ptr)
+{
+    heap_caps_free(ptr);
+}
+#endif
+
 static const char *TAG = "board";
 
 #define LVGL_TICK_PERIOD_MS     5

@@ -6,6 +6,7 @@
 #include "network_service.h"
 #include "bluetooth_service.h"
 #include "audio_service.h"
+#include "esp_log.h"
 #else
 typedef struct {
     bool initialized;
@@ -134,7 +135,7 @@ static bool s_wifi_enabled = true;
 static bool s_wifi_configured = false;
 static bool s_wifi_connected = false;
 static bool s_ai_configured = false;
-static bool s_bt_enabled = true;
+static bool s_bt_enabled = false;
 static lv_timer_t *s_bt_refresh_timer = NULL;
 static uint32_t s_bt_last_generation = UINT32_MAX;
 static lv_timer_t *s_system_refresh_timer = NULL;
@@ -637,7 +638,11 @@ static void bt_icon_event_cb(lv_event_t *e)
     bluetooth_status_t status = {0};
     get_bluetooth_status(&status);
 #if defined(ESP_PLATFORM)
-    (void)bluetooth_service_set_enabled(!status.enabled);
+    esp_err_t bt_err = bluetooth_service_set_enabled(!status.enabled);
+    if (bt_err != ESP_OK) {
+        /* Do not fake an ON state if lazy controller allocation fails. */
+        ESP_LOGW("settings", "Bluetooth enable failed: %s", esp_err_to_name(bt_err));
+    }
 #else
     s_bt_enabled = !status.enabled;
 #endif
