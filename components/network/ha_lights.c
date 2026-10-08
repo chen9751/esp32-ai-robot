@@ -32,6 +32,11 @@ static QueueHandle_t s_commands;
 static SemaphoreHandle_t s_lock;
 static ha_light_state_t s_states[HA_LIGHT_COUNT];
 static network_backend_config_t s_config;
+static TickType_t s_pending_until[HA_LIGHT_COUNT];
+static ha_light_command_t s_pending_type[HA_LIGHT_COUNT];
+static int s_pending_value[HA_LIGHT_COUNT];
+static int s_pending_extra[HA_LIGHT_COUNT];
+#define PENDING_CONFIRM_MS 5500
 
 const char *ha_lights_entity_id(int index)
 {
@@ -51,7 +56,23 @@ bool ha_lights_send(int index, ha_light_command_t type, int value, int extra)
 {
     if (index < 0 || index >= HA_LIGHT_COUNT || !s_commands) return false;
     command_t cmd = { index, type, value, extra };
-    return xQueueSend(s_commands, &cmd, 0) == pdTRUE;
+    if (xQueueSend(s_commands, &cmd, 0) != pdTRUE) return false;
+    if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(20)) == pdTRUE) {
+        ha_light_state_t *st = &s_states[index];
+        s_pending_type[index] = type;
+        s_pending_value[index] = value;
+        s_pending_extra[index] = extra;
+        s_pending_until[index] = xTaskGetTickCount() + pdMS_TO_TICKS(PENDING_CONFIRM_MS);
+        if (type == HA_LIGHT_POWER) st->on = value != 0;
+        if (type == HA_LIGHT_BRIGHTNESS) { st->on = true; st->brightness_pct = value; }
+        if (type == HA_LIGHT_TEMPERATURE) { st->on = true; st->color_temp_k = value; }
+        if (type == HA_LIGHT_COLOR) {
+            st->on = true; st->hue_deg = value; st->saturation_pct = extra;
+        }
+        st->available = true;
+        xSemaphoreGive(s_lock);
+    }
+    return true;
 }
 
 typedef struct { char data[2048]; size_t len; } response_t;
@@ -116,8 +137,15 @@ static void refresh_one(int i)
             state.available = true;
             state.on = !strcmp(status->valuestring, "on");
             const cJSON *v = cJSON_GetObjectItemCaseSensitive(attrs, "brightness");
-            state.brightness_pct = cJSON_IsNumber(v) ? (uint8_t)((v->valuedouble * 100.0 / 255.0) + 0.5) : 0;
+            if (cJSON_IsNumber(v)) {
+                state.brightness_pct = (uint8_t)((v->valuedouble * 100.0 / 255.0) + 0.5);
+            } else {
+                v = cJSON_GetObjectItemCaseSensitive(attrs, "light.brightness");
+                if (cJSON_IsNumber(v)) state.brightness_pct = (uint8_t)v->valueint;
+            }
             v = cJSON_GetObjectItemCaseSensitive(attrs, "color_temp_kelvin");
+            if (!cJSON_IsNumber(v))
+                v = cJSON_GetObjectItemCaseSensitive(attrs, "light.color_temperature");
             state.color_temp_k = cJSON_IsNumber(v) ? (uint16_t)v->valueint : 0;
             const cJSON *hs = cJSON_GetObjectItemCaseSensitive(attrs, "hs_color");
             if (cJSON_IsArray(hs) && cJSON_GetArraySize(hs) >= 2) {
@@ -131,7 +159,29 @@ static void refresh_one(int i)
     }
     free(reply);
     if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
-        s_states[i] = state;
+        TickType_t now = xTaskGetTickCount();
+        bool pending = s_pending_until[i] != 0 &&
+                       (int32_t)(s_pending_until[i] - now) > 0;
+        bool confirmed = false;
+        if (pending && state.available) {
+            switch (s_pending_type[i]) {
+            case HA_LIGHT_POWER: confirmed = state.on == (s_pending_value[i] != 0); break;
+            case HA_LIGHT_BRIGHTNESS:
+                confirmed = state.on &&
+                    abs((int)state.brightness_pct - s_pending_value[i]) <= 2; break;
+            case HA_LIGHT_TEMPERATURE:
+                confirmed = state.on &&
+                    abs((int)state.color_temp_k - s_pending_value[i]) <= 100; break;
+            case HA_LIGHT_COLOR:
+                confirmed = state.on &&
+                    abs((int)state.hue_deg - s_pending_value[i]) <= 8 &&
+                    abs((int)state.saturation_pct - s_pending_extra[i]) <= 5; break;
+            }
+        }
+        if (confirmed || !pending) {
+            s_states[i] = state;
+            s_pending_until[i] = 0;
+        }
         xSemaphoreGive(s_lock);
     }
 }
@@ -175,7 +225,7 @@ static void worker(void *arg)
             send_one(&cmd);
             continue;
         }
-        if (last_poll == 0 || (xTaskGetTickCount() - last_poll) >= pdMS_TO_TICKS(10000)) {
+        if (last_poll == 0 || (xTaskGetTickCount() - last_poll) >= pdMS_TO_TICKS(3000)) {
             last_poll = xTaskGetTickCount();
             for (int i = 0; i < HA_LIGHT_COUNT; i++) {
                 if (xQueueReceive(s_commands, &cmd, 0) == pdTRUE) send_one(&cmd);
