@@ -115,11 +115,11 @@ static void refresh_entity(const char *entity) {
 }
 static bool run_queued_command(void);
 static void refresh_rapid(void) {
- const char *const entities[]={AC,CURTAIN,RACK,BATH};
- for(size_t i=0;i<sizeof(entities)/sizeof(entities[0]);i++){
-  if(run_queued_command())return;
-  refresh_entity(entities[i]);
- }
+ static size_t cursor=0;
+ static const char *const entities[]={AC,CURTAIN,RACK,BATH};
+ if(run_queued_command())return;
+ refresh_entity(entities[cursor]);
+ cursor=(cursor+1)%4;
 }
 static void refresh_accessories(void) {
  static size_t cursor=0;
@@ -162,14 +162,14 @@ static void task(void *arg){
   if(!wifi.connected){vTaskDelay(pdMS_TO_TICKS(750));continue;}
   if(run_queued_command())continue;
   TickType_t now=xTaskGetTickCount();
-  if(!last_fast||(now-last_fast)>=pdMS_TO_TICKS(1200)){
-   last_fast=now;
-   refresh_rapid();
-   continue;
-  }
-  if(!last_accessory||(now-last_accessory)>=pdMS_TO_TICKS(450)){
+  if(!last_accessory||(now-last_accessory)>=pdMS_TO_TICKS(1800)){
    last_accessory=now;
    refresh_accessories();
+   continue;
+  }
+  if(!last_fast||(now-last_fast)>=pdMS_TO_TICKS(220)){
+   last_fast=now;
+   refresh_rapid();
    continue;
   }
   vTaskDelay(pdMS_TO_TICKS(40));
