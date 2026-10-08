@@ -3,6 +3,7 @@
 #include "ui_page_standby.h"
 #include "ui_page_clock.h"
 #include "ui_page_feature.h"
+#include "ui_page_settings.h"
 #include "ui_assets.h"
 
 #include <stdint.h>
@@ -18,6 +19,7 @@ typedef enum {
     UI_TOP_STANDBY = 0,
     UI_TOP_HOME,
     UI_TOP_FEATURE,
+    UI_TOP_SETTINGS,
 } ui_top_page_t;
 
 typedef enum {
@@ -34,6 +36,10 @@ static ui_top_page_t s_top_page = UI_TOP_STANDBY;
 static ui_standby_view_t s_standby_view = UI_STANDBY_CLOCK;
 static uint32_t s_last_activity_tick = 0;
 static lv_timer_t *s_idle_timer = NULL;
+static lv_obj_t *s_settings_root = NULL;
+static lv_point_t s_settings_press;
+static bool s_settings_tracking = false;
+static bool s_settings_closing = false;
 
 static bool s_transition_animating = false;
 static ui_transition_target_t s_transition_target = UI_TRANSITION_NONE;
@@ -133,6 +139,78 @@ static lv_obj_t *create_transition_surface(void)
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_CLICKABLE);
     return overlay;
+}
+
+static void show_settings_async(void *data);
+static void close_settings_async(void *data);
+
+static void settings_drag_event_cb(lv_event_t *e)
+{
+    if (s_top_page != UI_TOP_SETTINGS || s_settings_closing) return;
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (!indev) return;
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        lv_indev_get_point(indev, &s_settings_press);
+        s_settings_tracking = true;
+        ui_mark_activity();
+    } else if ((code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) &&
+               s_settings_tracking) {
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+        s_settings_tracking = false;
+        ui_mark_activity();
+        int32_t dx = point.x - s_settings_press.x;
+        int32_t dy = point.y - s_settings_press.y;
+        if (code == LV_EVENT_RELEASED && dy >= UI_TRANSITION_COMMIT_DISTANCE &&
+            dy > iabs32(dx)) {
+            s_settings_closing = true;
+            lv_async_call(close_settings_async, NULL);
+        }
+    }
+}
+
+static void attach_settings_gestures(lv_obj_t *root)
+{
+    lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(root, settings_drag_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(root, settings_drag_event_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(root, settings_drag_event_cb, LV_EVENT_PRESS_LOST, NULL);
+    /* Bubble input from nav cards and slider to the full-screen surface. */
+    uint32_t count = lv_obj_get_child_count(root);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(root, i);
+        lv_obj_add_flag(child, LV_OBJ_FLAG_EVENT_BUBBLE);
+        uint32_t nested = lv_obj_get_child_count(child);
+        for (uint32_t j = 0; j < nested; ++j) {
+            lv_obj_add_flag(lv_obj_get_child(child, j), LV_OBJ_FLAG_EVENT_BUBBLE);
+        }
+    }
+}
+
+static void show_settings_async(void *data)
+{
+    (void)data;
+    if (s_top_page != UI_TOP_HOME || ui_navigation_transition_active()) return;
+    s_settings_root = ui_page_settings_build(lv_screen_active(), page_activity_cb, NULL);
+    attach_settings_gestures(s_settings_root);
+    s_settings_tracking = false;
+    s_settings_closing = false;
+    s_top_page = UI_TOP_SETTINGS;
+    ui_mark_activity();
+}
+
+static void close_settings_async(void *data)
+{
+    (void)data;
+    if (s_top_page != UI_TOP_SETTINGS) return;
+    ui_page_settings_stop();
+    if (s_settings_root) lv_obj_delete(s_settings_root);
+    s_settings_root = NULL;
+    s_settings_tracking = false;
+    s_settings_closing = false;
+    s_top_page = UI_TOP_HOME;
+    ui_mark_activity();
 }
 
 static void vertical_drag_cb(int32_t dx,
@@ -287,7 +365,7 @@ static void vertical_drag_cb(int32_t dx,
     (void)user_data;
     ui_mark_activity();
 
-    if (s_top_page == UI_TOP_FEATURE) {
+    if (s_top_page == UI_TOP_FEATURE || s_top_page == UI_TOP_SETTINGS) {
         return;
     }
 
@@ -299,6 +377,11 @@ static void vertical_drag_cb(int32_t dx,
             return;
         }
 
+        if (s_top_page == UI_TOP_HOME && dy < 0 && released &&
+            -dy >= UI_TRANSITION_COMMIT_DISTANCE) {
+            lv_async_call(show_settings_async, NULL);
+            return;
+        }
         if (s_top_page == UI_TOP_HOME && dy > 0) {
             begin_transition(UI_TRANSITION_TO_CLOCK);
         }
@@ -404,6 +487,12 @@ void ui_handle_back_action(void)
 {
     ui_mark_activity();
 
+    if (s_top_page == UI_TOP_SETTINGS) {
+        s_settings_closing = true;
+        lv_async_call(close_settings_async, NULL);
+        return;
+    }
+
     if (s_top_page == UI_TOP_FEATURE) {
         feature_back_cb(NULL);
         return;
@@ -428,6 +517,12 @@ void ui_set_menu_font(const lv_font_t *font)
 
 void ui_show_main_menu(void)
 {
+    if (s_top_page == UI_TOP_SETTINGS) {
+        ui_page_settings_stop();
+        s_settings_root = NULL;
+        s_settings_tracking = false;
+        s_settings_closing = false;
+    }
     ui_page_feature_stop();
     ui_page_standby_stop();
     s_top_page = UI_TOP_HOME;
@@ -443,6 +538,12 @@ void ui_show_main_menu(void)
 
 void ui_show_standby_clock(void)
 {
+    if (s_top_page == UI_TOP_SETTINGS) {
+        ui_page_settings_stop();
+        s_settings_root = NULL;
+        s_settings_tracking = false;
+        s_settings_closing = false;
+    }
     ui_page_feature_stop();
     s_top_page = UI_TOP_STANDBY;
     s_standby_view = UI_STANDBY_CLOCK;
