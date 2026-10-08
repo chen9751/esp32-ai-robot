@@ -4,7 +4,6 @@
 #include "bluetooth_service.h"
 #include "audio_service.h"
 #include "voice_wakeup.h"
-#include "voice_wakeup.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -117,14 +116,9 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "ESP32 AI Robot booting");
 
-    /* Bring up BLE before the display and Wi-Fi consume internal DRAM.
-     * The UI only reads service state later, so this ordering is safe. */
-    esp_err_t err = bluetooth_service_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Bluetooth service init failed: %s", esp_err_to_name(err));
-    }
-
-    err = board_init();
+    /* Bluetooth is opt-in from Settings. Keep the controller and NimBLE
+     * uninitialized at boot to preserve internal DRAM for Wi-Fi and AFE. */
+    esp_err_t err = board_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "board startup failed: %s", esp_err_to_name(err));
         return;
@@ -168,6 +162,14 @@ void app_main(void)
         ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
     }
 
+    /* Wi-Fi is initialized before AFE so the radio driver gets its
+     * contiguous internal memory while it is still available. */
+    ESP_LOGI(TAG, "starting Wi-Fi before WakeNet AFE");
+    err = network_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
+    }
+
     /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
      * not run simultaneously or steal audio frames. */
     if (audio_service_capture_ready()) {
@@ -175,11 +177,6 @@ void app_main(void)
         if (wake_err != ESP_OK) {
             ESP_LOGW(TAG, "WakeNet startup failed: %s", esp_err_to_name(wake_err));
         }
-    }
-
-    err = network_service_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
 
     if (xTaskCreate(physical_buttons_task, "phys_buttons", 3072,
