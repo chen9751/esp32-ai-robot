@@ -24,13 +24,7 @@ static const char *TAG = "audio";
 #define AUDIO_I2S_WS GPIO_NUM_46
 #define AUDIO_I2S_DOUT GPIO_NUM_45
 #define AUDIO_DEFAULT_VOLUME 30
-#define AUDIO_ALERT_MAX_MS (10u * 60u * 1000u)
-#define AUDIO_ALERT_VOLUME 80
 
-typedef enum {
-    SOUND_TIMER = 0,
-    SOUND_ALARM,
-} sound_kind_t;
 
 static esp_codec_dev_handle_t s_playback = NULL;
 static i2s_chan_handle_t s_tx = NULL;
@@ -39,152 +33,8 @@ static const audio_codec_gpio_if_t *s_gpio_if = NULL;
 static const audio_codec_ctrl_if_t *s_ctrl_if = NULL;
 static const audio_codec_if_t *s_codec_if = NULL;
 static SemaphoreHandle_t s_write_lock = NULL;
-static TaskHandle_t s_sound_task = NULL;
-static volatile uint32_t s_generation = 1;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
-static volatile bool s_alert_active = false;
-static volatile audio_alert_kind_t s_alert_kind = AUDIO_ALERT_NONE;
-
-static bool generation_alive(uint32_t generation)
-{
-    return generation == s_generation;
-}
-
-static void fill_square_stereo(int16_t *pcm, size_t frames,
-                               uint32_t frequency_hz, int16_t amplitude,
-                               uint32_t *phase)
-{
-    if (frequency_hz == 0) {
-        for (size_t i = 0; i < frames * 2; ++i) pcm[i] = 0;
-        return;
-    }
-
-    const uint32_t period = AUDIO_SAMPLE_RATE / frequency_hz;
-    const uint32_t half = period > 1 ? period / 2 : 1;
-    for (size_t i = 0; i < frames; ++i) {
-        int16_t sample = ((*phase % period) < half) ? amplitude : -amplitude;
-        pcm[i * 2] = sample;
-        pcm[i * 2 + 1] = sample;
-        ++(*phase);
-    }
-}
-
-static bool write_frames(uint32_t generation, uint32_t frequency_hz,
-                         uint32_t duration_ms, int16_t amplitude)
-{
-    const size_t frames_per_chunk = 240;
-    int16_t pcm[frames_per_chunk * 2];
-    uint32_t phase = 0;
-    uint32_t frames_left = (AUDIO_SAMPLE_RATE * duration_ms) / 1000U;
-
-    while (frames_left > 0 && generation_alive(generation)) {
-        size_t frames = frames_left > frames_per_chunk ? frames_per_chunk : frames_left;
-        fill_square_stereo(pcm, frames, frequency_hz, amplitude, &phase);
-
-        if (xSemaphoreTake(s_write_lock, pdMS_TO_TICKS(100)) != pdTRUE) {
-            return false;
-        }
-        int rc = esp_codec_dev_write(s_playback, pcm,
-                                     (int)(frames * AUDIO_CHANNELS * sizeof(int16_t)));
-        xSemaphoreGive(s_write_lock);
-        if (rc != ESP_CODEC_DEV_OK) {
-            ESP_LOGW(TAG, "audio write failed: %d", rc);
-            return false;
-        }
-        frames_left -= frames;
-    }
-    return generation_alive(generation);
-}
-
-static bool silence(uint32_t generation, uint32_t duration_ms)
-{
-    return write_frames(generation, 0, duration_ms, 0);
-}
-
-static void sound_task(void *arg)
-{
-    (void)arg;
-
-    for (;;) {
-        uint32_t command = 0;
-        if (xTaskNotifyWait(0, UINT32_MAX, &command, portMAX_DELAY) != pdTRUE) {
-            continue;
-        }
-
-        sound_kind_t kind;
-        if (command == 1) {
-            kind = SOUND_TIMER;
-        }
-        else if (command == 2) {
-            kind = SOUND_ALARM;
-        }
-        else {
-            continue;
-        }
-
-        const uint32_t generation = s_generation;
-        const TickType_t started = xTaskGetTickCount();
-        const TickType_t max_ticks = pdMS_TO_TICKS(AUDIO_ALERT_MAX_MS);
-
-        while (generation_alive(generation) &&
-               (xTaskGetTickCount() - started) < max_ticks) {
-            if (kind == SOUND_TIMER) {
-                /* Familiar digital kitchen-timer cadence:
-                 * four short beeps, then a short pause, repeated until acknowledged. */
-                for (int i = 0; i < 4 && generation_alive(generation); ++i) {
-                    if (!write_frames(generation, 1100, 170, 11000)) break;
-                    if (i != 3 && !silence(generation, 130)) break;
-                }
-                if (!generation_alive(generation)) break;
-                if (!silence(generation, 1200)) break;
-            }
-            else {
-                /* Classic bedside alarm: alternating two-tone buzzer,
-                 * repeated until the user acknowledges it. */
-                if (!write_frames(generation, 880, 280, 12000)) break;
-                if (!silence(generation, 90)) break;
-                if (!write_frames(generation, 660, 280, 12000)) break;
-                if (!silence(generation, 500)) break;
-            }
-        }
-
-        if (generation_alive(generation)) {
-            ++s_generation; /* 10-minute safety timeout */
-            s_alert_active = false;
-            s_alert_kind = AUDIO_ALERT_NONE;
-            (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
-        }
-    }
-}
-
-static esp_err_t start_sound(sound_kind_t kind)
-{
-    if (!s_ready || s_sound_task == NULL) return ESP_ERR_INVALID_STATE;
-
-    ++s_generation;
-    s_alert_active = true;
-    s_alert_kind = kind == SOUND_TIMER ? AUDIO_ALERT_TIMER : AUDIO_ALERT_ALARM;
-
-    /* Alert playback is fixed at 80%, independently of the saved user volume. */
-    if (esp_codec_dev_set_out_vol(s_playback, AUDIO_ALERT_VOLUME) != ESP_CODEC_DEV_OK) {
-        s_alert_active = false;
-        s_alert_kind = AUDIO_ALERT_NONE;
-        return ESP_FAIL;
-    }
-
-    const uint32_t command = kind == SOUND_TIMER ? 1u : 2u;
-    if (xTaskNotify(s_sound_task, command, eSetValueWithOverwrite) != pdPASS) {
-        s_alert_active = false;
-        s_alert_kind = AUDIO_ALERT_NONE;
-        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "%s alert queued at 80%%",
-             kind == SOUND_TIMER ? "timer" : "alarm");
-    return ESP_OK;
-}
 
 esp_err_t audio_service_init(void)
 {
@@ -303,18 +153,6 @@ esp_err_t audio_service_init(void)
     s_write_lock = xSemaphoreCreateMutex();
     if (s_write_lock == NULL) return ESP_ERR_NO_MEM;
 
-    /* Allocate the alert worker once, during boot while contiguous internal
-     * RAM is still available. Creating/deleting a 4 KB task for every ring was
-     * unreliable after Wi-Fi/BLE/LVGL had consumed and fragmented internal
-     * SRAM; ESP-IDF also notes that memory from a self-deleted task can be
-     * reclaimed later by the idle task. */
-    if (xTaskCreate(sound_task, "alert_audio", 3072, NULL, 4,
-                    &s_sound_task) != pdPASS) {
-        ESP_LOGE(TAG, "persistent alert task creation failed");
-        s_sound_task = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-
     s_volume = AUDIO_DEFAULT_VOLUME;
     esp_codec_dev_set_out_vol(s_playback, s_volume);
     s_ready = true;
@@ -332,10 +170,6 @@ esp_err_t audio_service_set_volume(uint8_t percent)
     s_volume = percent;
     if (!s_ready) return ESP_ERR_INVALID_STATE;
 
-    /* Store user preference while an alert is active, but keep the alert at
-     * its dedicated 80% level until acknowledgement. */
-    if (s_alert_active) return ESP_OK;
-
     return esp_codec_dev_set_out_vol(s_playback, percent) == ESP_CODEC_DEV_OK
                ? ESP_OK : ESP_FAIL;
 }
@@ -345,32 +179,7 @@ uint8_t audio_service_get_volume(void)
     return s_volume;
 }
 
-esp_err_t audio_service_play_timer(void)
-{
-    return start_sound(SOUND_TIMER);
-}
-
-esp_err_t audio_service_play_alarm(void)
-{
-    return start_sound(SOUND_ALARM);
-}
-
-bool audio_service_alert_active(void)
-{
-    return s_alert_active;
-}
-
-audio_alert_kind_t audio_service_get_alert_kind(void)
-{
-    return s_alert_active ? s_alert_kind : AUDIO_ALERT_NONE;
-}
-
 void audio_service_stop(void)
 {
-    ++s_generation;
-    s_alert_active = false;
-    s_alert_kind = AUDIO_ALERT_NONE;
-    if (s_ready) {
-        (void)esp_codec_dev_set_out_vol(s_playback, s_volume);
-    }
+    /* Reserved for stopping future media playback. No alert worker remains. */
 }
