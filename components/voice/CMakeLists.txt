@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "voice_wakeup.c"
     INCLUDE_DIRS "include"
-    REQUIRES esp_common
+    REQUIRES audio esp-sr
 )
