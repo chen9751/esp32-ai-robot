@@ -50,7 +50,10 @@ static void feed_task(void *arg)
     const size_t source_frames = (size_t)n * 3 / 2;
     int16_t *source = heap_caps_malloc(source_frames * 2 * sizeof(int16_t),
                                       MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    int16_t *mono = heap_caps_malloc((size_t)n * sizeof(int16_t), MALLOC_CAP_8BIT);
+    /* Scratch PCM is CPU-only: allocate it explicitly in PSRAM.
+     * The codec capture buffer remains internal for DMA compatibility. */
+    int16_t *mono = heap_caps_malloc((size_t)n * sizeof(int16_t),
+                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!source || !mono) {
         ESP_LOGE(TAG, "audio feed buffer allocation failed");
         free(source);
