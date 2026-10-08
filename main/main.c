@@ -166,6 +166,16 @@ void app_main(void)
         ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
     }
 
+    /* Development-only microphone sanity test: report signal levels on
+     * serial every 2 seconds. No UI events or Wi-Fi dependency. */
+    if (audio_service_capture_ready()) {
+        esp_err_t mic_err = audio_service_capture_diagnostic_start();
+        if (mic_err != ESP_OK) {
+            ESP_LOGW(TAG, "microphone diagnostic start failed: %s",
+                     esp_err_to_name(mic_err));
+        }
+    }
+
     err = network_service_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
