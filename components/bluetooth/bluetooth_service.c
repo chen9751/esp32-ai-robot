@@ -20,7 +20,7 @@
 static const char *TAG = "bluetooth";
 
 static bluetooth_status_t s_status = {
-    .enabled = true,
+    .enabled = false,
     .state = BLUETOOTH_LINK_IDLE,
 };
 static bluetooth_scan_result_t s_results[BLUETOOTH_MAX_SCAN_RESULTS];
@@ -537,6 +537,19 @@ esp_err_t bluetooth_service_init(void)
 
 esp_err_t bluetooth_service_set_enabled(bool enabled)
 {
+    /* Lazy start: with Bluetooth OFF, neither the BT controller nor
+     * NimBLE host has been initialized and neither reserves runtime DRAM.
+     * This keeps the Settings switch functional without boot-time overhead.
+     * OFF after a previous ON disconnects/stops scans but currently does
+     * not deinitialize the stack or return its allocations to the heap. */
+    if (enabled && !s_status.initialized) {
+        esp_err_t err = bluetooth_service_init();
+        if (err != ESP_OK) return err;
+    }
+    if (!s_status.initialized) {
+        s_status.enabled = false;
+        return ESP_OK;
+    }
     lock();
     s_status.enabled = enabled;
     bump_generation();
