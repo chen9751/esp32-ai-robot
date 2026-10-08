@@ -8,7 +8,7 @@
 #define UI_SCREEN_H          172
 #define UI_MENU_ITEM_W       136
 #define UI_MENU_ITEM_H       136
-#define UI_MENU_GAP          22
+#define UI_MENU_GAP          20
 #define UI_MENU_SIDE_PAD     18
 #define UI_MENU_V_PAD        18
 #define UI_MENU_RADIUS       30
@@ -41,7 +41,6 @@ static const ui_menu_item_t MENU_ITEMS[] = {
     { &ui_icon_music,    &ui_label_music,    UI_MENU_MUSIC,    0xFF687Eu, 0xC92D70u },
     { &ui_icon_light,    &ui_label_light,    UI_MENU_LIGHTS,   0xFFD66Au, 0xFF913Eu },
     { &ui_icon_devices,  &ui_label_devices,  UI_MENU_DEVICES,  0x48D8B1u, 0x0AA57Fu },
-    { &ui_icon_settings, &ui_label_settings, UI_MENU_SETTINGS, 0xA9B8D2u, 0x596985u },
 };
 
 static void note_activity(void)
@@ -227,12 +226,6 @@ static void home_drag_event_cb(lv_event_t *e)
     }
 }
 
-static void scroller_activity(lv_event_t *e)
-{
-    (void)e;
-    note_activity();
-}
-
 lv_obj_t *ui_page_home_build(lv_obj_t *parent,
                              ui_menu_action_cb_t action_cb,
                              void *action_user_data,
@@ -276,13 +269,13 @@ lv_obj_t *ui_page_home_build(lv_obj_t *parent,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    lv_obj_set_scroll_dir(scroller, LV_DIR_HOR);
+    /* Exactly four fixed tiles: 4*136 + 3*20 + 2*18 = 640. */
+    lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(scroller, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_scroll_snap_x(scroller, LV_SCROLL_SNAP_NONE);
     lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLL_ONE);
     lv_obj_clear_flag(scroller, LV_OBJ_FLAG_SCROLL_ELASTIC);
 
-    lv_obj_add_event_cb(scroller, scroller_activity, LV_EVENT_SCROLL_BEGIN, NULL);
     lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(scroller, home_drag_event_cb, LV_EVENT_RELEASED, NULL);
