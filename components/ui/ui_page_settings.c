@@ -6,6 +6,7 @@
 #include "network_service.h"
 #include "bluetooth_service.h"
 #include "audio_service.h"
+#include "esp_log.h"
 #else
 typedef struct {
     bool initialized;
