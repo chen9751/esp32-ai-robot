@@ -25,7 +25,6 @@ static const char *bath_switch[3]={"switch.yeelink_v20_6acb_ventilation","switch
 static const char *bath_fan[2]={"select.yeelink_v20_6acb_fan_level_2","select.yeelink_v20_6acb_fan_level"};
 static int jint(const cJSON *obj,const char *k,int fallback) {const cJSON *v=cJSON_GetObjectItemCaseSensitive(obj,k);return cJSON_IsNumber(v)?(int)(v->valuedouble+0.01):fallback;}
 static const char *jstr(const cJSON *obj,const char *k) {const cJSON *v=cJSON_GetObjectItemCaseSensitive(obj,k);return cJSON_IsString(v)?v->valuestring:NULL;}
-static bool jbool(const cJSON *obj,const char *k) {const cJSON *v=cJSON_GetObjectItemCaseSensitive(obj,k);return cJSON_IsTrue(v);}
 bool ha_devices_get(ha_devices_state_t *out) {if(!out||!lock||xSemaphoreTake(lock,pdMS_TO_TICKS(10))!=pdTRUE)return false;*out=state;xSemaphoreGive(lock);return out->valid;}
 bool ha_devices_command(const char *domain,const char *service,const char *entity,const char *params) {
  if(!q||!domain||!service||!entity)return false;
@@ -124,7 +123,8 @@ static void task(void *arg){
  }
 }
 esp_err_t ha_devices_init(void){
- if(q)return ESP_OK;network_service_get_backend_config(&config);
+ if (q) return ESP_OK;
+ network_service_get_backend_config(&config);
  if(!config.ha_url[0]||!config.ha_token[0])return ESP_ERR_NOT_FOUND;
  lock=xSemaphoreCreateMutex();q=xQueueCreate(32,sizeof(cmd_t));if(!lock||!q)return ESP_ERR_NO_MEM;
  state.ac_temp_x2=48;state.ac_fan=4;state.bath_target_x10=250;state.bath_current_x10=200;
