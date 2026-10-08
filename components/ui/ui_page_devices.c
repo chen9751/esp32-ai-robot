@@ -831,6 +831,7 @@ static void bath_function_cb(lv_event_t *e)
     intptr_t fn = (intptr_t)lv_event_get_user_data(e);
     if(fn < 0 || fn > 3) return;
 
+    int old_bath_function = bath_speed[0]?0:(bath_speed[1]?1:(bath_speed[2]?2:-1));
     if(fn == BATH_DRY) {
         bool was_dry = bath_dry_on;
         bath_clear_modes();
@@ -843,11 +844,19 @@ static void bath_function_cb(lv_event_t *e)
 
     static const char *ids[3]={"switch.yeelink_v20_6acb_ventilation","switch.yeelink_v20_6acb_blow","switch.yeelink_v20_6acb_heating"};
     if(fn==BATH_DRY) {
-        (void)ha_devices_command("select","select_option","select.yeelink_v20_6acb_mode_2",bath_dry_on?"{\"option\":\"Dry\"}":"{\"option\":\"Idle\"}");
+        if(bath_dry_on) {
+            (void)ha_devices_command("select","select_option","select.yeelink_v20_6acb_mode_2","{\"option\":\"Dry\"}");
+        } else {
+            (void)ha_devices_command("button","press","button.yeelink_v20_6acb_stop_working",NULL);
+        }
     } else {
-        /* Stop the previous bath mode before selecting another. */
-        (void)ha_devices_command("button","press","button.yeelink_v20_6acb_stop_working",NULL);
-        (void)ha_devices_command("switch","turn_on",ids[fn],NULL);
+        /* Always turn the requested function on, matching the existing UI.
+         * For level toggles, do not stop first: doing so would reset its speed. */
+        bool was_same = old_bath_function == (int)fn;
+        if(!was_same) {
+            (void)ha_devices_command("button","press","button.yeelink_v20_6acb_stop_working",NULL);
+            (void)ha_devices_command("switch","turn_on",ids[fn],NULL);
+        }
         if(fn<2){char json[48];snprintf(json,sizeof(json),"{\"option\":\"%s\"}",bath_speed[fn]==2?"High":"Low");
           (void)ha_devices_command("select","select_option",fn==0?"select.yeelink_v20_6acb_fan_level_2":"select.yeelink_v20_6acb_fan_level",json);
         }
