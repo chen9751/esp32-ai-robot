@@ -22,17 +22,17 @@ LV_FONT_DECLARE(ui_font_source_han_lights_18);
 #define FOOTER_H 50
 #define ADJUST_TIMEOUT_MS 30000
 
-#define BRIGHTNESS_MIN 10
+#define BRIGHTNESS_MIN 1
 #define BRIGHTNESS_MAX 100
-#define BRIGHTNESS_STEP 10
+#define BRIGHTNESS_STEP 1
 
 #define TEMP_MIN_K 2500
 #define TEMP_MAX_K 6500
-#define TEMP_STEP_K 400
+#define TEMP_STEP_K 100
 
 #define COLOR_MIN 0
 #define COLOR_MAX 100
-#define COLOR_STEP 10
+#define COLOR_STEP 1
 
 #define C_BG            lv_color_hex(0x000000)
 #define C_CARD          lv_color_hex(0x090A0C)
@@ -121,6 +121,9 @@ static light_view_t *s_adjust_view;
 static lv_timer_t *s_adjust_timer;
 static lv_timer_t *s_ha_timer;
 static bool s_ha_initialized[LIGHT_COUNT];
+/* These are the actual HA supported color-temperature limits per UI index. */
+static const uint16_t s_min_kelvin[LIGHT_COUNT] = {2700,2700,3000,1700,3000,2700,0,0};
+static const uint16_t s_max_kelvin[LIGHT_COUNT] = {6500,6500,5700,6500,5700,6500,0,0};
 
 static int light_index(const light_view_t *view)
 {
@@ -217,7 +220,7 @@ static int32_t snap_color_temp(int32_t value)
 {
     if (value < TEMP_MIN_K) value = TEMP_MIN_K;
     if (value > TEMP_MAX_K) value = TEMP_MAX_K;
-    value = TEMP_MIN_K + (((value - TEMP_MIN_K) + TEMP_STEP_K / 2) / TEMP_STEP_K) * TEMP_STEP_K;
+    value = ((value + TEMP_STEP_K / 2) / TEMP_STEP_K) * TEMP_STEP_K;
     if (value > TEMP_MAX_K) value = TEMP_MAX_K;
     return value;
 }
@@ -376,7 +379,8 @@ static void enter_adjust(light_view_t *view, adjust_mode_t mode)
         lv_obj_clear_flag(view->adjust_value, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(view->adjust_slider, LV_OBJ_FLAG_HIDDEN);
         set_color_controls_visible(view, false);
-        lv_slider_set_range(view->adjust_slider, TEMP_MIN_K, TEMP_MAX_K);
+        int i = light_index(view);
+        lv_slider_set_range(view->adjust_slider, s_min_kelvin[i], s_max_kelvin[i]);
         lv_slider_set_value(view->adjust_slider, view->color_temp_k, LV_ANIM_OFF);
         lv_obj_set_style_bg_color(view->controls[1], C_ADJUST_ACTIVE, 0);
         lv_obj_set_style_bg_opa(view->controls[1], LV_OPA_COVER, 0);
@@ -445,13 +449,9 @@ static void adjust_slider_released(lv_event_t *event)
     if (view->adjust_mode == ADJUST_BRIGHTNESS) {
         (void)ha_lights_send(i, HA_LIGHT_BRIGHTNESS, view->brightness, 0);
     } else if (view->adjust_mode == ADJUST_TEMPERATURE) {
-        /* HA limits: living/study 2700-6500, bedroom/small 3000-5700,
-           bedside 1700-6500, RGB strip 2700-6500. */
-        static const int min_k[LIGHT_COUNT] = {2700,2700,3000,1700,3000,2700,0,0};
-        static const int max_k[LIGHT_COUNT] = {6500,6500,5700,6500,5700,6500,0,0};
         int k = view->color_temp_k;
-        if (min_k[i] && k < min_k[i]) k = min_k[i];
-        if (max_k[i] && k > max_k[i]) k = max_k[i];
+        if (s_min_kelvin[i] && k < s_min_kelvin[i]) k = s_min_kelvin[i];
+        if (s_max_kelvin[i] && k > s_max_kelvin[i]) k = s_max_kelvin[i];
         view->color_temp_k = (uint16_t)k;
         update_adjust_value(view);
         (void)ha_lights_send(i, HA_LIGHT_TEMPERATURE, k, 0);
