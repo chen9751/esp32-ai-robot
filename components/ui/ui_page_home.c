@@ -239,7 +239,7 @@ static void home_drag_event_cb(lv_event_t *e)
             ((dy >= 12 || dy <= -12) &&
              (dy < 0 ? -dy : dy) > (dx < 0 ? -dx : dx))) {
             s_drag_was_vertical = true;
-            s_vertical_drag_cb(dx, dy, true, false, s_vertical_drag_user_data);
+            s_vertical_drag_cb(dx, dy, true, true, s_vertical_drag_user_data);
         }
         s_drag_valid = false;
     }
