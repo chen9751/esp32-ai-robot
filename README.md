@@ -21,7 +21,7 @@ The project has selected the following three open-source type/icon families as t
 | --- | --- | --- |
 | Main UI text | **Source Han Sans CN Normal / 思源黑体 CN Normal** | Chinese UI text, labels, settings and normal interface copy |
 | Retro / clock text | **Fusion Pixel Font / 缝合像素字体** | Clock, retro LCD/old-screen style numbers and selected status text |
-| UI icons | **Remix Icon** | Navigation, remote, music, lights, devices, timer, alarm, settings and later system/device icons |
+| UI icons | **Remix Icon** | Navigation, remote, music, lights, devices, settings and later system/device icons |
 
 Source assets and LVGL-generated subsets are documented under `assets/fonts/README.md`.
 
@@ -33,16 +33,19 @@ Do not replace the selected icon system with enlarged bitmap/pixel icons unless 
 
 For small monochrome UI icons, compact A8 image subsets rasterized directly from the selected Remix Icon SVG source are also acceptable. They must retain the original Remix Icon geometry and be documented with their upstream icon filenames; do not redraw equivalent icons with one-off LVGL geometry.
 
-## Settings and TF card configuration (refactor in progress)
+## Settings and TF card configuration
 
-The 640 × 172 device UI uses read-only Wi-Fi and AI status pages.
-The intended final configuration source is a single `config.json` on the TF card.
-The TF card mounting and config parser are **not yet implemented in this branch**;
-the existing network service still reads credentials from NVS. Do not deploy
-this branch as a TF-configured release until the board-specific SDMMC pins
-are verified and the runtime integration is completed.
+The device only reads configuration from the TF card; no Wi-Fi setup hotspot,
+HTTP/DNS provisioning server or interactive Wi-Fi / AI editor is provided.
 
-The settings order is `Sound | Display | Bluetooth | Wi-Fi | AI | System`.
+- See [tf卡/README.md](tf卡/README.md) and [tf卡/config.json](tf卡/config.json).
+- Copy `tf卡/config.json` to the **root** of a FAT32-formatted TF card.
+- Boot-time SDMMC uses Waveshare V2 CMD=GPIO39, D0=GPIO40, CLK=GPIO41 (1-bit).
+- The firmware mounts `/sdcard` and reads `/sdcard/config.json`.
+- Wi-Fi / AI settings are read-only status views; edits require reboot.
+- Missing or invalid config is nonfatal and shown in Wi-Fi settings.
+- The tab order is `Sound | Display | Bluetooth | Wi-Fi | AI | System`.
+- The AI URL is configuration/status metadata, not an implemented connection probe.
 
 ## UI page architecture
 
