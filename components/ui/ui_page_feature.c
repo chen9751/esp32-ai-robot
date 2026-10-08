@@ -214,6 +214,7 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
 
 void ui_page_feature_stop(void)
 {
+    if (s_content == NULL) return;
     if (s_action == UI_MENU_REMOTE) ui_page_remote_stop();
     if (s_action == UI_MENU_LIGHTS) ui_page_lights_stop();
     if (s_action == UI_MENU_MUSIC) ui_page_music_stop();
