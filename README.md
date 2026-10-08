@@ -52,17 +52,17 @@ HTTP/DNS provisioning server or interactive Wi-Fi / AI editor is provided.
 UI pages are intentionally split into separate modules so the project does not grow into one large UI source file.
 
 - `ui_manager.c`: page routing and the global 60-second idle timeout.
-- `ui_page_home.c`: seven-function HOME carousel: Remote, Music, Lights, Devices and Settings.
-- `ui_page_feature.c`: shared function-page shell, global left-side back gesture/animation and feature routing.
+- `ui_page_home.c`: fixed four-item HOME (Remote, Music, Lights, Devices), 640 × 172 with no horizontal scroll. Swipe up for Settings; swipe down for standby.
+- `ui_page_feature.c`: shared four-feature shell and consistent 180 ms full-width slide-in / right-drag exit. Settings is not a feature page.
 - `ui_page_music.c`: compact music transport page with metadata, seek/progress display, previous/play-pause/next controls and a two-way `TV | Speaker` target selector. It emits UI actions only; Debian playback control, Bluetooth HID and playback-state synchronization stay outside the LVGL page.
 - `ui_page_lights.c`: horizontally scrollable lighting control page. It owns the eight room/light tiles, local on/off presentation and the brightness/color-temperature/RGB adjustment UI while remaining independent from Home Assistant/network business logic.
 - `ui_page_devices.c`: four full-screen horizontally paged device views in the fixed order Air Conditioner, Curtain, Bath Heater and Drying Rack. Each page occupies the complete 640 × 172 canvas, uses page snapping and loops continuously in both horizontal directions; device/HA business logic remains outside the UI module.
-- `ui_page_settings.c`: settings page content and controls.
+- `ui_page_settings.c`: settings page content and controls, shown as a vertical finger-following overlay; downward swipe returns HOME. Dragging sliders does not dismiss Settings.
 - `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
 - `ui_page_standby.c`: standby gesture/navigation controller only.
 - `ui_page_clock.c`: standby clock content.
-- `ui_page_weather.c`: weather page (placeholder until designed).
-- `ui_page_calendar.c`: calendar page (placeholder until designed).
+- Weather standby panel is planned; no weather service is currently wired.
+- Calendar standby panel is planned; no calendar service is currently wired.
 
 Music behavior is defined as follows: the page has no album artwork and no shuffle, repeat or volume controls. The upper-right selector switches only between `TV` and `Speaker`; there is no additional "control target" label. `TV` is reserved for direct ESP32 Bluetooth-HID media control of the television, while `Speaker` is reserved for commands sent to the Debian playback service that outputs to the paired iPad mini / CM220 speaker path. The LVGL module stores presentation state, exposes metadata/playback setters and emits target/transport/seek actions; transport-specific code must consume those actions elsewhere.
 
