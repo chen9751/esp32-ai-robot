@@ -735,9 +735,9 @@ static void curtain_action_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     intptr_t a = (intptr_t)lv_event_get_user_data(e);
-    if(a == CURTAIN_ACTION_OPEN) curtain_start_animation(100);
-    else if(a == CURTAIN_ACTION_STOP) curtain_stop_animation();
-    else if(a == CURTAIN_ACTION_CLOSE) curtain_start_animation(0);
+    /* The HA reported position drives the graphic, not a fabricated
+     * full-stroke LVGL animation. Stop must freeze the last measured frame. */
+    curtain_stop_animation();
     (void)device_command("cover",a==CURTAIN_ACTION_OPEN?"open_cover":(a==CURTAIN_ACTION_CLOSE?"close_cover":"stop_cover"),"cover.xiaomi_acn010_a9ab_curtain",NULL);
     activity();
 }
@@ -1065,9 +1065,8 @@ static void drying_action_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     intptr_t action = (intptr_t)lv_event_get_user_data(e);
-    if(action == DRYING_ACTION_UP) drying_start_animation(0);
-    else if(action == DRYING_ACTION_DOWN) drying_start_animation(100);
-    else if(action == DRYING_ACTION_STOP) drying_stop_animation();
+    /* Wait for HA current_position updates instead of replaying motion. */
+    drying_stop_animation();
     /* Airer cover uses reversed reporting; open is up, close is down. */
     (void)device_command("cover",action==DRYING_ACTION_UP?"open_cover":(action==DRYING_ACTION_DOWN?"close_cover":"stop_cover"),"cover.xiaomi_0002_bfe9_airer",NULL);
     activity();
@@ -1119,10 +1118,11 @@ static void ha_devices_refresh(lv_timer_t *timer)
     (void)timer;
     ha_devices_state_t st;
     if(!ha_devices_get(&st))return;
-    if(ha_device_hold_until && (int32_t)(ha_device_hold_until-lv_tick_get())>0)return;
+    const bool pending = ha_device_hold_until &&
+        (int32_t)(ha_device_hold_until-lv_tick_get())>0;
     /* Do not replace gesture values while the user is dragging a control. */
     bool changed=false;
-    if(temp_axis==GESTURE_PENDING && bath_temp_axis==GESTURE_PENDING) {
+    if(!pending && temp_axis==GESTURE_PENDING && bath_temp_axis==GESTURE_PENDING) {
         if(power_on!=st.ac_on||temp2!=st.ac_temp_x2||mode_idx!=st.ac_mode||
            fan_speed!=st.ac_fan||fan_auto!=st.ac_auto||swing_on!=st.ac_swing)changed=true;
         power_on=st.ac_on;
@@ -1139,9 +1139,9 @@ static void ha_devices_refresh(lv_timer_t *timer)
         if(bath_view_n)refresh_bath();
     }
     /* Avoid interrupting local open/close animation every second. */
-    if(curtain_view_n && !lv_anim_get(&curtain_open_pct,curtain_anim_exec))
+    if(curtain_view_n && st.curtain_valid && curtain_open_pct!=st.curtain_pos)
         ui_page_devices_set_curtain_position((uint8_t)(st.curtain_pos<0?0:(st.curtain_pos>100?100:st.curtain_pos)));
-    if(drying_view_n && !lv_anim_get(&drying_position_pct,drying_anim_exec))
+    if(drying_view_n && st.rack_valid && drying_position_pct!=st.rack_pos)
         ui_page_devices_set_drying_rack_position((uint8_t)(st.rack_pos<0?0:(st.rack_pos>100?100:st.rack_pos)));
 }
 
@@ -1177,6 +1177,7 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
     lv_obj_scroll_to_x(pager, 0, LV_ANIM_OFF);
     if(ha_device_timer)lv_timer_delete(ha_device_timer);
     ha_device_timer=lv_timer_create(ha_devices_refresh,1000,NULL);
+    ha_devices_refresh(NULL);
     return root;
 }
 
