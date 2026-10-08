@@ -100,16 +100,41 @@ static void update_one(ha_devices_state_t *s,const char *id) {
  }
  cJSON_Delete(r);
 }
-static void refresh(void) {
- ha_devices_state_t next={0};
- if(lock&&xSemaphoreTake(lock,pdMS_TO_TICKS(50))==pdTRUE){next=state;xSemaphoreGive(lock);}
- update_one(&next,AC);update_one(&next,CURTAIN);update_one(&next,RACK);update_one(&next,BATH);
- for(int i=0;i<4;i++)update_one(&next,special[i]);
- for(int i=0;i<3;i++)update_one(&next,bath_switch[i]);
- update_one(&next,"select.yeelink_v20_6acb_mode_2");
- for(int i=0;i<2;i++)update_one(&next,bath_fan[i]);
+/* Keep frequently changing HVAC and cover positions ahead of slower
+ * accessory switches, and publish each entity as soon as it arrives. */
+static void refresh_entity(const char *entity) {
+ ha_devices_state_t next;
+ if(xSemaphoreTake(lock,pdMS_TO_TICKS(50))!=pdTRUE)return;
+ next=state;xSemaphoreGive(lock);
+ update_one(&next,entity);
  next.valid=true;
- if(xSemaphoreTake(lock,pdMS_TO_TICKS(50))==pdTRUE){state=next;xSemaphoreGive(lock);}
+ if(xSemaphoreTake(lock,pdMS_TO_TICKS(50))==pdTRUE){
+  state=next;
+  xSemaphoreGive(lock);
+ }
+}
+static bool run_queued_command(void);
+static void refresh_rapid(void) {
+ const char *const entities[]={AC,CURTAIN,RACK,BATH};
+ for(size_t i=0;i<sizeof(entities)/sizeof(entities[0]);i++){
+  if(run_queued_command())return;
+  refresh_entity(entities[i]);
+ }
+}
+static void refresh_accessories(void) {
+ static size_t cursor=0;
+ static const char *const entities[]={
+  "switch.xiaomi_mt8_b9c8_sleep_mode","switch.xiaomi_mt8_b9c8_eco",
+  "switch.xiaomi_mt8_b9c8_dryer","switch.xiaomi_mt8_b9c8_heater",
+  "switch.yeelink_v20_6acb_ventilation","switch.yeelink_v20_6acb_blow",
+  "switch.yeelink_v20_6acb_heating",
+  "select.yeelink_v20_6acb_mode_2",
+  "select.yeelink_v20_6acb_fan_level_2","select.yeelink_v20_6acb_fan_level"
+ };
+ /* One accessory per scheduler pass avoids starving the cover position polls. */
+ if(run_queued_command())return;
+ refresh_entity(entities[cursor]);
+ cursor=(cursor+1)%(sizeof(entities)/sizeof(entities[0]));
 }
 static void send_cmd(const cmd_t *c){
  cJSON *obj=cJSON_CreateObject();if(!obj)return;cJSON_AddStringToObject(obj,"entity_id",c->entity);
@@ -122,14 +147,32 @@ static void send_cmd(const cmd_t *c){
  char *body=cJSON_PrintUnformatted(obj);cJSON_Delete(obj);
  if(body){char path[90];snprintf(path,sizeof(path),"/api/services/%s/%s",c->domain,c->service);(void)call(path,body,NULL);free(body);}
 }
+static bool run_queued_command(void){
+ cmd_t c;
+ if(xQueueReceive(q,&c,0)!=pdTRUE)return false;
+ send_cmd(&c);
+ return true;
+}
 static void task(void *arg){
- (void)arg;TickType_t last=0;
+ (void)arg;
+ TickType_t last_fast=0,last_accessory=0;
  for(;;){
-  network_wifi_status_t wifi;network_service_get_wifi_status(&wifi);
-  if(!wifi.connected){vTaskDelay(pdMS_TO_TICKS(1500));continue;}
-  cmd_t c;
-  if(xQueueReceive(q,&c,pdMS_TO_TICKS(100))==pdTRUE){send_cmd(&c);continue;}
-  if(!last||(xTaskGetTickCount()-last)>pdMS_TO_TICKS(3000)){last=xTaskGetTickCount();refresh();}
+  network_wifi_status_t wifi;
+  network_service_get_wifi_status(&wifi);
+  if(!wifi.connected){vTaskDelay(pdMS_TO_TICKS(750));continue;}
+  if(run_queued_command())continue;
+  TickType_t now=xTaskGetTickCount();
+  if(!last_fast||(now-last_fast)>=pdMS_TO_TICKS(1200)){
+   last_fast=now;
+   refresh_rapid();
+   continue;
+  }
+  if(!last_accessory||(now-last_accessory)>=pdMS_TO_TICKS(450)){
+   last_accessory=now;
+   refresh_accessories();
+   continue;
+  }
+  vTaskDelay(pdMS_TO_TICKS(40));
  }
 }
 esp_err_t ha_devices_init(void){
