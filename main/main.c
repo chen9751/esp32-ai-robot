@@ -4,6 +4,7 @@
 #include "bluetooth_service.h"
 #include "audio_service.h"
 #include "voice_wakeup.h"
+#include "voice_wakeup.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -167,13 +168,12 @@ void app_main(void)
         ESP_LOGW(TAG, "audio service init failed: %s", esp_err_to_name(err));
     }
 
-    /* Development-only microphone sanity test: report signal levels on
-     * serial every 2 seconds. No UI events or Wi-Fi dependency. */
+    /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
+     * not run simultaneously or steal audio frames. */
     if (audio_service_capture_ready()) {
-        esp_err_t mic_err = audio_service_capture_diagnostic_start();
-        if (mic_err != ESP_OK) {
-            ESP_LOGW(TAG, "microphone diagnostic start failed: %s",
-                     esp_err_to_name(mic_err));
+        esp_err_t wake_err = voice_wakeup_start(NULL, NULL);
+        if (wake_err != ESP_OK) {
+            ESP_LOGW(TAG, "WakeNet startup failed: %s", esp_err_to_name(wake_err));
         }
     }
 
