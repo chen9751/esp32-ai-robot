@@ -80,7 +80,6 @@ static bool request(const char *path, const char *body, response_t *reply)
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return false;
-    esp_http_client_set_header(client, "Authorization", "Bearer placeholder");
     char auth[NETWORK_HA_TOKEN_MAX + 8];
     snprintf(auth, sizeof(auth), "Bearer %s", s_config.ha_token);
     esp_http_client_set_header(client, "Authorization", auth);
