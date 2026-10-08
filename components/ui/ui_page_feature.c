@@ -1,6 +1,5 @@
 #include "ui_page_feature.h"
 #include "ui_page_remote.h"
-#include "ui_page_settings.h"
 #include "ui_page_lights.h"
 #include "ui_page_music.h"
 #include "ui_page_devices.h"
@@ -18,18 +17,13 @@
 #define UI_BACK_LOCK_DISTANCE            8
 #define UI_BACK_COMMIT_DISTANCE         90
 #define UI_BACK_ANIM_MS                180
-#define UI_ENTER_OFFSET_PX              28
-#define UI_ENTER_ANIM_MS               130
+#define UI_ENTER_OFFSET_PX              UI_SCREEN_W
+#define UI_ENTER_ANIM_MS               UI_BACK_ANIM_MS
 
 #define UI_COLOR_BG             lv_color_hex(0x000000)
 #define UI_COLOR_FG             lv_color_hex(0xFFFFFF)
 #define UI_COLOR_BACK_IDLE      lv_color_hex(0x6F6F73)
 #define UI_COLOR_BACK_PRESSED   lv_color_hex(0xFFFFFF)
-
-typedef struct {
-    const lv_image_dsc_t *icon;
-    const lv_image_dsc_t *label;
-} ui_feature_asset_t;
 
 static lv_obj_t *s_content = NULL;
 static lv_obj_t *s_rail = NULL;
@@ -55,28 +49,6 @@ static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
 static void note_activity(void)
 {
     if (s_activity_cb != NULL) s_activity_cb(s_activity_user_data);
-}
-
-static ui_feature_asset_t feature_assets(ui_menu_action_t action)
-{
-    switch (action) {
-        case UI_MENU_REMOTE:   return (ui_feature_asset_t){ &ui_icon_remote, &ui_label_remote };
-        case UI_MENU_MUSIC:    return (ui_feature_asset_t){ &ui_icon_music, &ui_label_music };
-        case UI_MENU_LIGHTS:   return (ui_feature_asset_t){ &ui_icon_light, &ui_label_light };
-        case UI_MENU_DEVICES:  return (ui_feature_asset_t){ &ui_icon_devices, &ui_label_devices };
-        case UI_MENU_SETTINGS:
-        default:               return (ui_feature_asset_t){ &ui_icon_settings, &ui_label_settings };
-    }
-}
-
-static lv_obj_t *create_a8_image(lv_obj_t *parent, const lv_image_dsc_t *src)
-{
-    lv_obj_t *image = lv_image_create(parent);
-    lv_image_set_src(image, src);
-    lv_obj_set_style_image_recolor(image, UI_COLOR_FG, 0);
-    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(image, LV_OBJ_FLAG_CLICKABLE);
-    return image;
 }
 
 static void set_indicator_pressed(bool pressed)
@@ -177,36 +149,6 @@ static void back_rail_event_cb(lv_event_t *e)
     }
 }
 
-static void build_generic_placeholder(ui_menu_action_t action)
-{
-    ui_feature_asset_t assets = feature_assets(action);
-    lv_obj_t *group = lv_obj_create(s_content);
-    lv_obj_remove_style_all(group);
-    lv_obj_set_size(group, 150, 124);
-    lv_obj_align(group, LV_ALIGN_CENTER, 10, 0);
-    lv_obj_clear_flag(group, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(group, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_flex_flow(group, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(group, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(group, 8, 0);
-
-    lv_obj_t *ih = lv_obj_create(group);
-    lv_obj_remove_style_all(ih);
-    lv_obj_set_size(ih, 96, 78);
-    lv_obj_clear_flag(ih, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(ih, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *icon = create_a8_image(ih, assets.icon);
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, 0);
-
-    lv_obj_t *lh = lv_obj_create(group);
-    lv_obj_remove_style_all(lh);
-    lv_obj_set_size(lh, 136, 24);
-    lv_obj_clear_flag(lh, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(lh, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *label = create_a8_image(lh, assets.label);
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
-}
-
 lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
                                 ui_menu_action_t action,
                                 ui_feature_back_cb_t back_cb,
@@ -233,17 +175,12 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
 
     if (action == UI_MENU_REMOTE) {
         ui_page_remote_build(s_content, s_activity_cb, s_activity_user_data);
-    } else if (action == UI_MENU_SETTINGS) {
-        ui_page_settings_build(s_content, s_activity_cb, s_activity_user_data);
-
     } else if (action == UI_MENU_LIGHTS) {
         ui_page_lights_build(s_content, s_activity_cb, s_activity_user_data);
     } else if (action == UI_MENU_MUSIC) {
         ui_page_music_build(s_content, s_activity_cb, s_activity_user_data);
     } else if (action == UI_MENU_DEVICES) {
         ui_page_devices_build(s_content, s_activity_cb, s_activity_user_data);
-    } else {
-        build_generic_placeholder(action);
     }
 
     s_rail = lv_obj_create(s_content);
@@ -278,7 +215,6 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
 void ui_page_feature_stop(void)
 {
     if (s_action == UI_MENU_REMOTE) ui_page_remote_stop();
-    if (s_action == UI_MENU_SETTINGS) ui_page_settings_stop();
     if (s_action == UI_MENU_LIGHTS) ui_page_lights_stop();
     if (s_action == UI_MENU_MUSIC) ui_page_music_stop();
     if (s_action == UI_MENU_DEVICES) ui_page_devices_stop();
