@@ -174,9 +174,9 @@ static void settings_drag_event_cb(lv_event_t *e)
         s_settings_tracking = false;
         if (s_transition_target == UI_TRANSITION_FROM_SETTINGS &&
             s_transition_overlay == s_settings_root) {
-            animate_transition_to(dy >= UI_TRANSITION_COMMIT_DISTANCE ?
-                                  UI_SCREEN_H : 0,
-                                  dy >= UI_TRANSITION_COMMIT_DISTANCE);
+            bool commit = code == LV_EVENT_RELEASED &&
+                          dy >= UI_TRANSITION_COMMIT_DISTANCE;
+            animate_transition_to(commit ? UI_SCREEN_H : 0, commit);
         }
     }
 }
@@ -495,6 +495,8 @@ static void idle_timer_cb(lv_timer_t *timer)
 void ui_handle_back_action(void)
 {
     ui_mark_activity();
+    /* Never delete a page that an in-flight LVGL animation still owns. */
+    if (ui_navigation_transition_active()) return;
 
     if (s_top_page == UI_TOP_SETTINGS) {
         if (s_transition_target == UI_TRANSITION_NONE && !s_transition_animating) {
