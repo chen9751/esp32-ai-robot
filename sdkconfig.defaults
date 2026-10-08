@@ -49,3 +49,8 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
 # software coexistence scheduler because this product keeps Wi-Fi connected
 # while the Settings page performs BLE active scans.
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# TF-card config.json uses a FAT long filename (more than 3 extension chars).
+# Keep LFN buffers on the heap to avoid consuming small task stacks.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
