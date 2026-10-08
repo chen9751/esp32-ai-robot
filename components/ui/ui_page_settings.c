@@ -310,7 +310,9 @@ static void build_slider_content(ui_settings_tab_t tab)
     lv_obj_add_flag(value_label, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *slider = lv_slider_create(s_content);
-    lv_obj_add_flag(slider, LV_OBJ_FLAG_EVENT_BUBBLE);
+    /* Slider drags belong exclusively to the control: never bubble their
+     * vertical finger movement into the settings swipe-to-dismiss handler. */
+    lv_obj_remove_flag(slider, LV_OBJ_FLAG_EVENT_BUBBLE);
     style_slider(slider);
     lv_obj_set_pos(slider, UI_SLIDER_X - UI_CONTENT_X, UI_SLIDER_Y);
 
