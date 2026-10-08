@@ -67,14 +67,13 @@ static int audio_service_set_volume(unsigned char percent)
 
 #define UI_SCREEN_W               640
 #define UI_SCREEN_H               172
-#define UI_BACK_RAIL_W             56
-#define UI_CONTENT_X               UI_BACK_RAIL_W
-#define UI_CONTENT_W              (UI_SCREEN_W - UI_BACK_RAIL_W)
+#define UI_CONTENT_X               28  /* Center the 584px content, no back rail. */
+#define UI_CONTENT_W              (UI_SCREEN_W - 2 * UI_CONTENT_X)
 #define UI_CONTENT_H              124
 #define UI_NAV_Y                  124
 #define UI_TAB_COUNT                6
-#define UI_TAB_W                   97
-#define UI_TAB_LAST_W              99
+#define UI_TAB_W                  106
+#define UI_TAB_LAST_W             110
 #define UI_TAB_H                   48
 
 #define UI_SLIDER_W               420
@@ -838,7 +837,7 @@ static void tab_event_cb(lv_event_t *e)
 
 static void build_nav(void)
 {
-    int32_t x = UI_CONTENT_X;
+    int32_t x = 0; /* Six tabs span all 640 pixels. */
     for (int i = 0; i < UI_TAB_COUNT; ++i) {
         int32_t width = (i == UI_TAB_COUNT - 1) ? UI_TAB_LAST_W : UI_TAB_W;
         lv_obj_t *card = plain_obj(s_root);
