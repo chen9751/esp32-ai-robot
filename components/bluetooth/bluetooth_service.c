@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -29,6 +30,8 @@ static SemaphoreHandle_t s_lock = NULL;
 static uint8_t s_own_addr_type = 0;
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static bool s_host_started = false;
+static SemaphoreHandle_t s_host_exited = NULL;
+static SemaphoreHandle_t s_lifecycle_lock = NULL;
 static uint32_t s_scan_packets = 0;
 static uint32_t s_scan_named_packets = 0;
 static uint32_t s_scan_event_type_count[8] = {0};
@@ -315,6 +318,8 @@ static void host_task(void *param)
     (void)param;
     ESP_LOGI(TAG, "NimBLE host task started");
     nimble_port_run();
+    /* Wake the settings/UI task before the FreeRTOS host task exits. */
+    if (s_host_exited) xSemaphoreGive(s_host_exited);
     nimble_port_freertos_deinit();
 }
 
@@ -492,8 +497,10 @@ esp_err_t bluetooth_service_init(void)
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
-    s_lock = xSemaphoreCreateMutex();
-    if (s_lock == NULL) return ESP_ERR_NO_MEM;
+    if (!s_lock) s_lock = xSemaphoreCreateMutex();
+    if (!s_host_exited) s_host_exited = xSemaphoreCreateBinary();
+    if (s_lock == NULL || s_host_exited == NULL) return ESP_ERR_NO_MEM;
+    (void)xSemaphoreTake(s_host_exited, 0);
 
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
@@ -537,29 +544,77 @@ esp_err_t bluetooth_service_init(void)
 
 esp_err_t bluetooth_service_set_enabled(bool enabled)
 {
-    /* Lazy start: with Bluetooth OFF, neither the BT controller nor
-     * NimBLE host has been initialized and neither reserves runtime DRAM.
-     * This keeps the Settings switch functional without boot-time overhead.
-     * OFF after a previous ON disconnects/stops scans but currently does
-     * not deinitialize the stack or return its allocations to the heap. */
-    if (enabled && !s_status.initialized) {
-        esp_err_t err = bluetooth_service_init();
-        if (err != ESP_OK) return err;
+    /* Settings can call this repeatedly; serialize controller lifecycle. */
+    if (!s_lifecycle_lock) {
+        s_lifecycle_lock = xSemaphoreCreateMutex();
+        if (!s_lifecycle_lock) return ESP_ERR_NO_MEM;
     }
-    if (!s_status.initialized) {
-        s_status.enabled = false;
-        return ESP_OK;
+    if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
     }
-    lock();
-    s_status.enabled = enabled;
-    bump_generation();
-    unlock();
 
-    if (!enabled) {
+    esp_err_t err = ESP_OK;
+    if (enabled) {
+        if (!s_status.initialized) {
+            ESP_LOGI(TAG, "BLE ON before init: internal=%u largest=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            err = bluetooth_service_init();
+        }
+        if (err == ESP_OK) {
+            lock();
+            s_status.enabled = true;
+            bump_generation();
+            unlock();
+        }
+    } else if (s_status.initialized) {
         (void)bluetooth_service_stop_scan();
         (void)bluetooth_service_disconnect();
+        /* A connected peer may require a disconnect callback before the
+         * host can stop; don't force deinit if the stack refuses to stop. */
+        int rc = nimble_port_stop();
+        if (rc != 0) {
+            ESP_LOGE(TAG, "nimble_port_stop failed: %d", rc);
+            err = ESP_FAIL;
+        } else if (xSemaphoreTake(s_host_exited, pdMS_TO_TICKS(3000)) != pdTRUE) {
+            ESP_LOGE(TAG, "NimBLE host stop timed out; retain stack");
+            err = ESP_ERR_TIMEOUT;
+        } else {
+            /* Host signals immediately before deleting its FreeRTOS task.
+             * Allow that task to finish before destroying port resources. */
+            vTaskDelay(pdMS_TO_TICKS(20));
+            err = nimble_port_deinit();
+            if (err == ESP_OK) {
+                s_host_started = false;
+                lock();
+                s_status.initialized = false;
+                s_status.enabled = false;
+                s_status.ready = false;
+                s_status.scanning = false;
+                s_status.connected = false;
+                s_status.bonded = false;
+                s_status.state = BLUETOOTH_LINK_IDLE;
+                s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+                s_result_count = 0;
+                bump_generation();
+                unlock();
+                ESP_LOGI(TAG, "BLE OFF after deinit: internal=%u largest=%u",
+                         (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            } else {
+                ESP_LOGE(TAG, "nimble_port_deinit failed: %s",
+                         esp_err_to_name(err));
+            }
+        }
+    } else {
+        lock();
+        s_status.enabled = false;
+        bump_generation();
+        unlock();
     }
-    return ESP_OK;
+
+    xSemaphoreGive(s_lifecycle_lock);
+    return err;
 }
 
 void bluetooth_service_get_status(bluetooth_status_t *status)
