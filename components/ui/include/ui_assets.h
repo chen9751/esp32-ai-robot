@@ -11,5 +11,3 @@ extern lv_image_dsc_t ui_icon_light;
 extern lv_image_dsc_t ui_label_light;
 extern lv_image_dsc_t ui_icon_devices;
 extern lv_image_dsc_t ui_label_devices;
-extern lv_image_dsc_t ui_icon_settings;
-extern lv_image_dsc_t ui_label_settings;
