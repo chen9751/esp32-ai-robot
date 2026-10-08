@@ -19,7 +19,6 @@ set(UI_SRCS
     "ui_asset_music.c"
     "ui_asset_light.c"
     "ui_asset_devices.c"
-    "ui_asset_settings.c"
     "ui_lights_labels.c"
     "ui_lights_label_living.c"
     "ui_lights_label_study.c"
