@@ -397,9 +397,12 @@ static void build_wifi_content(void)
     lv_obj_t *ip = make_label(s_content,
         status.connected ? status.ip : "--", UI_COLOR_FG);
     lv_obj_set_pos(ip, UI_STATUS_RIGHT_X + 100, 44);
-    lv_obj_t *time = make_label(s_content,
-        status.time_synced ? "TIME SYNCED" : "TIME NOT SYNCED",
-        status.time_synced ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
+    const char *diagnostic = status.time_synced ? "TIME SYNCED" : "TIME NOT SYNCED";
+#if defined(ESP_PLATFORM)
+    if (!status.configured) diagnostic = network_service_config_status();
+#endif
+    lv_obj_t *time = make_label(s_content, diagnostic,
+        status.time_synced && status.configured ? UI_COLOR_ACCENT : UI_COLOR_MUTED);
     lv_obj_set_pos(time, UI_STATUS_RIGHT_X + 18, 82);
 }
 
