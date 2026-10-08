@@ -1,7 +1,5 @@
 #include "ui_page_feature.h"
 #include "ui_page_remote.h"
-#include "ui_page_alarm.h"
-#include "ui_page_timer.h"
 #include "ui_page_settings.h"
 #include "ui_page_lights.h"
 #include "ui_page_music.h"
@@ -66,8 +64,6 @@ static ui_feature_asset_t feature_assets(ui_menu_action_t action)
         case UI_MENU_MUSIC:    return (ui_feature_asset_t){ &ui_icon_music, &ui_label_music };
         case UI_MENU_LIGHTS:   return (ui_feature_asset_t){ &ui_icon_light, &ui_label_light };
         case UI_MENU_DEVICES:  return (ui_feature_asset_t){ &ui_icon_devices, &ui_label_devices };
-        case UI_MENU_TIMER:    return (ui_feature_asset_t){ &ui_icon_timer, &ui_label_timer };
-        case UI_MENU_ALARM:    return (ui_feature_asset_t){ &ui_icon_alarm, &ui_label_alarm };
         case UI_MENU_SETTINGS:
         default:               return (ui_feature_asset_t){ &ui_icon_settings, &ui_label_settings };
     }
@@ -130,27 +126,6 @@ static void back_rail_event_cb(lv_event_t *e)
     if (indev == NULL) return;
 
     lv_event_code_t code = lv_event_get_code(e);
-
-    if (s_action == UI_MENU_ALARM && ui_page_alarm_editor_active()) {
-        if (code == LV_EVENT_PRESSED) {
-            lv_indev_get_point(indev, &s_press);
-            s_pressed = true;
-            s_horizontal_drag = false;
-            set_indicator_pressed(true);
-            note_activity();
-        } else if (s_pressed && code == LV_EVENT_RELEASED) {
-            s_pressed = false;
-            set_indicator_pressed(false);
-            ui_page_alarm_close_editor();
-            note_activity();
-        } else if (code == LV_EVENT_PRESS_LOST) {
-            s_pressed = false;
-            set_indicator_pressed(false);
-        } else if (s_pressed && code == LV_EVENT_PRESSING) {
-            note_activity();
-        }
-        return;
-    }
 
     if (code == LV_EVENT_PRESSED) {
         lv_indev_get_point(indev, &s_press);
@@ -260,10 +235,7 @@ lv_obj_t *ui_page_feature_build(lv_obj_t *parent,
         ui_page_remote_build(s_content, s_activity_cb, s_activity_user_data);
     } else if (action == UI_MENU_SETTINGS) {
         ui_page_settings_build(s_content, s_activity_cb, s_activity_user_data);
-    } else if (action == UI_MENU_ALARM) {
-        ui_page_alarm_build(s_content, s_activity_cb, s_activity_user_data);
-    } else if (action == UI_MENU_TIMER) {
-        ui_page_timer_build(s_content, s_activity_cb, s_activity_user_data);
+
     } else if (action == UI_MENU_LIGHTS) {
         ui_page_lights_build(s_content, s_activity_cb, s_activity_user_data);
     } else if (action == UI_MENU_MUSIC) {
@@ -307,8 +279,6 @@ void ui_page_feature_stop(void)
 {
     if (s_action == UI_MENU_REMOTE) ui_page_remote_stop();
     if (s_action == UI_MENU_SETTINGS) ui_page_settings_stop();
-    if (s_action == UI_MENU_ALARM) ui_page_alarm_stop();
-    if (s_action == UI_MENU_TIMER) ui_page_timer_stop();
     if (s_action == UI_MENU_LIGHTS) ui_page_lights_stop();
     if (s_action == UI_MENU_MUSIC) ui_page_music_stop();
     if (s_action == UI_MENU_DEVICES) ui_page_devices_stop();
