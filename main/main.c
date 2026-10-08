@@ -1,6 +1,7 @@
 #include "board.h"
 #include "ui_manager.h"
 #include "network_service.h"
+#include "ha_lights.h"
 #include "bluetooth_service.h"
 #include "audio_service.h"
 
@@ -170,6 +171,8 @@ void app_main(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
+
+    (void)ha_lights_init();
 
     if (xTaskCreate(physical_buttons_task, "phys_buttons", 3072,
                     NULL, 3, NULL) != pdPASS) {
