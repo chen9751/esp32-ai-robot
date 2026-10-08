@@ -88,6 +88,7 @@ static void physical_buttons_task(void *arg)
     bool pwr_fired = false;
     TickType_t custom_changed = xTaskGetTickCount();
     TickType_t pwr_pressed_at = 0;
+    TickType_t next_memory_report = xTaskGetTickCount() + pdMS_TO_TICKS(60000);
 
     for (;;) {
         const TickType_t now = xTaskGetTickCount();
@@ -120,6 +121,16 @@ static void physical_buttons_task(void *arg)
             enter_power_off();
         }
 
+        if ((int32_t)(now - next_memory_report) >= 0) {
+            ESP_LOGI(TAG,
+                     "MEM runtime: internal=%u min_internal=%u largest=%u DMA=%u PSRAM=%u",
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+            next_memory_report = now + pdMS_TO_TICKS(60000);
+        }
         vTaskDelay(pdMS_TO_TICKS(PHYS_KEY_POLL_MS));
     }
 }
