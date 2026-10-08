@@ -13,7 +13,6 @@ typedef enum {
     UI_MENU_MUSIC,
     UI_MENU_LIGHTS,
     UI_MENU_DEVICES,
-    UI_MENU_SETTINGS,
 } ui_menu_action_t;
 
 typedef void (*ui_menu_action_cb_t)(ui_menu_action_t action, void *user_data);
