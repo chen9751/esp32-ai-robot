@@ -180,7 +180,10 @@ esp_err_t audio_service_init(void)
     es7210_codec_cfg_t es7210_cfg = {
         .ctrl_if = rx_ctrl,
         .master_mode = false,
-        .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC3,
+        /* Mic selection is a bitmask. Some esp_codec_dev releases no longer
+         * expose the ES7210_SEL_MICx macros; keep the original MIC1/MIC3
+         * bits used by the legacy codec interface (bit 0 and bit 2). */
+        .mic_selected = (1U << 0) | (1U << 2),
         .mclk_src = ES7210_MCLK_FROM_PAD,
     };
     const audio_codec_if_t *rx_codec = rx_ctrl ? es7210_codec_new(&es7210_cfg) : NULL;
