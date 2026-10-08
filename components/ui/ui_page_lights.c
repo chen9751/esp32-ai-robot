@@ -113,7 +113,9 @@ static lv_obj_t *s_root;
 static ui_lights_activity_cb_t s_activity_cb;
 static void *s_activity_user_data;
 static light_view_t s_views[LIGHT_COUNT];
+#ifndef UI_LIGHTS_HAS_SOURCE_HAN
 static bool s_labels_ready;
+#endif
 static light_view_t *s_adjust_view;
 static lv_timer_t *s_adjust_timer;
 
