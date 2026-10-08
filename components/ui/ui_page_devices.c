@@ -16,7 +16,7 @@
 #define BG      lv_color_hex(0x000000)
 #define BTN     lv_color_hex(0x111824)
 #define BTN2    lv_color_hex(0x171F2D)
-#define BR      lv_color_hex(0x526581)
+#define BORDER_COLOR      lv_color_hex(0x526581)
 #define BR_ON   lv_color_hex(0x7897C8)
 #define PRESS   lv_color_hex(0x24344D)
 #define CHECK   lv_color_hex(0x22324A)
@@ -228,7 +228,7 @@ static void style_btn(lv_obj_t *o, int r)
     lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_border_color(o, BR, 0);
+    lv_obj_set_style_border_color(o, BORDER_COLOR, 0);
     lv_obj_set_style_border_opa(o, LV_OPA_70, 0);
     lv_obj_set_style_bg_color(o, PRESS, LV_STATE_PRESSED);
     lv_obj_set_style_bg_grad_color(o, PRESS, LV_STATE_PRESSED);
@@ -579,7 +579,7 @@ static void card_style(lv_obj_t *o)
     lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_border_color(o, BR, 0);
+    lv_obj_set_style_border_color(o, BORDER_COLOR, 0);
     lv_obj_set_style_border_opa(o, LV_OPA_60, 0);
 }
 
@@ -645,7 +645,7 @@ static void build_aircon(lv_obj_t *p)
     v->slider = lv_slider_create(v->fan_p); lv_obj_set_pos(v->slider, 10, 34); lv_obj_set_size(v->slider, 148, 8);
     lv_slider_set_range(v->slider, FMIN, FMAX);
     lv_obj_set_style_radius(v->slider, 4, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(v->slider, BR, LV_PART_MAIN); lv_obj_set_style_bg_opa(v->slider, LV_OPA_50, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(v->slider, BORDER_COLOR, LV_PART_MAIN); lv_obj_set_style_bg_opa(v->slider, LV_OPA_50, LV_PART_MAIN);
     lv_obj_set_style_bg_color(v->slider, FG, LV_PART_INDICATOR); lv_obj_set_style_bg_color(v->slider, FG, LV_PART_KNOB);
     lv_obj_set_style_pad_all(v->slider, 4, LV_PART_KNOB); lv_obj_add_event_cb(v->slider, slider_cb, LV_EVENT_ALL, NULL);
     v->auto_b = tbtn(v->fan_p, "AUTO", 44, 60, 80, 28);
@@ -763,7 +763,7 @@ static void bath_style_level(lv_obj_t *button, uint8_t level)
 {
     lv_obj_set_style_bg_color(button, BTN, 0);
     lv_obj_set_style_bg_grad_color(button, BTN2, 0);
-    lv_obj_set_style_border_color(button, BR, 0);
+    lv_obj_set_style_border_color(button, BORDER_COLOR, 0);
     lv_obj_set_style_border_width(button, 1, 0);
     lv_obj_set_style_border_opa(button, LV_OPA_70, 0);
     if(level == 1) {
