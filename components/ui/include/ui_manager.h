@@ -13,8 +13,6 @@ typedef enum {
     UI_MENU_MUSIC,
     UI_MENU_LIGHTS,
     UI_MENU_DEVICES,
-    UI_MENU_TIMER,
-    UI_MENU_ALARM,
     UI_MENU_SETTINGS,
 } ui_menu_action_t;
 
