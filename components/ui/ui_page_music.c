@@ -348,7 +348,7 @@ void ui_page_music_set_playback(bool playing,
     if (s_progress != NULL) {
         int32_t value = 0;
         if (s_duration_seconds > 0) {
-            value = (s_position_seconds * 1000) / s_duration_seconds;
+            value = (int32_t)(((int64_t)s_position_seconds * 1000) / s_duration_seconds);
         }
         lv_bar_set_value(s_progress, value, LV_ANIM_OFF);
     }
