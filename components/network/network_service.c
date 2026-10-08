@@ -1,6 +1,8 @@
 #include "network_service.h"
 
 #include <stdio.h>
+#include <errno.h>
+#include <dirent.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -84,10 +86,31 @@ static esp_err_t load_tf_config(void)
         return err;
     }
 
+    ESP_LOGI(TAG, "TF card mounted; checking %s", TF_CONFIG_PATH);
+    DIR *dir = opendir(TF_MOUNT_POINT);
+    if (dir) {
+        struct dirent *entry;
+        int count = 0;
+        while ((entry = readdir(dir)) != NULL) {
+            ESP_LOGI(TAG, "TF root entry: %s", entry->d_name);
+            if (++count >= 32) {
+                ESP_LOGW(TAG, "TF root listing truncated at 32 entries");
+                break;
+            }
+        }
+        closedir(dir);
+    } else {
+        int saved_errno = errno;
+        ESP_LOGW(TAG, "Cannot list TF root: errno=%d (%s)", saved_errno, strerror(saved_errno));
+    }
+
+    errno = 0;
     FILE *file = fopen(TF_CONFIG_PATH, "rb");
     if (!file) {
         s_config_status = "CONFIG MISSING";
-        ESP_LOGW(TAG, "Missing %s", TF_CONFIG_PATH);
+        int saved_errno = errno;
+        ESP_LOGW(TAG, "Cannot open %s: errno=%d (%s)",
+                 TF_CONFIG_PATH, saved_errno, strerror(saved_errno));
         return ESP_ERR_NOT_FOUND;
     }
 
