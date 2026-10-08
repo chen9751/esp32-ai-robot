@@ -158,7 +158,7 @@ void app_main(void)
     }
 
     /* I2S DMA requires contiguous internal/DMA-capable RAM. Reserve the
-     * small alert-audio DMA ring before Wi-Fi fragments the remaining internal
+     * small audio DMA ring before Wi-Fi fragments the remaining internal
      * heap. Wi-Fi itself is configured with a reduced buffer profile in
      * network_service_init(), appropriate for this control-panel workload. */
     err = audio_service_init();
