@@ -106,11 +106,22 @@ esp_err_t voice_wakeup_start(voice_wakeup_event_callback_t cb, void *ctx)
         ESP_LOGE(TAG, "model partition unavailable; use idf.py flash (not app-flash)");
         return ESP_ERR_NOT_FOUND;
     }
-    afe_config_t *cfg = afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_LOW_COST);
+    ESP_LOGI(TAG, "AFE before create: internal=%u largest=%u PSRAM=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    /* HIGH_PERF can trade PSRAM for internal DRAM on ESP32-S3 SR paths.
+     * This is an A/B memory experiment against the proven LOW_COST baseline.
+     * Model, mic geometry and UI remain unchanged. */
+    afe_config_t *cfg = afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_HIGH_PERF);
     if (!cfg) return ESP_ERR_NO_MEM;
     s_afe = esp_afe_handle_from_config(cfg);
     s_afe_data = s_afe ? s_afe->create_from_config(cfg) : NULL;
     afe_config_free(cfg);
+    ESP_LOGI(TAG, "AFE after create: internal=%u largest=%u PSRAM=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     if (!s_afe_data) {
         ESP_LOGE(TAG, "AFE create failed (model selection or memory)");
         return ESP_FAIL;
