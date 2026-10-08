@@ -1,4 +1,5 @@
 #include "ui_page_lights.h"
+#include "ha_lights.h"
 #include "ui_lights_labels.h"
 #include "ui_lights_icons.h"
 #include "ui_lights_extra_icons.h"
@@ -118,6 +119,13 @@ static bool s_labels_ready;
 #endif
 static light_view_t *s_adjust_view;
 static lv_timer_t *s_adjust_timer;
+static lv_timer_t *s_ha_timer;
+static bool s_ha_initialized[LIGHT_COUNT];
+
+static int light_index(const light_view_t *view)
+{
+    return (int)(view - s_views);
+}
 
 static void note_activity(void)
 {
@@ -429,6 +437,36 @@ static void adjust_slider_changed(lv_event_t *event)
     note_activity();
 }
 
+static void adjust_slider_released(lv_event_t *event)
+{
+    light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
+    if (!view) return;
+    int i = light_index(view);
+    if (view->adjust_mode == ADJUST_BRIGHTNESS) {
+        (void)ha_lights_send(i, HA_LIGHT_BRIGHTNESS, view->brightness, 0);
+    } else if (view->adjust_mode == ADJUST_TEMPERATURE) {
+        /* HA limits: living/study 2700-6500, bedroom/small 3000-5700,
+           bedside 1700-6500, RGB strip 2700-6500. */
+        static const int min_k[LIGHT_COUNT] = {2700,2700,3000,1700,3000,2700,0,0};
+        static const int max_k[LIGHT_COUNT] = {6500,6500,5700,6500,5700,6500,0,0};
+        int k = view->color_temp_k;
+        if (min_k[i] && k < min_k[i]) k = min_k[i];
+        if (max_k[i] && k > max_k[i]) k = max_k[i];
+        view->color_temp_k = (uint16_t)k;
+        update_adjust_value(view);
+        (void)ha_lights_send(i, HA_LIGHT_TEMPERATURE, k, 0);
+    }
+}
+
+static void color_slider_released(lv_event_t *event)
+{
+    light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
+    if (!view) return;
+    int hue = view->hue_percent * 360 / 100;
+    if (hue >= 360) hue = 0;
+    (void)ha_lights_send(light_index(view), HA_LIGHT_COLOR, hue, view->saturation);
+}
+
 static void hue_slider_changed(lv_event_t *event)
 {
     light_view_t *view = (light_view_t *)lv_event_get_user_data(event);
@@ -558,6 +596,7 @@ static void create_color_controls(light_view_t *view)
     lv_obj_set_style_bg_opa(view->hue_slider, LV_OPA_TRANSP, LV_PART_INDICATOR);
     style_color_slider_knob(view->hue_slider);
     lv_obj_add_event_cb(view->hue_slider, hue_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+    lv_obj_add_event_cb(view->hue_slider, color_slider_released, LV_EVENT_RELEASED, view);
 
     view->saturation_slider = lv_slider_create(view->adjust_panel);
     lv_slider_set_range(view->saturation_slider, COLOR_MIN, COLOR_MAX);
@@ -570,6 +609,7 @@ static void create_color_controls(light_view_t *view)
     style_color_slider_knob(view->saturation_slider);
     update_saturation_gradient(view);
     lv_obj_add_event_cb(view->saturation_slider, saturation_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+    lv_obj_add_event_cb(view->saturation_slider, color_slider_released, LV_EVENT_RELEASED, view);
 
     set_color_controls_visible(view, false);
 }
@@ -600,6 +640,7 @@ static void create_adjust_panel(light_view_t *view)
     lv_obj_set_size(view->adjust_slider, 108, 8);
     lv_obj_align(view->adjust_slider, LV_ALIGN_TOP_MID, 0, 63);
     lv_obj_add_event_cb(view->adjust_slider, adjust_slider_changed, LV_EVENT_VALUE_CHANGED, view);
+    lv_obj_add_event_cb(view->adjust_slider, adjust_slider_released, LV_EVENT_RELEASED, view);
 
     create_color_controls(view);
 }
@@ -671,6 +712,7 @@ static void item_click(lv_event_t *event)
     if (!view) return;
     if (view->adjust_mode != ADJUST_NONE) return;
     view->on = !view->on;
+    (void)ha_lights_send(light_index(view), HA_LIGHT_POWER, view->on ? 1 : 0, 0);
     update_state(view);
     note_activity();
 }
@@ -720,6 +762,29 @@ static void create_item(lv_obj_t *parent, size_t index)
     update_state(view);
 }
 
+/* Runs in LVGL thread, never in the HA HTTP worker. */
+static void ha_refresh_timer(lv_timer_t *timer)
+{
+    (void)timer;
+    for (int i = 0; i < LIGHT_COUNT; ++i) {
+        light_view_t *view = &s_views[i];
+        if (!view->item) continue;
+        ha_light_state_t state;
+        if (!ha_lights_get(i, &state) || !state.available) continue;
+        if (view->adjust_mode != ADJUST_NONE) continue;
+        bool changed = !s_ha_initialized[i] || view->on != state.on;
+        view->on = state.on;
+        if (state.brightness_pct) view->brightness = state.brightness_pct;
+        if (state.color_temp_k) view->color_temp_k = state.color_temp_k;
+        if (view->kind == LIGHT_RGB) {
+            view->hue_percent = (uint8_t)((state.hue_deg * 100U) / 360U);
+            view->saturation = state.saturation_pct;
+        }
+        s_ha_initialized[i] = true;
+        if (changed) update_state(view);
+    }
+}
+
 lv_obj_t *ui_page_lights_build(lv_obj_t *parent,
                                ui_lights_activity_cb_t activity_cb,
                                void *activity_user_data)
@@ -732,6 +797,7 @@ lv_obj_t *ui_page_lights_build(lv_obj_t *parent,
     s_activity_user_data = activity_user_data;
     s_adjust_view = NULL;
     stop_adjust_timer();
+    for (int i = 0; i < LIGHT_COUNT; ++i) s_ha_initialized[i] = false;
     ui_lights_extra_icons_init();
 #ifndef UI_LIGHTS_HAS_SOURCE_HAN
     if (!s_labels_ready) {
@@ -765,11 +831,14 @@ lv_obj_t *ui_page_lights_build(lv_obj_t *parent,
     lv_obj_add_event_cb(scroller, scroll_activity, LV_EVENT_SCROLL, NULL);
 
     for (size_t i = 0; i < LIGHT_COUNT; i++) create_item(scroller, i);
+    s_ha_timer = lv_timer_create(ha_refresh_timer, 1000, NULL);
+    ha_refresh_timer(NULL);
     return s_root;
 }
 
 void ui_page_lights_stop(void)
 {
+    if (s_ha_timer) { lv_timer_delete(s_ha_timer); s_ha_timer = NULL; }
     stop_adjust_timer();
     s_adjust_view = NULL;
 
