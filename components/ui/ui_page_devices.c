@@ -1,4 +1,5 @@
 #include "ui_page_devices.h"
+#include "ha_devices.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -54,9 +55,9 @@
 #define FMIN 1
 #define FMAX 7
 
-#define BATH_TMIN_X10 160
-#define BATH_TMAX_X10 310
-#define BATH_TSTEP_X10 5
+#define BATH_TMIN_X10 250
+#define BATH_TMAX_X10 450
+#define BATH_TSTEP_X10 10
 #define BATH_DRAG_STEP 22
 #define GESTURE_LOCK_PX 6
 #define QUICK_SWIPE_MS 220u
@@ -146,6 +147,7 @@ static lv_obj_t *root;
 static lv_obj_t *pager;
 static bool wrapping;
 static bool updating;
+static lv_timer_t *ha_device_timer;
 static ui_devices_activity_cb_t acb;
 static void *aud;
 
@@ -175,7 +177,7 @@ static bath_view_t bath_views[BATH_VIEW_N];
 static size_t bath_view_n;
 static uint8_t bath_speed[3]; /* Ventilation, blower and warm air: 0 off, 1 low, 2 high. */
 static bool bath_dry_on;
-static int32_t bath_target_x10 = 260;
+static int32_t bath_target_x10 = 250;
 static int32_t bath_current_x10 = 240;
 static int32_t bath_temp_x;
 static int32_t bath_temp_y;
@@ -431,6 +433,7 @@ static void power_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     power_on = !power_on;
+    (void)ha_devices_command("climate",power_on?"turn_on":"turn_off","climate.xiaomi_mt8_b9c8_air_conditioner",NULL);
     if(!power_on) center = CENTER_TEMP;
     refresh_aircon(); activity();
 }
@@ -445,7 +448,9 @@ static void mode_cb(lv_event_t *e)
 static void swing_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
-    swing_on = !swing_on; refresh_aircon(); activity();
+    swing_on = !swing_on;
+    (void)ha_devices_command("climate","set_swing_mode","climate.xiaomi_mt8_b9c8_air_conditioner",swing_on?"{\"swing_mode\":\"on\"}":"{\"swing_mode\":\"off\"}");
+    refresh_aircon(); activity();
 }
 
 static void fan_btn_cb(lv_event_t *e)
@@ -460,7 +465,10 @@ static void feat_cb(lv_event_t *e)
     if(lv_event_get_code(e) != LV_EVENT_CLICKED || !power_on) return;
     intptr_t n = (intptr_t)lv_event_get_user_data(e);
     if(n < 0 || n > 3) return;
-    features[n] = !features[n]; refresh_aircon(); activity();
+    features[n] = !features[n];
+    static const char *ids[4]={"switch.xiaomi_mt8_b9c8_sleep_mode","switch.xiaomi_mt8_b9c8_eco","switch.xiaomi_mt8_b9c8_dryer","switch.xiaomi_mt8_b9c8_heater"};
+    (void)ha_devices_command("switch",features[n]?"turn_on":"turn_off",ids[n],NULL);
+    refresh_aircon(); activity();
 }
 
 static void mode_opt_cb(lv_event_t *e)
@@ -469,6 +477,9 @@ static void mode_opt_cb(lv_event_t *e)
     intptr_t n = (intptr_t)lv_event_get_user_data(e);
     if(n < 0 || n > 3) return;
     mode_idx = (uint8_t)n; center = CENTER_TEMP;
+    static const char *modes[4]={"cool","heat","fan_only","dry"};
+    char json[50];snprintf(json,sizeof(json),"{\"hvac_mode\":\"%s\"}",modes[n]);
+    (void)ha_devices_command("climate","set_hvac_mode","climate.xiaomi_mt8_b9c8_air_conditioner",json);
     refresh_aircon(); activity();
 }
 
@@ -547,6 +558,10 @@ static void temp_cb(lv_event_t *e)
                 refresh_aircon();
             }
         }
+        if(c == LV_EVENT_RELEASED && temp2 != temp_start2) {
+            char json[48];snprintf(json,sizeof(json),"{\"temperature\":%.1f}",temp2/2.0);
+            (void)ha_devices_command("climate","set_temperature","climate.xiaomi_mt8_b9c8_air_conditioner",json);
+        }
         temp_axis = GESTURE_PENDING;
         activity();
     }
@@ -556,7 +571,9 @@ static void auto_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_LONG_PRESSED ||
        !power_on || center != CENTER_FAN) return;
-    fan_auto = true; refresh_aircon(); activity();
+    fan_auto = true;
+    (void)ha_devices_command("climate","set_fan_mode","climate.xiaomi_mt8_b9c8_air_conditioner","{\"fan_mode\":\"auto\"}");
+    refresh_aircon(); activity();
 }
 
 static void slider_cb(lv_event_t *e)
@@ -566,6 +583,10 @@ static void slider_cb(lv_event_t *e)
     if(c == LV_EVENT_PRESSED || c == LV_EVENT_PRESSING || c == LV_EVENT_VALUE_CHANGED) {
         fan_speed = lv_slider_get_value((lv_obj_t *)lv_event_get_target(e));
         fan_auto = false; refresh_aircon();
+    }
+    if(c == LV_EVENT_RELEASED) {
+        char json[64];snprintf(json,sizeof(json),"{\"fan_mode\":\"level%d\"}",fan_speed);
+        (void)ha_devices_command("climate","set_fan_mode","climate.xiaomi_mt8_b9c8_air_conditioner",json);
     }
     if(c == LV_EVENT_PRESSED || c == LV_EVENT_PRESSING || c == LV_EVENT_VALUE_CHANGED ||
        c == LV_EVENT_RELEASED || c == LV_EVENT_PRESS_LOST) activity();
@@ -710,6 +731,7 @@ static void curtain_action_cb(lv_event_t *e)
     if(a == CURTAIN_ACTION_OPEN) curtain_start_animation(100);
     else if(a == CURTAIN_ACTION_STOP) curtain_stop_animation();
     else if(a == CURTAIN_ACTION_CLOSE) curtain_start_animation(0);
+    (void)ha_devices_command("cover",a==CURTAIN_ACTION_OPEN?"open_cover":(a==CURTAIN_ACTION_CLOSE?"close_cover":"stop_cover"),"cover.xiaomi_acn010_a9ab_curtain",NULL);
     activity();
 }
 
@@ -819,6 +841,17 @@ static void bath_function_cb(lv_event_t *e)
         bath_speed[fn] = old_level == 0 ? 1 : (old_level == 1 ? 2 : 1);
     }
 
+    static const char *ids[3]={"switch.yeelink_v20_6acb_ventilation","switch.yeelink_v20_6acb_blow","switch.yeelink_v20_6acb_heating"};
+    if(fn==BATH_DRY) {
+        (void)ha_devices_command("select","select_option","select.yeelink_v20_6acb_mode_2",bath_dry_on?"{\"option\":\"Dry\"}":"{\"option\":\"Idle\"}");
+    } else {
+        /* Stop the previous bath mode before selecting another. */
+        (void)ha_devices_command("button","press","button.yeelink_v20_6acb_stop_working",NULL);
+        (void)ha_devices_command("switch","turn_on",ids[fn],NULL);
+        if(fn<2){char json[48];snprintf(json,sizeof(json),"{\"option\":\"%s\"}",bath_speed[fn]==2?"High":"Low");
+          (void)ha_devices_command("select","select_option",fn==0?"select.yeelink_v20_6acb_fan_level_2":"select.yeelink_v20_6acb_fan_level",json);
+        }
+    }
     refresh_bath();
     activity();
 }
@@ -827,6 +860,7 @@ static void bath_stop_cb(lv_event_t *e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     bath_clear_modes();
+    (void)ha_devices_command("button","press","button.yeelink_v20_6acb_stop_working",NULL);
     refresh_bath();
     activity();
 }
@@ -902,6 +936,10 @@ static void bath_temp_cb(lv_event_t *e)
                 bath_target_x10 = target;
                 refresh_bath();
             }
+        }
+        if(code==LV_EVENT_RELEASED && bath_target_x10!=bath_start_x10){
+            char json[48];snprintf(json,sizeof(json),"{\"value\":%ld}",(long)(bath_target_x10/10));
+            (void)ha_devices_command("number","set_value","number.yeelink_v20_6acb_target_temperature",json);
         }
         bath_temp_axis = GESTURE_PENDING;
         activity();
@@ -1014,6 +1052,8 @@ static void drying_action_cb(lv_event_t *e)
     if(action == DRYING_ACTION_UP) drying_start_animation(0);
     else if(action == DRYING_ACTION_DOWN) drying_start_animation(100);
     else if(action == DRYING_ACTION_STOP) drying_stop_animation();
+    /* Airer cover uses reversed reporting; open is up, close is down. */
+    (void)ha_devices_command("cover",action==DRYING_ACTION_UP?"open_cover":(action==DRYING_ACTION_DOWN?"close_cover":"stop_cover"),"cover.xiaomi_0002_bfe9_airer",NULL);
     activity();
 }
 
@@ -1058,6 +1098,36 @@ static void pager_cb(lv_event_t *e)
     }
 }
 
+static void ha_devices_refresh(lv_timer_t *timer)
+{
+    (void)timer;
+    ha_devices_state_t st;
+    if(!ha_devices_get(&st))return;
+    /* Do not replace gesture values while the user is dragging a control. */
+    bool changed=false;
+    if(temp_axis==GESTURE_PENDING && bath_temp_axis==GESTURE_PENDING) {
+        if(power_on!=st.ac_on||temp2!=st.ac_temp_x2||mode_idx!=st.ac_mode||
+           fan_speed!=st.ac_fan||fan_auto!=st.ac_auto||swing_on!=st.ac_swing)changed=true;
+        power_on=st.ac_on;
+        if(st.ac_temp_x2>=TMIN&&st.ac_temp_x2<=TMAX)temp2=st.ac_temp_x2;
+        mode_idx=(uint8_t)st.ac_mode;
+        if(st.ac_fan>=FMIN&&st.ac_fan<=FMAX)fan_speed=st.ac_fan;
+        fan_auto=st.ac_auto;swing_on=st.ac_swing;
+        for(int i=0;i<4;i++){if(features[i]!=st.ac_features[i])changed=true;features[i]=st.ac_features[i];}
+        if(changed)refresh_aircon();
+        if(st.bath_target_x10>=BATH_TMIN_X10&&st.bath_target_x10<=BATH_TMAX_X10)bath_target_x10=st.bath_target_x10;
+        bath_current_x10=st.bath_current_x10;
+        for(int i=0;i<3;i++)bath_speed[i]=(uint8_t)st.bath_levels[i];
+        bath_dry_on=st.bath_dry;
+        if(bath_view_n)refresh_bath();
+    }
+    /* Avoid interrupting local open/close animation every second. */
+    if(curtain_view_n && !lv_anim_get(&curtain_open_pct,curtain_anim_exec))
+        ui_page_devices_set_curtain_position((uint8_t)(st.curtain_pos<0?0:(st.curtain_pos>100?100:st.curtain_pos)));
+    if(drying_view_n && !lv_anim_get(&drying_position_pct,drying_anim_exec))
+        ui_page_devices_set_drying_rack_position((uint8_t)(st.rack_pos<0?0:(st.rack_pos>100?100:st.rack_pos)));
+}
+
 lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
                                 ui_devices_activity_cb_t cb,
                                 void *ud)
@@ -1088,11 +1158,14 @@ lv_obj_t *ui_page_devices_build(lv_obj_t *parent,
 
     lv_obj_add_event_cb(pager, pager_cb, LV_EVENT_ALL, NULL);
     lv_obj_scroll_to_x(pager, 0, LV_ANIM_OFF);
+    if(ha_device_timer)lv_timer_delete(ha_device_timer);
+    ha_device_timer=lv_timer_create(ha_devices_refresh,1000,NULL);
     return root;
 }
 
 void ui_page_devices_stop(void)
 {
+    if(ha_device_timer){lv_timer_delete(ha_device_timer);ha_device_timer=NULL;}
     curtain_stop_animation(); drying_stop_animation();
     root = NULL; pager = NULL; wrapping = false; updating = false;
     temp_axis = GESTURE_PENDING; bath_temp_axis = GESTURE_PENDING;
