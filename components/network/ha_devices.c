@@ -86,6 +86,11 @@ static void update_one(ha_devices_state_t *s,const char *id) {
    if(cJSON_IsNumber(t))s->bath_target_x10=(int)(t->valuedouble*10+0.5);
    const char *pm=jstr(a,"preset_mode");
    if(pm)s->bath_dry=!strcmp(pm,"Dry");
+   /* Bath heater heating strength comes from the Miot climate attribute.
+    * Separate Low/High select entities exist only for blow and ventilation. */
+   int heat_level=jint(a,"ptc_bath_heater.heat_level",0);
+   if(s->bath_levels[2] && heat_level>=1 && heat_level<=2)
+       s->bath_levels[2]=heat_level;
  }
  else {
   for(int i=0;i<4;i++)if(!strcmp(id,special[i]))s->ac_features[i]=!strcmp(v,"on");
