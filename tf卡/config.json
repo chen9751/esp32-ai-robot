@@ -1,0 +1,13 @@
+{
+  "wifi": {
+    "ssid": "YOUR_WIFI_SSID",
+    "password": "YOUR_WIFI_PASSWORD"
+  },
+  "ai": {
+    "url": "http://192.168.50.149:8000"
+  },
+  "ha": {
+    "url": "",
+    "token": ""
+  }
+}
