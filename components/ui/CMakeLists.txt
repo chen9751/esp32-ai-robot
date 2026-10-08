@@ -28,8 +28,6 @@ set(UI_SRCS
     "ui_lights_labels_utility.c"
 )
 
-endif()
-
 if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/ui_font_source_han_lights_18.c")
     list(APPEND UI_SRCS "ui_font_source_han_lights_18.c")
     set(UI_LIGHTS_HAS_SOURCE_HAN TRUE)
@@ -53,8 +51,6 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES lvgl board network bluetooth audio
 )
-
-endif()
 
 if(UI_LIGHTS_HAS_SOURCE_HAN)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE UI_LIGHTS_HAS_SOURCE_HAN=1)
