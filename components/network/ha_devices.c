@@ -72,15 +72,20 @@ static void update_one(ha_devices_state_t *s,const char *id) {
    const char *fm=jstr(a,"fan_mode");s->ac_auto=fm&&!strcmp(fm,"auto");
    if(fm&&!strncmp(fm,"level",5))s->ac_fan=atoi(fm+5);
    s->ac_swing=jstr(a,"swing_mode")&&!strcmp(jstr(a,"swing_mode"),"on");
- }else if(!strcmp(id,CURTAIN))s->curtain_pos=jint(a,"current_position",s->curtain_pos);
- else if(!strcmp(id,RACK))s->rack_pos=100-jint(a,"current_position",100-s->rack_pos);
+ }else if(!strcmp(id,CURTAIN)){
+   const cJSON *p=cJSON_GetObjectItemCaseSensitive(a,"current_position");
+   if(cJSON_IsNumber(p)){s->curtain_pos=jint(a,"current_position",s->curtain_pos);s->curtain_valid=true;}
+ }else if(!strcmp(id,RACK)){
+   const cJSON *p=cJSON_GetObjectItemCaseSensitive(a,"current_position");
+   if(cJSON_IsNumber(p)){s->rack_pos=100-jint(a,"current_position",100-s->rack_pos);s->rack_valid=true;}
+ }
  else if(!strcmp(id,BATH)){
    const cJSON *t=cJSON_GetObjectItemCaseSensitive(a,"current_temperature");
    if(cJSON_IsNumber(t))s->bath_current_x10=(int)(t->valuedouble*10+0.5);
    t=cJSON_GetObjectItemCaseSensitive(a,"temperature");
    if(cJSON_IsNumber(t))s->bath_target_x10=(int)(t->valuedouble*10+0.5);
    const char *pm=jstr(a,"preset_mode");
-   if(pm&&!strcmp(pm,"Dry"))s->bath_dry=true;
+   if(pm)s->bath_dry=!strcmp(pm,"Dry");
  }
  else {
   for(int i=0;i<4;i++)if(!strcmp(id,special[i]))s->ac_features[i]=!strcmp(v,"on");
@@ -119,7 +124,7 @@ static void task(void *arg){
   if(!wifi.connected){vTaskDelay(pdMS_TO_TICKS(1500));continue;}
   cmd_t c;
   if(xQueueReceive(q,&c,pdMS_TO_TICKS(100))==pdTRUE){send_cmd(&c);continue;}
-  if(!last||(xTaskGetTickCount()-last)>pdMS_TO_TICKS(6000)){last=xTaskGetTickCount();refresh();}
+  if(!last||(xTaskGetTickCount()-last)>pdMS_TO_TICKS(3000)){last=xTaskGetTickCount();refresh();}
  }
 }
 esp_err_t ha_devices_init(void){
