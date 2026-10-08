@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <errno.h>
-#include <dirent.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -86,23 +85,7 @@ static esp_err_t load_tf_config(void)
         return err;
     }
 
-    ESP_LOGI(TAG, "TF card mounted; checking %s", TF_CONFIG_PATH);
-    DIR *dir = opendir(TF_MOUNT_POINT);
-    if (dir) {
-        struct dirent *entry;
-        int count = 0;
-        while ((entry = readdir(dir)) != NULL) {
-            ESP_LOGI(TAG, "TF root entry: %s", entry->d_name);
-            if (++count >= 32) {
-                ESP_LOGW(TAG, "TF root listing truncated at 32 entries");
-                break;
-            }
-        }
-        closedir(dir);
-    } else {
-        int saved_errno = errno;
-        ESP_LOGW(TAG, "Cannot list TF root: errno=%d (%s)", saved_errno, strerror(saved_errno));
-    }
+    ESP_LOGI(TAG, "TF card mounted; loading configuration");
 
     errno = 0;
     FILE *file = fopen(TF_CONFIG_PATH, "rb");
