@@ -2,7 +2,7 @@
 #include "ui_manager.h"
 #include "network_service.h"
 #include "bluetooth_service.h"
-#include "audio_service.h"
+#include "audio_service.h"\n#include "voice_wakeup.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
