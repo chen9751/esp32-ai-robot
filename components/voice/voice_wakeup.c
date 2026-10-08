@@ -6,6 +6,7 @@
 
 #include "audio_service.h"
 #include "esp_afe_sr_iface.h"
+#include "esp_afe_sr_models.h"
 #include "esp_afe_config.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
