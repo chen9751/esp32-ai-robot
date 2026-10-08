@@ -26,7 +26,7 @@ LV_FONT_DECLARE(ui_font_source_han_lights_18);
 #define BRIGHTNESS_MAX 100
 #define BRIGHTNESS_STEP 1
 
-#define TEMP_MIN_K 2500
+#define TEMP_MIN_K 1700
 #define TEMP_MAX_K 6500
 #define TEMP_STEP_K 100
 
