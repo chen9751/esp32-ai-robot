@@ -43,11 +43,11 @@ extern "C" void app_main(void) {
       resolver.AddReshape() != kTfLiteOk ||
       resolver.AddAssignVariable() != kTfLiteOk ||
       resolver.AddConv2D() != kTfLiteOk ||
-      resolver.AddPack() != kTfLiteOk ||
+      resolver.AddDepthwiseConv2D() != kTfLiteOk ||
+      resolver.AddConcatenation() != kTfLiteOk ||
       resolver.AddCallOnce() != kTfLiteOk ||
-      resolver.AddAdd() != kTfLiteOk ||
-      resolver.AddMul() != kTfLiteOk ||
-      resolver.AddSplitV() != kTfLiteOk ||
+      resolver.AddStridedSlice() != kTfLiteOk ||
+      resolver.AddSplit() != kTfLiteOk ||
       resolver.AddFullyConnected() != kTfLiteOk ||
       resolver.AddLogistic() != kTfLiteOk ||
       resolver.AddQuantize() != kTfLiteOk) {
