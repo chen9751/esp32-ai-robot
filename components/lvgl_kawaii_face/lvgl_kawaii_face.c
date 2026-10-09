@@ -173,17 +173,23 @@ esp_err_t face_animation_init(face_config_t *config)
     int32_t parent_h = lv_obj_get_height(parent_obj);
     uint16_t face_sz = (uint16_t)((parent_w < parent_h) ? parent_w : parent_h);
 
+    /* Landscape adaptation: keep the expression's vertical scale while
+     * distributing the two eye canvases across the full 640x172 parent.
+     * Square parents retain the upstream geometry. */
+    bool landscape = parent_w >= parent_h * 2;
     face_state.face_sz = face_sz;
-    face_state.eye_cw = (uint16_t)(face_sz * 0.45f);
-    face_state.mouth_cw = (uint16_t)(face_sz * 0.45f);
-    face_state.mouth_ch = (uint16_t)(face_sz * 0.38f);
+    face_state.eye_cw = (uint16_t)(face_sz * (landscape ? 0.55f : 0.45f));
+    face_state.mouth_cw = (uint16_t)(face_sz * (landscape ? 0.64f : 0.45f));
+    face_state.mouth_ch = (uint16_t)(face_sz * (landscape ? 0.40f : 0.38f));
 
     FACE_LOGI(TAG, "Parent: %dx%d, face_sz: %u, eye: %upx, mouth: %ux%upx",
               parent_w, parent_h, face_sz,
               face_state.eye_cw, face_state.mouth_cw, face_state.mouth_ch);
 
     face_state.face_container = lv_obj_create(parent_obj);
-    lv_obj_set_size(face_state.face_container, face_sz, face_sz);
+    lv_obj_set_size(face_state.face_container,
+                    landscape ? parent_w : face_sz,
+                    landscape ? parent_h : face_sz);
     lv_obj_center(face_state.face_container);
     lv_obj_set_style_bg_opa(face_state.face_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(face_state.face_container, 0, 0);
@@ -212,11 +218,16 @@ esp_err_t face_animation_init(face_config_t *config)
     }
 
     int16_t eye_gap = face_state.eye_cw / 4;
-    int16_t eye_y = (int16_t)(face_sz * 0.12f);
-    int16_t left_eye_x = (int16_t)(face_sz / 2) - face_state.eye_cw - eye_gap / 2;
-    int16_t right_eye_x = (int16_t)(face_sz / 2) + eye_gap / 2;
-    int16_t mouth_y = (int16_t)(face_sz * 0.62f);
-    int16_t mouth_x = (int16_t)(face_sz / 2) - (int16_t)(face_state.mouth_cw / 2);
+    int16_t eye_y = (int16_t)(face_sz * (landscape ? 0.11f : 0.12f));
+    int16_t left_eye_x = landscape
+                           ? (int16_t)(parent_w * 0.24f - face_state.eye_cw / 2)
+                           : (int16_t)(face_sz / 2) - face_state.eye_cw - eye_gap / 2;
+    int16_t right_eye_x = landscape
+                            ? (int16_t)(parent_w * 0.76f - face_state.eye_cw / 2)
+                            : (int16_t)(face_sz / 2) + eye_gap / 2;
+    int16_t mouth_y = (int16_t)(face_sz * (landscape ? 0.55f : 0.62f));
+    int16_t mouth_x = (int16_t)((landscape ? parent_w : face_sz) / 2)
+                       - (int16_t)(face_state.mouth_cw / 2);
 
     face_state.left_eye_canvas = lv_canvas_create(face_state.face_container);
     lv_canvas_set_buffer(face_state.left_eye_canvas, face_state.left_eye_buf,
