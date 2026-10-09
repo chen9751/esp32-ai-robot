@@ -9,6 +9,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
+#include "tensorflow/lite/micro/micro_allocator.h"
+#include "tensorflow/lite/micro/micro_resource_variable.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
@@ -57,8 +59,35 @@ extern "C" void app_main(void) {
   memory("before arena");
   uint8_t *arena = (uint8_t*)heap_caps_malloc(kArenaBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!arena) { ESP_LOGE(TAG, "PSRAM arena allocation failed"); return; }
+  // Stateful microWakeWord exports rely on VAR_HANDLE / READ_VARIABLE /
+  // ASSIGN_VARIABLE / CALL_ONCE. The interpreter does not create resource
+  // variables implicitly: give them their own persistent allocator.
+  // Keep both arenas in PSRAM and alive for the interpreter's entire life.
+  constexpr size_t kVariableArenaBytes = 128 * 1024;
+  constexpr int kMaxResourceVariables = 32;
+  uint8_t *variable_arena = (uint8_t *)heap_caps_malloc(
+      kVariableArenaBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!variable_arena) {
+    ESP_LOGE(TAG, "PSRAM resource variable arena allocation failed");
+    return;
+  }
+  auto *variable_allocator = tflite::MicroAllocator::Create(
+      variable_arena, kVariableArenaBytes);
+  if (!variable_allocator) {
+    ESP_LOGE(TAG, "MicroAllocator::Create(resource variables) failed");
+    return;
+  }
+  auto *resource_variables = tflite::MicroResourceVariables::Create(
+      variable_allocator, kMaxResourceVariables);
+  if (!resource_variables) {
+    ESP_LOGE(TAG, "MicroResourceVariables::Create failed");
+    return;
+  }
+  ESP_LOGI(TAG, "resource variables ready: slots=%d arena=%u bytes",
+           kMaxResourceVariables, (unsigned)kVariableArenaBytes);
   static tflite::MicroInterpreter *interpreter;
-  interpreter = new tflite::MicroInterpreter(model, resolver, arena, kArenaBytes);
+  interpreter = new tflite::MicroInterpreter(
+      model, resolver, arena, kArenaBytes, resource_variables);
   if (interpreter->AllocateTensors() != kTfLiteOk) {
     ESP_LOGE(TAG, "AllocateTensors failed: inspect missing/unsupported ops and variables");
     return;
