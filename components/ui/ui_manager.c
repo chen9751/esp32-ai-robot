@@ -172,6 +172,9 @@ static void voice_overlay_show(void)
         lv_obj_set_style_bg_color(s_voice_overlay, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(s_voice_overlay, LV_OPA_COVER, 0);
         ui_page_robot_face_build(s_voice_overlay, UI_ROBOT_FACE_LISTENING);
+    } else {
+        /* Repeat wakeups randomize the face without changing lock state. */
+        ui_page_robot_face_set_mode(UI_ROBOT_FACE_LISTENING);
     }
     s_voice_until = lv_tick_get() + UI_VOICE_PREVIEW_MS;
     lv_obj_move_foreground(s_voice_overlay);
