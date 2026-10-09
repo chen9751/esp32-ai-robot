@@ -2,6 +2,10 @@
 #include "lvgl_kawaii_face.h"
 
 static bool s_kawaii_active = false;
+/* All face APIs are invoked from the LVGL-owned UI context. Avoid recursive
+ * acquisition of the board display mutex if esp_lvgl_port is present. */
+static void face_noop_lock(void) {}
+static void face_noop_unlock(void) {}
 
 #define FACE_W 640
 #define FACE_H 172
@@ -113,6 +117,7 @@ lv_obj_t *ui_page_robot_face_build(lv_obj_t *parent, ui_robot_face_mode_t mode)
         .blink_interval = 3000,
         .auto_blink = true,
     };
+    face_set_lvgl_lock_fns(face_noop_lock, face_noop_unlock);
     if (face_animation_init(&cfg) == ESP_OK) {
         s_kawaii_active = true;
         face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? FACE_HAPPY : FACE_NEUTRAL, false);
