@@ -106,6 +106,7 @@ static void refresh_lock_overlay(void)
     init_lock_icon();
     lv_obj_t *screen = lv_screen_active();
     s_lock_overlay = lv_obj_create(screen);
+    lv_obj_null_on_delete(&s_lock_overlay);
     lv_obj_remove_style_all(s_lock_overlay);
     lv_obj_set_pos(s_lock_overlay, 0, 0);
     lv_obj_set_size(s_lock_overlay, UI_SCREEN_W, UI_SCREEN_H);
