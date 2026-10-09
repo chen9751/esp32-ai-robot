@@ -122,7 +122,7 @@ static void detect_task(void *arg)
         }
         if (!s_running) continue;
         if (res->wakeup_state == WAKENET_DETECTED) {
-            ESP_LOGI(TAG, "WAKE WORD DETECTED: Hi ESP");
+            ESP_LOGI(TAG, "WAKE WORD DETECTED: %s", VOICE_WAKE_PHRASE);
             s_state = VOICE_WAKE_DETECTED;
             if (s_callback) s_callback(s_state, s_context);
             if (s_running) s_state = VOICE_WAKE_IDLE;
@@ -202,7 +202,7 @@ esp_err_t voice_wakeup_start(voice_wakeup_event_callback_t cb, void *ctx)
     s_running = true;
     xTaskNotifyGive(detect);
     xTaskNotifyGive(feed);
-    ESP_LOGI(TAG, "WakeNet started; expected phrase: Hi ESP");
+    ESP_LOGI(TAG, "WakeNet started; expected phrase: %s", VOICE_WAKE_PHRASE);
     err = ESP_OK;
     goto done;
 fail:
