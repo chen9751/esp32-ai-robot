@@ -1,4 +1,7 @@
 #include "ui_page_robot_face.h"
+#include "lvgl_kawaii_face.h"
+
+static bool s_kawaii_active = false;
 
 #define FACE_W 640
 #define FACE_H 172
@@ -43,6 +46,10 @@ static void pulse_cb(lv_timer_t *timer)
 
 void ui_page_robot_face_stop(void)
 {
+    if (s_kawaii_active) {
+        face_animation_deinit();
+        s_kawaii_active = false;
+    }
     if (s_pulse_timer != NULL) {
         lv_timer_delete(s_pulse_timer);
         s_pulse_timer = NULL;
@@ -56,6 +63,10 @@ void ui_page_robot_face_set_mode(ui_robot_face_mode_t mode)
 {
     s_mode = mode;
     if (s_face == NULL) return;
+    if (s_kawaii_active) {
+        face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? FACE_HAPPY : FACE_NEUTRAL, true);
+        return;
+    }
     for (int i = 0; i < 6; ++i) {
         if (s_waves[i] == NULL) continue;
         if (mode == UI_ROBOT_FACE_LISTENING)
@@ -85,6 +96,29 @@ lv_obj_t *ui_page_robot_face_build(lv_obj_t *parent, ui_robot_face_mode_t mode)
     lv_obj_set_style_bg_opa(s_face, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_face, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* The engine is confined to 160x160 within the 640x172 canvas so that
+     * its three RGB565 canvases stay small (~29 KB) and the clock lock
+     * overlay can continue to sit above it. The entire widget remains
+     * replaceable by the existing LVGL geometry below on allocation failure. */
+    lv_obj_t *panel = lv_obj_create(s_face);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, 160, 160);
+    lv_obj_align(panel, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    face_config_t cfg = {
+        .parent = panel,
+        .animation_speed = 50, /* 20 FPS reduces display/CPU pressure. */
+        .blink_interval = 3000,
+        .auto_blink = true,
+    };
+    if (face_animation_init(&cfg) == ESP_OK) {
+        s_kawaii_active = true;
+        face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? FACE_HAPPY : FACE_NEUTRAL, false);
+        return s_face;
+    }
+    lv_obj_delete(panel);
 
     /* Continuous antialiased smile: one LVGL arc instead of five pills.
      * LVGL arc angles 25..155 describe the downward-facing lower semicircle.
