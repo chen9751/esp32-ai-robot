@@ -666,6 +666,11 @@ void ui_init(void)
 {
     ui_assets_init();
 
+    /* Boot directly into the locked clock. Set the state before creating
+     * standby so its lock overlay exists for the very first visible frame.
+     * Voice wakeup is independent of this UI state. */
+    s_ui_locked = true;
+
     if (s_idle_timer == NULL) {
         s_idle_timer = lv_timer_create(idle_timer_cb, 1000, NULL);
     }
