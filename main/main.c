@@ -63,7 +63,10 @@ static void handle_custom_key_long(void)
 static void on_voice_wakeup(voice_wakeup_state_t state, void *context)
 {
     (void)context;
-    if (state == VOICE_WAKE_DETECTED) ui_notify_voice_wakeup();
+    if (state == VOICE_WAKE_DETECTED) {
+        ui_notify_voice_wakeup();
+        audio_service_play_hello();
+    }
 }
 
 static void enter_power_off(void)
