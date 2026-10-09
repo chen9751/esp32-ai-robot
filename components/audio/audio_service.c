@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "driver/i2c_master.h"
 #include "driver/i2s_tdm.h"
@@ -44,6 +46,61 @@ static const audio_codec_ctrl_if_t *s_rx_ctrl;
 static const audio_codec_if_t *s_rx_codec;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
+static TaskHandle_t s_greeting_task = NULL;
+static uint8_t s_greeting_buffer[1024];
+static uint16_t u16le(const uint8_t *p) { return p[0] | ((uint16_t)p[1] << 8); }
+static uint32_t u32le(const uint8_t *p) {
+    return p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static void greeting_play(void)
+{
+    FILE *f = fopen("/sdcard/audio/hello.wav", "rb");
+    if (!f) { ESP_LOGW(TAG, "No /sdcard/audio/hello.wav"); return; }
+    uint8_t riff[12], chunk[8], fmt[16];
+    bool correct_format = false;
+    uint32_t remaining = 0;
+    if (fread(riff, 1, 12, f) != 12 ||
+        memcmp(riff, "RIFF", 4) || memcmp(riff + 8, "WAVE", 4)) goto finish;
+    for (unsigned i = 0; i < 24 && fread(chunk, 1, 8, f) == 8; ++i) {
+        uint32_t n = u32le(chunk + 4);
+        if (!memcmp(chunk, "fmt ", 4)) {
+            if (n < 16 || fread(fmt, 1, 16, f) != 16) goto finish;
+            correct_format = u16le(fmt) == 1 && u16le(fmt + 2) == 2 &&
+                u32le(fmt + 4) == 24000 && u16le(fmt + 14) == 16;
+            if (fseek(f, (long)(n - 16 + (n & 1)), SEEK_CUR)) goto finish;
+        } else if (!memcmp(chunk, "data", 4)) {
+            remaining = n; break;
+        } else if (fseek(f, (long)(n + (n & 1)), SEEK_CUR)) goto finish;
+    }
+    if (!correct_format || remaining == 0) {
+        ESP_LOGW(TAG, "Invalid Hello WAV (expect stereo 24kHz PCM16)"); goto finish;
+    }
+    ESP_LOGI(TAG, "Playing Hello greeting (%lu bytes)", (unsigned long)remaining);
+    while (remaining >= 4) {
+        size_t n = remaining >= sizeof(s_greeting_buffer) ?
+                   sizeof(s_greeting_buffer) : (remaining & ~3u);
+        if (fread(s_greeting_buffer, 1, n, f) != n) break;
+        if (esp_codec_dev_write(s_playback, s_greeting_buffer, (int)n) != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG, "Hello playback write failed"); break;
+        }
+        remaining -= n;
+    }
+finish:
+    fclose(f);
+}
+static void greeting_worker(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (s_ready && s_playback) greeting_play();
+    }
+}
+void audio_service_play_hello(void)
+{
+    if (s_greeting_task) xTaskNotifyGive(s_greeting_task);
+}
+
 
 static void release_capture(void)
 {
@@ -250,6 +307,8 @@ esp_err_t audio_service_init(void)
     s_volume = AUDIO_DEFAULT_VOLUME;
     esp_codec_dev_set_out_vol(s_playback, s_volume);
     s_ready = true;
+    if (!s_greeting_task && xTaskCreate(greeting_worker, "hello_audio", 3072, NULL, 3, &s_greeting_task) != pdPASS)
+        ESP_LOGW(TAG, "Hello worker start failed");
     ESP_LOGI(TAG,
              "ES8311 playback ready, volume=%u%%, internal free=%u largest=%u",
              (unsigned)s_volume,
