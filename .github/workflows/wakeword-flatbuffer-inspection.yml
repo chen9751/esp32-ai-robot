@@ -1,0 +1,25 @@
+name: Hello Robot V1 operator inspection
+on:
+  push:
+    paths:
+      - "models/wakeword/hello_robot_v1/**"
+      - "tools/inspect_hello_robot_model.py"
+      - ".github/workflows/wakeword-flatbuffer-inspection.yml"
+  pull_request:
+    paths:
+      - "models/wakeword/hello_robot_v1/**"
+      - "tools/inspect_hello_robot_model.py"
+      - ".github/workflows/wakeword-flatbuffer-inspection.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "tflite==2.18.0" "numpy<3"
+      - run: python tools/inspect_hello_robot_model.py
