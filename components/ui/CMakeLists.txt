@@ -14,6 +14,7 @@ set(UI_SRCS
     "ui_icon_robot2.c"
     "ui_page_standby.c"
     "ui_page_clock.c"
+    "ui_page_robot_face.c"
     "ui_assets.c"
     "ui_asset_remote.c"
     "ui_asset_music.c"
