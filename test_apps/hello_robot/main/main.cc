@@ -34,6 +34,8 @@ static void memory(const char *where) {
 extern "C" void app_main(void) {
   ESP_LOGI(TAG, "HELLO ROBOT V1 LIVE_MIC FRONTEND + INFERENCE DIAGNOSTIC");
   ESP_LOGI(TAG, "model bytes=%u", (unsigned)(model_end - model_start));
+  ESP_LOGI(TAG, "main task stack high-water mark at entry=%u bytes",
+           (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   if (model_end-model_start != 62200) { ESP_LOGE(TAG, "model size mismatch"); return; }
   auto *model = tflite::GetModel(model_start);
   if (model->version() != TFLITE_SCHEMA_VERSION) {
@@ -230,5 +232,7 @@ extern "C" void app_main(void) {
            (unsigned)frames,(unsigned)detections,(unsigned)read_failures);
   ESP_LOGI(TAG,"PASS: 2000 LIVE_MIC Invokes; avg_us=%llu max_us=%llu (uncalibrated; not proof of accurate wake recognition)",
       (unsigned long long)(total_us/2000),(unsigned long long)max_us);
+  ESP_LOGI(TAG, "main task stack high-water mark at finish=%u bytes",
+           (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   memory("finished");
 }
