@@ -1,24 +1,23 @@
-# Hello Robot V1: micro_speech frontend + stateful TFLM diagnostic
+# Hello Robot V1 — experimental live microphone diagnostic
 
-**Status: synthetic-silence integration test only. Not yet live microphone wake detection.**
+This independent test is **not the production firmware**. It uses the real
+Waveshare ESP32-S3-Touch-LCD-3.49 **V2** `board_init()` and the same
+`audio_service_init()`/ES7210 capture implementation as the existing robot,
+without starting Hi ESP/WakeNet (no competing I2S microphone readers).
 
-This standalone ESP-IDF 5.5.4 app now calls the actual
-`esphome/esp-micro-speech-features==1.2.3` C frontend rather than
-filling the model input with a constant vector. It configures a 16 kHz,
-30 ms window / 10 ms step / 40-channel filterbank with microWakeWord
-PCAN, noise reduction and log scaling, uses ESPHome's documented
-integer quantization mapping, groups three 40-element frames, and
-invokes the verified stateful Hello Robot V1 TFLite Micro model 200
-times. The input PCM is **synthetic silence**, not microphone audio.
+Pipeline: 24 kHz stereo S16 -> provisional left-channel 16 kHz mono adapter
+-> esp-micro-speech-features frontend (40 features, 30ms/10ms)
+-> INT8 [1,3,40] -> stateful Hello Robot V1 TFLM -> serial score.
 
-The documented training session pinned
-`kahrendt/microWakeWord@4665173cd35f1cff9a61e06fc427f124766c488e`.
-No reference PCM -> feature golden vectors have been compared yet;
-the present pipeline parameters derive from the ESPHome microWakeWord
-frontend implementation, and need a bitwise/reference comparison against
-the exact training library before accuracy claims.
+The 16kHz adapter is the existing prototype 3-to-2 mapping and is **not**
+a production-quality filtered resampler. Input channel choice and sample
+accuracy must be confirmed in hardware. The frontend uses ESPHome
+microWakeWord settings; bitwise identity against the training Colab
+reference has not yet been tested. Scores are diagnostic only.
+Candidate threshold 180/256 and three consecutive scores are
+**uncalibrated**, not proof that the wake word is accurately detected.
 
-## Mac
+## Build (Mac, ESP-IDF v5.5.4)
 
 ```sh
 cd ~/Desktop/esp32-ai-robot-wakeword
@@ -26,16 +25,30 @@ git pull origin feature/hello-robot-wakeword-model
 source ~/.espressif/python_env/idf5.5_py3.9_env/bin/activate
 . ~/esp/esp-idf/export.sh
 cd test_apps/hello_robot
+idf.py fullclean
 idf.py build
 ```
 
-**Flashing this isolated test overwrites the running app and uses a
-different partition map**, leaving the original 640 x 172 UI absent.
-Do not flash without a rollback/backup. For now obtain a successful
-compile result and CI status before testing. No live microphone or wake
-event is wired into this application.
+Wait for `Project build complete` before considering flashing. The app now
+reuses board/LVGL/codec components and its custom factory partition is 5 MiB.
+It is intentionally isolated from the production app and does not build the
+robot navigation interface. The LCD may be blank because no UI is created.
+A flash replaces the existing partition table/app. Back up any required data
+and verify the rollback plan first. Restore the production firmware from the
+repository root using `idf.py -p PORT flash` (not `app-flash`).
 
-The next step is a single-owner ES7210 24 kHz stereo PCM capture,
-24-to-16 kHz conversion with channel/aliasing validation, reference
-feature equivalence, then speech threshold/false alarm calibration.
-The normal firmware/UI and its Hi ESP code are unchanged.
+## Hardware test
+
+```sh
+idf.py -p /dev/cu.usbmodemXXXX flash monitor
+```
+
+Speak Hello Robot multiple times, keep silent for a period, and speak
+unrelated phrases. Record `LIVE_MIC` and
+`HELLO ROBOT CANDIDATE DETECTED` logs plus failures and latency.
+The 2000 invocation loop should cover roughly 60 seconds of audio
+plus initialization; restart to repeat the experiment. If board or codec
+setup fails, the program stops rather than substituting synthetic data.
+
+This is a **first hardware experiment** pending clean ESP-IDF build and
+on-device validation. It is not a verified shipped voice feature.
