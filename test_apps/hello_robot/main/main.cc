@@ -15,6 +15,9 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "frontend.h"
 #include "frontend_util.h"
+#include "board.h"
+#include "audio_service.h"
+#include "pcm_stream.h"
 
 extern "C" void app_main(void);
 extern const uint8_t model_start[] asm("_binary_hello_robot_v1_tflite_start");
@@ -29,7 +32,7 @@ static void memory(const char *where) {
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 extern "C" void app_main(void) {
-  ESP_LOGI(TAG, "HELLO ROBOT V1 micro_speech FRONTEND + INFERENCE TEST");
+  ESP_LOGI(TAG, "HELLO ROBOT V1 LIVE_MIC FRONTEND + INFERENCE DIAGNOSTIC");
   ESP_LOGI(TAG, "model bytes=%u", (unsigned)(model_end - model_start));
   if (model_end-model_start != 62200) { ESP_LOGE(TAG, "model size mismatch"); return; }
   auto *model = tflite::GetModel(model_start);
@@ -105,6 +108,14 @@ extern "C" void app_main(void) {
   }
   ESP_LOGI(TAG, "IO OK; arena used=%u of %u bytes", (unsigned)interpreter->arena_used_bytes(), (unsigned)kArenaBytes);
   memory("after arena");
+  ESP_LOGI(TAG, "initializing Waveshare V2 board / single-owner microphone");
+  if (board_init() != ESP_OK || audio_service_init() != ESP_OK ||
+      !audio_service_capture_ready()) {
+    ESP_LOGE(TAG, "board or ES7210 capture unavailable; no fake input fallback");
+    return;
+  }
+  ESP_LOGI(TAG, "LIVE_MIC: ES7210 24kHz stereo -> 16kHz mono; no Hi ESP reader");
+
   // Match the standard microWakeWord micro_speech frontend rather than
   // sending arbitrary feature bytes. No live microphone is connected yet.
   FrontendConfig frontend_cfg = {};
@@ -133,16 +144,35 @@ extern "C" void app_main(void) {
   uint64_t total_us=0, max_us=0;
   uint32_t frames=0;
   int8_t group[120] = {};
-  const int16_t silence[160] = {};
-  for (int i=0; i<200; ++i) {
+  int16_t source[HELLO_AUDIO_SOURCE_FRAMES * HELLO_AUDIO_CHANNELS] = {};
+  int16_t mono[HELLO_AUDIO_TARGET_FRAMES] = {};
+  uint32_t read_failures=0, peak=0, detections=0, total_features=0;
+  uint32_t above_threshold=0;
+  uint64_t sum_abs=0;
+  // Experimental detection threshold only, NOT validated for this model.
+  constexpr uint8_t kScoreThreshold=180;
+  for (int i=0; i<2000; ++i) {
     for (int part=0; part<3; ++part) {
       // A 10ms PCM buffer may not immediately yield one 30ms feature frame.
       // The frontend retains its 20ms overlap between calls.
       bool produced = false;
       for (int feed=0; feed<4 && !produced; ++feed) {
         size_t consumed=0;
+        if (audio_service_capture_read(source, sizeof(source)) != ESP_OK) {
+          ++read_failures;
+          ESP_LOGE(TAG, "LIVE_MIC: capture read failed (%u)", (unsigned)read_failures);
+          FrontendFreeStateContents(&frontend_state);
+          return;
+        }
+        hello_pcm_24k_to_16k_left(source, mono);
+        for (int x=0;x<HELLO_AUDIO_TARGET_FRAMES;++x) {
+          int32_t sample=mono[x];
+          uint32_t absolute=(uint32_t)(sample<0?-sample:sample);
+          sum_abs+=absolute;
+          if(absolute>peak)peak=absolute;
+        }
         FrontendOutput feature = FrontendProcessSamples(
-            &frontend_state, silence, 160, &consumed);
+            &frontend_state, mono, HELLO_AUDIO_TARGET_FRAMES, &consumed);
         if (feature.size == 40) {
           for (size_t k=0; k<40; ++k) {
             // ESPHome's microWakeWord integer feature mapping:
@@ -153,6 +183,7 @@ extern "C" void app_main(void) {
             group[part*40+k] = (int8_t)v;
           }
           ++frames;
+          ++total_features;
           produced = true;
         } else if (feature.size != 0 || consumed == 0) {
           ESP_LOGE(TAG, "frontend stalled: size=%u consumed=%u",
@@ -177,13 +208,27 @@ extern "C" void app_main(void) {
     uint64_t delta=(uint64_t)(esp_timer_get_time()-t0);
     total_us+=delta;
     if(delta>max_us)max_us=delta;
-    if(i<5||i%50==49)
-      ESP_LOGI(TAG,"iteration=%d score_uint8=%u inference_us=%llu",i,(unsigned)output->data.uint8[0],(unsigned long long)delta);
+    const uint8_t score=output->data.uint8[0];
+    above_threshold = score >= kScoreThreshold ? above_threshold+1 : 0;
+    if (above_threshold >= 3) {
+      ++detections;
+      ESP_LOGW(TAG, "HELLO ROBOT CANDIDATE DETECTED: score=%u count=%u (UNCALIBRATED)",
+               (unsigned)score, (unsigned)detections);
+      above_threshold=0;
+    }
+    if(i<10||i%30==29) {
+      ESP_LOGI(TAG,"LIVE_MIC: iteration=%d score=%u probability=%.3f inference_us=%llu rms_proxy=%u peak=%u read_errors=%u",
+        i,(unsigned)score,score/256.0f,(unsigned long long)delta,
+        (unsigned)(sum_abs/(total_features ? (uint64_t)total_features*160ULL : 1ULL)),
+        (unsigned)peak,(unsigned)read_failures);
+      peak=0;
+    }
     vTaskDelay(1);
   }
   FrontendFreeStateContents(&frontend_state);
-  ESP_LOGI(TAG, "micro_speech generated %u feature frames from synthetic silence", (unsigned)frames);
-  ESP_LOGI(TAG,"PASS: 200 Invokes; avg_us=%llu max_us=%llu (synthetic silence; no live microphone or accuracy verdict)",
-      (unsigned long long)(total_us/200),(unsigned long long)max_us);
+  ESP_LOGI(TAG, "LIVE_MIC: generated %u frames, candidates=%u, read_errors=%u",
+           (unsigned)frames,(unsigned)detections,(unsigned)read_failures);
+  ESP_LOGI(TAG,"PASS: 2000 LIVE_MIC Invokes; avg_us=%llu max_us=%llu (uncalibrated; not proof of accurate wake recognition)",
+      (unsigned long long)(total_us/2000),(unsigned long long)max_us);
   memory("finished");
 }
