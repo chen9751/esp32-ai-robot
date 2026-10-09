@@ -49,7 +49,13 @@ static void handle_custom_key(void)
 static void handle_custom_key_long(void)
 {
     if (board_display_lock(0)) {
-        ui_unlock_from_back_hold();
+        if (ui_is_locked()) {
+            ui_unlock_from_back_hold();
+            ESP_LOGI(TAG, "custom/BOOT long hold: UI unlocked");
+        } else {
+            ui_lock_from_back_hold();
+            ESP_LOGI(TAG, "custom/BOOT long hold: clock locked");
+        }
         board_display_unlock();
     }
 }
