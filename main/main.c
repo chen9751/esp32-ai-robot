@@ -60,6 +60,12 @@ static void handle_custom_key_long(void)
     }
 }
 
+static void on_voice_wakeup(voice_wakeup_state_t state, void *context)
+{
+    (void)context;
+    if (state == VOICE_WAKE_DETECTED) ui_notify_voice_wakeup();
+}
+
 static void enter_power_off(void)
 {
     ESP_LOGI(TAG, "PWR long press: shutting down");
@@ -267,7 +273,7 @@ void app_main(void)
     /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
      * not run simultaneously or steal audio frames. */
     if (audio_service_capture_ready()) {
-        esp_err_t wake_err = voice_wakeup_start(NULL, NULL);
+        esp_err_t wake_err = voice_wakeup_start(on_voice_wakeup, NULL);
         if (wake_err != ESP_OK) {
             ESP_LOGW(TAG, "WakeNet startup failed: %s", esp_err_to_name(wake_err));
         }
