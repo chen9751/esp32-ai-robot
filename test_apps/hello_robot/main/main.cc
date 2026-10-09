@@ -151,6 +151,10 @@ extern "C" void app_main(void) {
   uint32_t read_failures=0, peak=0, detections=0, total_features=0;
   uint32_t above_threshold=0;
   uint64_t sum_abs=0;
+  uint64_t window_abs[2]={0,0};
+  uint32_t window_peak[2]={0,0};
+  uint32_t window_samples=0;
+  uint8_t max_score_window=0;
   // Experimental detection threshold only, NOT validated for this model.
   constexpr uint8_t kScoreThreshold=180;
   for (int i=0; i<2000; ++i) {
@@ -166,6 +170,15 @@ extern "C" void app_main(void) {
           FrontendFreeStateContents(&frontend_state);
           return;
         }
+        for (int n=0; n<HELLO_AUDIO_SOURCE_FRAMES; ++n) {
+          for (int ch=0; ch<2; ++ch) {
+            const int32_t sample=source[n*2+ch];
+            const uint32_t amplitude=(uint32_t)(sample < 0 ? -sample : sample);
+            window_abs[ch]+=amplitude;
+            if(amplitude>window_peak[ch])window_peak[ch]=amplitude;
+          }
+        }
+        window_samples+=HELLO_AUDIO_SOURCE_FRAMES;
         hello_pcm_24k_to_16k_left(source, mono);
         for (int x=0;x<HELLO_AUDIO_TARGET_FRAMES;++x) {
           int32_t sample=mono[x];
@@ -211,6 +224,7 @@ extern "C" void app_main(void) {
     total_us+=delta;
     if(delta>max_us)max_us=delta;
     const uint8_t score=output->data.uint8[0];
+    if(score>max_score_window)max_score_window=score;
     above_threshold = score >= kScoreThreshold ? above_threshold+1 : 0;
     if (above_threshold >= 3) {
       ++detections;
@@ -218,7 +232,18 @@ extern "C" void app_main(void) {
                (unsigned)score, (unsigned)detections);
       above_threshold=0;
     }
-    if(i<10||i%30==29) {
+    if(i<10||i%10==9) {
+      ESP_LOGI(TAG,"MIC_CHANNELS: frames=%u ch0_avg=%u ch0_peak=%u ch1_avg=%u ch1_peak=%u max_score=%u",
+          (unsigned)window_samples,
+          (unsigned)(window_abs[0]/(window_samples?window_samples:1)),
+          (unsigned)window_peak[0],
+          (unsigned)(window_abs[1]/(window_samples?window_samples:1)),
+          (unsigned)window_peak[1],
+          (unsigned)max_score_window);
+      window_samples=0;
+      window_abs[0]=window_abs[1]=0;
+      window_peak[0]=window_peak[1]=0;
+      max_score_window=0;
       ESP_LOGI(TAG,"LIVE_MIC: iteration=%d score=%u probability=%.3f inference_us=%llu rms_proxy=%u peak=%u read_errors=%u",
         i,(unsigned)score,score/256.0f,(unsigned long long)delta,
         (unsigned)(sum_abs/(total_features ? (uint64_t)total_features*160ULL : 1ULL)),
