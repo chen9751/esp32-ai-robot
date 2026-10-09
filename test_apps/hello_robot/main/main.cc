@@ -10,7 +10,6 @@
 #include "freertos/task.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
-#include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
 extern "C" void app_main(void);
@@ -36,7 +35,25 @@ extern "C" void app_main(void) {
   }
   // Diagnostic resolver, deliberately accepts all supported builtins.
   // Once operator inventory is known, replace with minimum resolver.
-  static tflite::AllOpsResolver resolver;
+  static tflite::MicroMutableOpResolver<16> resolver;
+  // Exact builtin operator inventory from the verified FlatBuffer.
+  // Variable op support is version-dependent in esp-tflite-micro.
+  if (resolver.AddVarHandle() != kTfLiteOk ||
+      resolver.AddReadVariable() != kTfLiteOk ||
+      resolver.AddReshape() != kTfLiteOk ||
+      resolver.AddAssignVariable() != kTfLiteOk ||
+      resolver.AddConv2D() != kTfLiteOk ||
+      resolver.AddPack() != kTfLiteOk ||
+      resolver.AddCallOnce() != kTfLiteOk ||
+      resolver.AddAdd() != kTfLiteOk ||
+      resolver.AddMul() != kTfLiteOk ||
+      resolver.AddSplitV() != kTfLiteOk ||
+      resolver.AddFullyConnected() != kTfLiteOk ||
+      resolver.AddLogistic() != kTfLiteOk ||
+      resolver.AddQuantize() != kTfLiteOk) {
+    ESP_LOGE(TAG, "operator registration failed");
+    return;
+  }
   constexpr size_t kArenaBytes = 768 * 1024;
   memory("before arena");
   uint8_t *arena = (uint8_t*)heap_caps_malloc(kArenaBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
