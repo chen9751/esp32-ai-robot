@@ -33,6 +33,7 @@ static void log_memory(const char *stage)
 #define PHYS_KEY_PWR    GPIO_NUM_16
 #define PHYS_KEY_POLL_MS 20
 #define PHYS_KEY_DEBOUNCE_MS 60
+#define PHYS_KEY_UNLOCK_MS 3000
 #define PHYS_PWR_LONG_MS 1500
 
 static void handle_custom_key(void)
@@ -41,6 +42,14 @@ static void handle_custom_key(void)
      * product back/acknowledge key; RESET/CHIP_PU is intentionally untouched. */
     if (board_display_lock(0)) {
         ui_handle_back_action();
+        board_display_unlock();
+    }
+}
+
+static void handle_custom_key_long(void)
+{
+    if (board_display_lock(0)) {
+        ui_unlock_from_back_hold();
         board_display_unlock();
     }
 }
@@ -86,6 +95,8 @@ static void physical_buttons_task(void *arg)
     }
 
     bool custom_down = false;
+    bool custom_long_fired = false;
+    TickType_t custom_pressed_at = 0;
     bool pwr_down = false;
     bool pwr_fired = false;
     TickType_t custom_changed = xTaskGetTickCount();
@@ -102,9 +113,18 @@ static void physical_buttons_task(void *arg)
             custom_down = custom_now;
             custom_changed = now;
             if (custom_down) {
+                custom_pressed_at = now;
+                custom_long_fired = false;
                 ESP_LOGI(TAG, "custom/BOOT key pressed");
+            } else if (!custom_long_fired) {
+                /* Short back acts on release, never before a possible unlock hold. */
                 handle_custom_key();
             }
+        }
+        if (custom_down && !custom_long_fired &&
+            (now - custom_pressed_at) >= pdMS_TO_TICKS(PHYS_KEY_UNLOCK_MS)) {
+            custom_long_fired = true;
+            handle_custom_key_long();
         }
 
         if (pwr_now && !pwr_down) {
