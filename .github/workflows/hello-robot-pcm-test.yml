@@ -1,0 +1,21 @@
+name: Hello Robot PCM adapter host tests
+on:
+  push:
+    paths:
+      - "test_apps/hello_robot/main/pcm_stream.h"
+      - "test_apps/hello_robot/tests/**"
+      - ".github/workflows/hello-robot-pcm-test.yml"
+  pull_request:
+    paths:
+      - "test_apps/hello_robot/main/pcm_stream.h"
+      - "test_apps/hello_robot/tests/**"
+      - ".github/workflows/hello-robot-pcm-test.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 test_apps/hello_robot/tests/test_pcm_stream.py
