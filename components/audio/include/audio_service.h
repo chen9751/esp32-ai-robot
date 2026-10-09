@@ -20,6 +20,8 @@ bool audio_service_capture_ready(void);
 esp_err_t audio_service_capture_read(void *pcm, size_t bytes);
 esp_err_t audio_service_capture_diagnostic_start(void);
 void audio_service_stop(void);
+/* Nonblocking greeting trigger for WakeNet callback. */
+void audio_service_play_hello(void);
 
 #ifdef __cplusplus
 }
