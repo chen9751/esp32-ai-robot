@@ -567,6 +567,21 @@ static void idle_timer_cb(lv_timer_t *timer)
     refresh_lock_overlay();
 }
 
+/* A physical long hold is authoritative from any unlocked UI page.
+ * Cancel interactive navigation before rebuilding the clock; otherwise an
+ * animation could still refer to a page deleted by ui_show_standby_clock(). */
+void ui_lock_from_back_hold(void)
+{
+    if (s_ui_locked) return;
+    if (s_transition_overlay != NULL) {
+        lv_anim_delete(s_transition_overlay, NULL);
+        finish_transition_cancel(NULL);
+    }
+    ui_show_standby_clock();
+    s_ui_locked = true;
+    refresh_lock_overlay();
+}
+
 void ui_handle_back_action(void)
 {
     if (s_ui_locked) return;
