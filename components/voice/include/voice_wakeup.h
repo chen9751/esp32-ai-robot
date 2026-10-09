@@ -5,8 +5,8 @@
 extern "C" {
 #endif
 
-/* Temporary factory model, NOT the future Hello Robot model. */
-#define VOICE_WAKE_PHRASE "Hi ESP"
+/* Official ESP-SR WakeNet10 model: wn10_en_heybuddy. */
+#define VOICE_WAKE_PHRASE "Hey Buddy"
 
 typedef enum {
     VOICE_WAKE_UNAVAILABLE = 0,
