@@ -1,0 +1,25 @@
+name: Hello Robot V1 model integrity
+
+on:
+  push:
+    paths:
+      - "models/wakeword/hello_robot_v1/**"
+      - "tools/verify_hello_robot_model.py"
+      - ".github/workflows/wakeword-model-integrity.yml"
+  pull_request:
+    paths:
+      - "models/wakeword/hello_robot_v1/**"
+      - "tools/verify_hello_robot_model.py"
+      - ".github/workflows/wakeword-model-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify training artifact size and SHA256
+        run: python3 tools/verify_hello_robot_model.py
