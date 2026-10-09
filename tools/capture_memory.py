@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture memory-only UART diagnostics without sending data or resetting the ESP32.
+"""Capture memory and service-state UART diagnostics without sending data or resetting the ESP32.
 
 Run with the ESP-IDF Python environment (pyserial is already installed).
 Close idf.py monitor first. --input parses an existing log without opening USB.
@@ -28,6 +28,13 @@ def collect_line(raw, records):
         ):
             return
         records.append({"stage": stage, "bytes": fields, "log": line})
+        print(line, flush=True)
+    elif "RUNTIME state:" in line:
+        records.append({"stage": "service_state", "values": {
+            key: int(value) for key, value in FIELD.findall(line)}, "log": line})
+        print(line, flush=True)
+    elif "BLE ON before init:" in line or "BLE OFF after deinit:" in line or "NimBLE" in line:
+        records.append({"stage": "bluetooth", "log": line})
         print(line, flush=True)
     elif "STACK " in line or "PCM scratch in PSRAM:" in line or "PSRAM buffers:" in line:
         records.append({"stage": "diagnostic", "log": line})

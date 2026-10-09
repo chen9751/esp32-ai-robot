@@ -33,18 +33,21 @@ static const char *jstr(const cJSON *obj,const char *k) {const cJSON *v=cJSON_Ge
 bool ha_devices_get(ha_devices_state_t *out) {if(!out||!lock||xSemaphoreTake(lock,pdMS_TO_TICKS(10))!=pdTRUE)return false;*out=state;xSemaphoreGive(lock);return out->valid;}
 bool ha_devices_command(const char *domain,const char *service,const char *entity,const char *params) {
  if(!q||!domain||!service||!entity)return false;
+ if(!*domain||!*service||!*entity||strlen(domain)>=sizeof(((cmd_t *)0)->domain)||
+    strlen(service)>=sizeof(((cmd_t *)0)->service)||strlen(entity)>=sizeof(((cmd_t *)0)->entity)||
+    (params&&strlen(params)>=sizeof(((cmd_t *)0)->params)))return false;
  cmd_t c={0};snprintf(c.domain,sizeof(c.domain),"%s",domain);snprintf(c.service,sizeof(c.service),"%s",service);snprintf(c.entity,sizeof(c.entity),"%s",entity);
  if(params)snprintf(c.params,sizeof(c.params),"%s",params);
  return xQueueSend(q,&c,0)==pdTRUE;
 }
-typedef struct{char body[3072];size_t used;}reply_t;
+typedef struct{char body[3072];size_t used;bool overflow;}reply_t;
 /* Only this service's worker calls fetch(), sequentially. Reuse one buffer
  * instead of allocating/freeing internal heap on every HA poll. */
 static reply_t *response;
 static esp_err_t on_event(esp_http_client_event_t *evt) {
  if(evt->event_id==HTTP_EVENT_ON_DATA&&evt->user_data&&evt->data_len>0) {
   reply_t *r=evt->user_data;size_t n=(size_t)evt->data_len;
-  if(r->used+n>=sizeof(r->body))return ESP_FAIL;
+  if(r->overflow||n>=sizeof(r->body)-r->used){r->overflow=true;return ESP_FAIL;}
   memcpy(r->body+r->used,evt->data,n);r->used+=n;r->body[r->used]=0;
  }return ESP_OK;
 }
@@ -60,17 +63,17 @@ static bool call(const char *path,const char *body,reply_t *r) {
  if(r)memset(r,0,sizeof(*r));
  esp_err_t err=esp_http_client_perform(h);int status=err==ESP_OK?esp_http_client_get_status_code(h):0;
  esp_http_client_cleanup(h);
- if(err!=ESP_OK||status<200||status>=300){ESP_LOGW(TAG,"HA %s http=%d err=%s",path,status,esp_err_to_name(err));return false;}return true;
+ if(err!=ESP_OK||status<200||status>=300||(r&&r->overflow)){ESP_LOGW(TAG,"HA %s http=%d err=%s",path,status,esp_err_to_name(err));return false;}return true;
 }
 static cJSON *fetch(const char *entity) {
  char path[145];snprintf(path,sizeof(path),"/api/states/%s",entity);
  if(!response)return NULL;
  return call(path,NULL,response)?cJSON_Parse(response->body):NULL;
 }
-static void update_one(ha_devices_state_t *s,const char *id) {
- cJSON *r=fetch(id);if(!r)return;
+static bool update_one(ha_devices_state_t *s,const char *id) {
+ cJSON *r=fetch(id);if(!r)return false;
  const char *v=jstr(r,"state");const cJSON *a=cJSON_GetObjectItemCaseSensitive(r,"attributes");
- if(!v){cJSON_Delete(r);return;}
+ if(!v){cJSON_Delete(r);return false;}
  if(!strcmp(id,AC)){
    s->ac_on=strcmp(v,"off")!=0&&strcmp(v,"unavailable")!=0;
    const char *modes[]={"cool","heat","fan_only","dry"};
@@ -107,6 +110,7 @@ static void update_one(ha_devices_state_t *s,const char *id) {
   for(int i=0;i<2;i++)if(!strcmp(id,bath_fan[i])){int k=i; /* vent=0, blow=1 */if(s->bath_levels[k])s->bath_levels[k]=!strcmp(v,"High")?2:1;}
  }
  cJSON_Delete(r);
+ return true;
 }
 /* Keep frequently changing HVAC and cover positions ahead of slower
  * accessory switches, and publish each entity as soon as it arrives. */
@@ -114,7 +118,7 @@ static void refresh_entity(const char *entity) {
  ha_devices_state_t next;
  if(xSemaphoreTake(lock,pdMS_TO_TICKS(50))!=pdTRUE)return;
  next=state;xSemaphoreGive(lock);
- update_one(&next,entity);
+ if(!update_one(&next,entity))return;
  next.valid=true;
  if(xSemaphoreTake(lock,pdMS_TO_TICKS(50))==pdTRUE){
   state=next;
@@ -145,11 +149,19 @@ static void refresh_accessories(void) {
  cursor=(cursor+1)%(sizeof(entities)/sizeof(entities[0]));
 }
 static void send_cmd(const cmd_t *c){
- cJSON *obj=cJSON_CreateObject();if(!obj)return;cJSON_AddStringToObject(obj,"entity_id",c->entity);
+ cJSON *obj=cJSON_CreateObject();if(!obj)return;
+ if(!cJSON_AddStringToObject(obj,"entity_id",c->entity)){cJSON_Delete(obj);return;}
  if(c->params[0]){
   cJSON *params=cJSON_Parse(c->params);
-  if(params&&cJSON_IsObject(params)){
-   for(cJSON *p=params->child;p;){cJSON *next=p->next;cJSON_DetachItemViaPointer(params,p);cJSON_AddItemToObject(obj,p->string,p);p=next;}
+  if(!cJSON_IsObject(params)){cJSON_Delete(params);cJSON_Delete(obj);return;}
+  if(params){
+   for(cJSON *p=params->child;p;){
+    cJSON *next=p->next;cJSON_DetachItemViaPointer(params,p);
+    if(!cJSON_AddItemToObject(obj,p->string,p)){
+     cJSON_Delete(p);cJSON_Delete(params);cJSON_Delete(obj);return;
+    }
+    p=next;
+   }
   }cJSON_Delete(params);
  }
  char *body=cJSON_PrintUnformatted(obj);cJSON_Delete(obj);

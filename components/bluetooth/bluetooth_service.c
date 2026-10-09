@@ -30,6 +30,9 @@ static SemaphoreHandle_t s_lock = NULL;
 static uint8_t s_own_addr_type = 0;
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static bool s_host_started = false;
+static TaskHandle_t s_host_task;
+static bool s_host_stopped;
+static bool s_deinit_failed;
 static SemaphoreHandle_t s_host_exited = NULL;
 static SemaphoreHandle_t s_lifecycle_lock = NULL;
 static uint32_t s_scan_packets = 0;
@@ -42,9 +45,27 @@ void ble_store_config_init(void);
 
 static int gap_event_cb(struct ble_gap_event *event, void *arg);
 
+/* These controls survive BLE OFF/ON; initialize once under a short guard. */
+static StaticSemaphore_t s_lock_storage, s_exit_storage, s_lifecycle_storage;
+static portMUX_TYPE s_init_guard = portMUX_INITIALIZER_UNLOCKED;
+static void init_locks(void)
+{
+    portENTER_CRITICAL(&s_init_guard);
+    if (!s_lock) {
+        s_lock = xSemaphoreCreateMutexStatic(&s_lock_storage);
+        s_host_exited = xSemaphoreCreateBinaryStatic(&s_exit_storage);
+        s_lifecycle_lock = xSemaphoreCreateMutexStatic(&s_lifecycle_storage);
+    }
+    portEXIT_CRITICAL(&s_init_guard);
+}
+
+static esp_err_t stop_scan_locked(void);
+static esp_err_t disconnect_locked(void);
+
 static void lock(void)
 {
-    if (s_lock != NULL) xSemaphoreTake(s_lock, portMAX_DELAY);
+    init_locks();
+    xSemaphoreTake(s_lock, portMAX_DELAY);
 }
 
 static void unlock(void)
@@ -228,19 +249,12 @@ static void save_discovery(const struct ble_gap_disc_desc *disc)
     /* Always refresh signal strength, but never erase a previously discovered
      * name just because a later advertisement omits the Local Name field. */
     dst->rssi = disc->rssi;
-    if (has_name && name[0] != '\0') {
-        strlcpy(dst->name, name, sizeof(dst->name));
-        ESP_LOGI(TAG,
-                 "device name: %s (%s), event_type=%u rssi=%d data_len=%u",
-                 dst->name,
-                 dst->address,
-                 (unsigned)disc->event_type,
-                 (int)dst->rssi,
-                 (unsigned)disc->length_data);
-    }
-
+    bool name_changed = has_name && name[0] && strcmp(dst->name, name) != 0;
+    if (has_name && name[0]) strlcpy(dst->name, name, sizeof(dst->name));
     bump_generation();
     unlock();
+    /* Repeated scan responses must not block the host on serial logging. */
+    if (name_changed) ESP_LOGI(TAG, "device name: %s, rssi=%d", name, (int)disc->rssi);
 }
 
 static int device_name_read_cb(uint16_t conn_handle,
@@ -261,6 +275,10 @@ static int device_name_read_cb(uint16_t conn_handle,
             name[len] = '\0';
 
             lock();
+            if (!s_status.connected || s_conn_handle != conn_handle) {
+                unlock();
+                return 0;
+            }
             strlcpy(s_status.peer_name, name, sizeof(s_status.peer_name));
             if (s_selected_result_index < s_result_count) {
                 strlcpy(s_results[s_selected_result_index].name,
@@ -275,24 +293,21 @@ static int device_name_read_cb(uint16_t conn_handle,
         return 0;
     }
 
-    if (error->status == BLE_HS_EDONE) {
-        s_name_read_in_progress = false;
-        return 0;
-    }
-
-    s_name_read_in_progress = false;
+    lock();
+    if (s_conn_handle == conn_handle) s_name_read_in_progress = false;
+    unlock();
+    if (error->status == BLE_HS_EDONE) return 0;
     ESP_LOGW(TAG, "GATT device-name read failed: %d", error->status);
     return 0;
 }
 
 static void try_read_device_name(uint16_t conn_handle)
 {
-    if (s_name_read_in_progress) return;
-
     lock();
-    bool needs_name =
-        s_status.peer_name[0] == '\0' ||
-        strcmp(s_status.peer_name, "BLE device") == 0;
+    bool needs_name = !s_name_read_in_progress && s_status.connected &&
+        s_conn_handle == conn_handle && (s_status.peer_name[0] == '\0' ||
+        strcmp(s_status.peer_name, "BLE device") == 0);
+    if (needs_name) s_name_read_in_progress = true;
     unlock();
 
     if (!needs_name) return;
@@ -305,10 +320,12 @@ static void try_read_device_name(uint16_t conn_handle)
                                     device_name_read_cb,
                                     NULL);
     if (rc == 0) {
-        s_name_read_in_progress = true;
         ESP_LOGI(TAG, "reading GAP Device Name (0x2A00)");
     }
     else {
+        lock();
+        if (s_conn_handle == conn_handle) s_name_read_in_progress = false;
+        unlock();
         ESP_LOGW(TAG, "could not start GAP Device Name read: %d", rc);
     }
 }
@@ -318,9 +335,10 @@ static void host_task(void *param)
     (void)param;
     ESP_LOGI(TAG, "NimBLE host task started");
     nimble_port_run();
-    /* Wake the settings/UI task before the FreeRTOS host task exits. */
-    if (s_host_exited) xSemaphoreGive(s_host_exited);
-    nimble_port_freertos_deinit();
+    /* No NimBLE access after signaling. The lifecycle owner deletes this
+     * known task before deinitializing the port (no guessed delay). */
+    xSemaphoreGive(s_host_exited);
+    vTaskSuspend(NULL);
 }
 
 static void on_reset(int reason)
@@ -333,6 +351,10 @@ static void on_reset(int reason)
     s_status.state = BLUETOOTH_LINK_IDLE;
     s_status.last_error = reason;
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    s_name_read_in_progress = false;
+    s_selected_result_index = SIZE_MAX;
+    s_status.peer_name[0] = 0;
+    s_status.peer_address[0] = 0;
     bump_generation();
     unlock();
     ESP_LOGW(TAG, "NimBLE reset, reason=%d", reason);
@@ -366,7 +388,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         case BLE_GAP_EVENT_DISC_COMPLETE:
             lock();
             s_status.scanning = false;
-            if (!s_status.connected) s_status.state = BLUETOOTH_LINK_IDLE;
+            if (s_status.state == BLUETOOTH_LINK_SCANNING) s_status.state = BLUETOOTH_LINK_IDLE;
             s_status.last_error = event->disc_complete.reason;
             bump_generation();
             unlock();
@@ -398,8 +420,10 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
+            lock();
             s_conn_handle = event->connect.conn_handle;
-            if (ble_gap_conn_find(s_conn_handle, &desc) == 0) {
+            unlock();
+            if (ble_gap_conn_find(event->connect.conn_handle, &desc) == 0) {
                 lock();
                 s_status.connected = true;
                 s_status.state = BLUETOOTH_LINK_PAIRING;
@@ -474,18 +498,17 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     }
 }
 
-esp_err_t bluetooth_service_init(void)
+static esp_err_t init_locked(void)
 {
-    if (s_status.initialized) return ESP_OK;
+    if (s_status.initialized) return s_host_stopped ? ESP_ERR_INVALID_STATE : ESP_OK;
 
-    /* NimBLE/BT controller uses NVS and needs a relatively large contiguous
-     * chunk of internal DRAM. Initialize it before the display/UI/Wi-Fi stack
-     * so the controller/HCI gets first choice of internal memory. */
+    /* BLE remains opt-in. Controller allocation can fail after UI/Wi-Fi/AFE
+     * startup; propagate that error without changing existing services. */
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES ||
         nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        nvs_err = nvs_flash_init();
+        nvs_err = nvs_flash_erase();
+        if (nvs_err == ESP_OK) nvs_err = nvs_flash_init();
     }
     if (nvs_err != ESP_OK) {
         ESP_LOGE(TAG, "NVS init failed before NimBLE: %s",
@@ -497,9 +520,6 @@ esp_err_t bluetooth_service_init(void)
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 
-    if (!s_lock) s_lock = xSemaphoreCreateMutex();
-    if (!s_host_exited) s_host_exited = xSemaphoreCreateBinary();
-    if (s_lock == NULL || s_host_exited == NULL) return ESP_ERR_NO_MEM;
     (void)xSemaphoreTake(s_host_exited, 0);
 
     esp_err_t err = nimble_port_init();
@@ -535,8 +555,26 @@ esp_err_t bluetooth_service_init(void)
     unlock();
 
     if (!s_host_started) {
+        /* IDF's void helper ignores xTaskCreate failure. Check it explicitly
+         * so low internal heap cannot leave a stack with no host to stop. */
+        if (xTaskCreatePinnedToCore(host_task, "nimble_host",
+                CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, NULL,
+                configMAX_PRIORITIES - 4, &s_host_task,
+                CONFIG_BT_NIMBLE_PINNED_TO_CORE) != pdPASS) {
+            esp_err_t cleanup = nimble_port_deinit();
+            lock();
+            s_status.initialized = cleanup != ESP_OK;
+            s_status.enabled = false;
+            s_status.ready = false;
+            s_status.last_error = ESP_ERR_NO_MEM;
+            s_host_stopped = cleanup != ESP_OK;
+            s_deinit_failed = cleanup != ESP_OK;
+            bump_generation();
+            unlock();
+            return ESP_ERR_NO_MEM;
+        }
         s_host_started = true;
-        nimble_port_freertos_init(host_task);
+        s_host_stopped = false;
     }
 
     return ESP_OK;
@@ -545,22 +583,26 @@ esp_err_t bluetooth_service_init(void)
 esp_err_t bluetooth_service_set_enabled(bool enabled)
 {
     /* Settings can call this repeatedly; serialize controller lifecycle. */
-    if (!s_lifecycle_lock) {
-        s_lifecycle_lock = xSemaphoreCreateMutex();
-        if (!s_lifecycle_lock) return ESP_ERR_NO_MEM;
-    }
+    init_locks();
     if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
 
+    /* Port deinit can fail after freeing part of the host. Repeating it is
+     * unsafe; require reboot instead of using a partially destroyed stack. */
+    if (s_deinit_failed) {
+        xSemaphoreGive(s_lifecycle_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     esp_err_t err = ESP_OK;
     if (enabled) {
         if (!s_status.initialized) {
             ESP_LOGI(TAG, "BLE ON before init: internal=%u largest=%u",
                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-            err = bluetooth_service_init();
+            err = init_locked();
         }
+        if (s_host_stopped) err = ESP_ERR_INVALID_STATE;
         if (err == ESP_OK) {
             lock();
             s_status.enabled = true;
@@ -568,24 +610,35 @@ esp_err_t bluetooth_service_set_enabled(bool enabled)
             unlock();
         }
     } else if (s_status.initialized) {
-        (void)bluetooth_service_stop_scan();
-        (void)bluetooth_service_disconnect();
+        (void)stop_scan_locked();
+        (void)disconnect_locked();
         /* A connected peer may require a disconnect callback before the
          * host can stop; don't force deinit if the stack refuses to stop. */
-        int rc = nimble_port_stop();
+        int rc = s_host_stopped ? 0 : nimble_port_stop();
         if (rc != 0) {
             ESP_LOGE(TAG, "nimble_port_stop failed: %d", rc);
             err = ESP_FAIL;
-        } else if (xSemaphoreTake(s_host_exited, pdMS_TO_TICKS(3000)) != pdTRUE) {
-            ESP_LOGE(TAG, "NimBLE host stop timed out; retain stack");
+        } else if (!s_host_stopped && xSemaphoreTake(s_host_exited, pdMS_TO_TICKS(3000)) != pdTRUE) {
+            ESP_LOGE(TAG, "NimBLE host stop timed out; retain stack, reboot required");
+            s_deinit_failed = true;
+            lock();
+            s_status.ready = false;
+            s_status.enabled = false;
+            s_status.last_error = ESP_ERR_TIMEOUT;
+            bump_generation();
+            unlock();
             err = ESP_ERR_TIMEOUT;
         } else {
-            /* Host signals immediately before deleting its FreeRTOS task.
-             * Allow that task to finish before destroying port resources. */
-            vTaskDelay(pdMS_TO_TICKS(20));
+            if (s_host_task) { vTaskDelete(s_host_task); s_host_task = NULL; }
+            s_host_started = false;
+            s_host_stopped = true;
+            lock();
+            s_status.ready = false;
+            s_status.enabled = false;
+            unlock();
             err = nimble_port_deinit();
             if (err == ESP_OK) {
-                s_host_started = false;
+                s_host_stopped = false;
                 lock();
                 s_status.initialized = false;
                 s_status.enabled = false;
@@ -596,13 +649,22 @@ esp_err_t bluetooth_service_set_enabled(bool enabled)
                 s_status.state = BLUETOOTH_LINK_IDLE;
                 s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
                 s_result_count = 0;
+                s_name_read_in_progress = false;
+                s_selected_result_index = SIZE_MAX;
+                s_status.peer_name[0] = 0;
+                s_status.peer_address[0] = 0;
                 bump_generation();
                 unlock();
                 ESP_LOGI(TAG, "BLE OFF after deinit: internal=%u largest=%u",
                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
             } else {
-                ESP_LOGE(TAG, "nimble_port_deinit failed: %s",
+                s_deinit_failed = true;
+                lock();
+                s_status.last_error = err;
+                bump_generation();
+                unlock();
+                ESP_LOGE(TAG, "nimble_port_deinit failed: %s; reboot required",
                          esp_err_to_name(err));
             }
         }
@@ -625,13 +687,14 @@ void bluetooth_service_get_status(bluetooth_status_t *status)
     unlock();
 }
 
-esp_err_t bluetooth_service_start_scan(void)
+static esp_err_t start_scan_locked(void)
 {
     bluetooth_status_t status;
     bluetooth_service_get_status(&status);
     if (!status.initialized || !status.ready) return ESP_ERR_INVALID_STATE;
     if (!status.enabled) return ESP_ERR_INVALID_STATE;
-    if (status.connected) return ESP_ERR_INVALID_STATE;
+    if (status.connected || status.state == BLUETOOTH_LINK_CONNECTING ||
+        status.state == BLUETOOTH_LINK_PAIRING) return ESP_ERR_INVALID_STATE;
 
     (void)ble_gap_disc_cancel();
 
@@ -677,12 +740,13 @@ esp_err_t bluetooth_service_start_scan(void)
     return ESP_OK;
 }
 
-esp_err_t bluetooth_service_stop_scan(void)
+static esp_err_t stop_scan_locked(void)
 {
+    if (!s_status.initialized || s_host_stopped || s_deinit_failed) return ESP_OK;
     int rc = ble_gap_disc_cancel();
     lock();
     s_status.scanning = false;
-    if (!s_status.connected) s_status.state = BLUETOOTH_LINK_IDLE;
+    if (s_status.state == BLUETOOTH_LINK_SCANNING) s_status.state = BLUETOOTH_LINK_IDLE;
     bump_generation();
     unlock();
 
@@ -702,7 +766,7 @@ size_t bluetooth_service_get_scan_results(bluetooth_scan_result_t *results,
     return count;
 }
 
-esp_err_t bluetooth_service_connect(size_t index)
+static esp_err_t connect_locked(size_t index)
 {
     bluetooth_scan_result_t peer;
 
@@ -710,6 +774,11 @@ esp_err_t bluetooth_service_connect(size_t index)
     if (!s_status.enabled || !s_status.ready || index >= s_result_count) {
         unlock();
         return ESP_ERR_INVALID_ARG;
+    }
+    if (s_status.connected || s_status.state == BLUETOOTH_LINK_CONNECTING ||
+        s_status.state == BLUETOOTH_LINK_PAIRING) {
+        unlock();
+        return ESP_ERR_INVALID_STATE;
     }
     peer = s_results[index];
     s_selected_result_index = index;
@@ -744,21 +813,34 @@ esp_err_t bluetooth_service_connect(size_t index)
     return ESP_OK;
 }
 
-esp_err_t bluetooth_service_disconnect(void)
+static esp_err_t disconnect_locked(void)
 {
+    lock();
     uint16_t handle = s_conn_handle;
-    if (handle == BLE_HS_CONN_HANDLE_NONE) return ESP_OK;
+    bool active = s_status.initialized && !s_host_stopped && !s_deinit_failed;
+    bool connecting = s_status.state == BLUETOOTH_LINK_CONNECTING;
+    unlock();
+    if (!active) return ESP_OK;
+    if (handle == BLE_HS_CONN_HANDLE_NONE) {
+        if (!connecting) return ESP_OK;
+        int rc = ble_gap_conn_cancel();
+        return (rc == 0 || rc == BLE_HS_EALREADY) ? ESP_OK : ESP_FAIL;
+    }
 
     int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
     return rc == 0 ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t bluetooth_service_forget_peer(void)
+static esp_err_t forget_peer_locked(void)
 {
-    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) return ESP_ERR_INVALID_STATE;
+    lock();
+    uint16_t handle = s_conn_handle;
+    bool active = s_status.initialized && s_status.ready && !s_host_stopped;
+    unlock();
+    if (!active || handle == BLE_HS_CONN_HANDLE_NONE) return ESP_ERR_INVALID_STATE;
 
     struct ble_gap_conn_desc desc = {0};
-    int rc = ble_gap_conn_find(s_conn_handle, &desc);
+    int rc = ble_gap_conn_find(handle, &desc);
     if (rc != 0) return ESP_FAIL;
 
     rc = ble_store_util_delete_peer(&desc.peer_id_addr);
@@ -769,4 +851,55 @@ esp_err_t bluetooth_service_forget_peer(void)
     bump_generation();
     unlock();
     return ESP_OK;
+}
+
+/* Public commands share the same lifecycle lock: no GAP call can race deinit. */
+esp_err_t bluetooth_service_init(void)
+{
+    return bluetooth_service_set_enabled(true);
+}
+
+esp_err_t bluetooth_service_start_scan(void)
+{
+    init_locks();
+    if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t err = start_scan_locked();
+    xSemaphoreGive(s_lifecycle_lock);
+    return err;
+}
+
+esp_err_t bluetooth_service_stop_scan(void)
+{
+    init_locks();
+    if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t err = stop_scan_locked();
+    xSemaphoreGive(s_lifecycle_lock);
+    return err;
+}
+
+esp_err_t bluetooth_service_connect(size_t index)
+{
+    init_locks();
+    if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t err = connect_locked(index);
+    xSemaphoreGive(s_lifecycle_lock);
+    return err;
+}
+
+esp_err_t bluetooth_service_disconnect(void)
+{
+    init_locks();
+    if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t err = disconnect_locked();
+    xSemaphoreGive(s_lifecycle_lock);
+    return err;
+}
+
+esp_err_t bluetooth_service_forget_peer(void)
+{
+    init_locks();
+    if (xSemaphoreTake(s_lifecycle_lock, pdMS_TO_TICKS(3000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t err = forget_peer_locked();
+    xSemaphoreGive(s_lifecycle_lock);
+    return err;
 }

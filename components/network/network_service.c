@@ -19,6 +19,8 @@
 #include "nvs_flash.h"
 #include "sdmmc_cmd.h"
 #include "lwip/inet.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 
 #define TF_MOUNT_POINT "/sdcard"
 #define TF_CONFIG_PATH TF_MOUNT_POINT "/config.json"
@@ -37,6 +39,7 @@ static const char *s_config_status = "TF NOT READ";
 static bool s_initialized;
 static bool s_sntp_started;
 static sdmmc_card_t *s_card;
+static portMUX_TYPE s_status_guard = portMUX_INITIALIZER_UNLOCKED;
 
 static bool copy_json_string(const cJSON *object, const char *key,
                              char *dst, size_t capacity, bool required)
@@ -152,10 +155,12 @@ static esp_err_t load_tf_config(void)
     }
 
     /* Commit only after all fields validate: no partially applied credentials. */
+    wifi.enabled = true;
+    wifi.configured = true;
+    portENTER_CRITICAL(&s_status_guard);
     s_status = wifi;
-    s_status.enabled = true;
-    s_status.configured = true;
     s_backend = backend;
+    portEXIT_CRITICAL(&s_status_guard);
     memcpy(s_password, password, sizeof(s_password));
     s_config_status = "CONFIG OK";
     ESP_LOGI(TAG, "TF config loaded: Wi-Fi SSID=%s; AI=%s; HA=%s",
@@ -167,7 +172,9 @@ static esp_err_t load_tf_config(void)
 static void on_time_synced(struct timeval *tv)
 {
     (void)tv;
+    portENTER_CRITICAL(&s_status_guard);
     s_status.time_synced = true;
+    portEXIT_CRITICAL(&s_status_guard);
     ESP_LOGI(TAG, "SNTP synchronized");
 }
 
@@ -187,24 +194,33 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
     (void)arg;
+    network_wifi_status_t current;
+    network_service_get_wifi_status(&current);
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        if (s_status.configured) (void)esp_wifi_connect();
+        if (current.configured && current.enabled) (void)esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        portENTER_CRITICAL(&s_status_guard);
         s_status.connected = false;
         s_status.ip[0] = '\0';
-        if (s_status.configured) (void)esp_wifi_connect();
+        portEXIT_CRITICAL(&s_status_guard);
+        if (current.configured && current.enabled) (void)esp_wifi_connect();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        if (!data || !current.enabled) return;
         const ip_event_got_ip_t *ip = (const ip_event_got_ip_t *)data;
-        snprintf(s_status.ip, sizeof(s_status.ip), IPSTR, IP2STR(&ip->ip_info.ip));
-        s_status.connected = true;
+        snprintf(current.ip, sizeof(current.ip), IPSTR, IP2STR(&ip->ip_info.ip));
         uint8_t mac[6] = {0};
         if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
-            snprintf(s_status.mac, sizeof(s_status.mac),
+            snprintf(current.mac, sizeof(current.mac),
                      "%02X:%02X:%02X:%02X:%02X:%02X",
                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         }
+        portENTER_CRITICAL(&s_status_guard);
+        memcpy(s_status.ip, current.ip, sizeof(s_status.ip));
+        memcpy(s_status.mac, current.mac, sizeof(s_status.mac));
+        s_status.connected = true;
+        portEXIT_CRITICAL(&s_status_guard);
         start_time_sync();
-        ESP_LOGI(TAG, "Wi-Fi connected, IP=%s", s_status.ip);
+        ESP_LOGI(TAG, "Wi-Fi connected, IP=%s", current.ip);
     }
 }
 
@@ -232,6 +248,7 @@ esp_err_t network_service_init(void)
 
     esp_netif_t *netif = esp_netif_create_default_wifi_sta();
     if (!netif) return ESP_ERR_NO_MEM;
+    bool driver_initialized = false, wifi_handler = false, ip_handler = false;
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     cfg.static_rx_buf_num = 4;
@@ -239,36 +256,60 @@ esp_err_t network_service_init(void)
     cfg.dynamic_tx_buf_num = 12;
     cfg.rx_mgmt_buf_num = 3;
     err = esp_wifi_init(&cfg);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
+    driver_initialized = true;
     err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
     err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                      wifi_event_handler, NULL);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
+    wifi_handler = true;
     err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                      wifi_event_handler, NULL);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
+    ip_handler = true;
     err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
 
     wifi_config_t connection = {0};
-    strlcpy((char *)connection.sta.ssid, s_status.ssid, sizeof(connection.sta.ssid));
-    strlcpy((char *)connection.sta.password, s_password, sizeof(connection.sta.password));
+    /* IDF's fixed-width fields allow a full 32-byte SSID / 64-byte hex PSK.
+     * strlcpy would silently drop the last byte at either legal maximum. */
+    memcpy(connection.sta.ssid, s_status.ssid, strlen(s_status.ssid));
+    memcpy(connection.sta.password, s_password, strlen(s_password));
     connection.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     connection.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     err = esp_wifi_set_config(WIFI_IF_STA, &connection);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
 
+    err = esp_wifi_start();
+    if (err != ESP_OK) goto fail;
+    portENTER_CRITICAL(&s_status_guard);
     s_status.initialized = true;
+    portEXIT_CRITICAL(&s_status_guard);
     s_initialized = true;
-    return esp_wifi_start();
+    return ESP_OK;
+
+fail:
+    portENTER_CRITICAL(&s_status_guard);
+    s_status.initialized = false;
+    s_status.enabled = false;
+    s_status.connected = false;
+    s_status.ip[0] = '\0';
+    portEXIT_CRITICAL(&s_status_guard);
+    if (wifi_handler) esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler);
+    if (ip_handler) esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler);
+    if (driver_initialized) { (void)esp_wifi_stop(); (void)esp_wifi_deinit(); }
+    esp_netif_destroy_default_wifi(netif);
+    return err;
 }
 
 void network_service_get_wifi_status(network_wifi_status_t *status)
 {
     if (!status) return;
+    portENTER_CRITICAL(&s_status_guard);
     *status = s_status;
-    if (s_sntp_started && time(NULL) > 1700000000) {
+    portEXIT_CRITICAL(&s_status_guard);
+    if (time(NULL) > 1700000000) {
         status->time_synced = true;
     }
 }
@@ -276,7 +317,9 @@ void network_service_get_wifi_status(network_wifi_status_t *status)
 esp_err_t network_service_get_backend_config(network_backend_config_t *config)
 {
     if (!config) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&s_status_guard);
     *config = s_backend;
+    portEXIT_CRITICAL(&s_status_guard);
     return ESP_OK;
 }
 

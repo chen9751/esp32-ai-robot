@@ -146,6 +146,13 @@ static void physical_buttons_task(void *arg)
                      (unsigned)psram.largest_free_block,
                      (unsigned)dma.largest_free_block,
                      (unsigned)uxTaskGetStackHighWaterMark(NULL));
+            bluetooth_status_t bt;
+            bluetooth_service_get_status(&bt);
+            ESP_LOGI(TAG, "RUNTIME state: ble_enabled=%u ble_ready=%u ble_scanning=%u "
+                     "ble_connected=%u wake_state=%u",
+                     (unsigned)bt.enabled, (unsigned)bt.ready,
+                     (unsigned)bt.scanning, (unsigned)bt.connected,
+                     (unsigned)voice_wakeup_get_state());
             next_memory_report = now + pdMS_TO_TICKS(60000);
         }
         vTaskDelay(pdMS_TO_TICKS(PHYS_KEY_POLL_MS));

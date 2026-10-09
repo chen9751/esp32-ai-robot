@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <limits.h>
 #include <stdlib.h>
 
 #include "driver/i2c_master.h"
@@ -38,8 +39,33 @@ static const audio_codec_data_if_t *s_data_if = NULL;
 static const audio_codec_gpio_if_t *s_gpio_if = NULL;
 static const audio_codec_ctrl_if_t *s_ctrl_if = NULL;
 static const audio_codec_if_t *s_codec_if = NULL;
+static const audio_codec_data_if_t *s_rx_data;
+static const audio_codec_ctrl_if_t *s_rx_ctrl;
+static const audio_codec_if_t *s_rx_codec;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
+
+static void release_capture(void)
+{
+    s_capture_ready = false;
+    if (s_record) { esp_codec_dev_delete(s_record); s_record = NULL; }
+    if (s_rx_codec) { audio_codec_delete_codec_if(s_rx_codec); s_rx_codec = NULL; }
+    if (s_rx_ctrl) { audio_codec_delete_ctrl_if(s_rx_ctrl); s_rx_ctrl = NULL; }
+    if (s_rx_data) { audio_codec_delete_data_if(s_rx_data); s_rx_data = NULL; }
+}
+
+static void release_audio(void)
+{
+    release_capture();
+    if (s_playback) { esp_codec_dev_delete(s_playback); s_playback = NULL; }
+    if (s_codec_if) { audio_codec_delete_codec_if(s_codec_if); s_codec_if = NULL; }
+    if (s_ctrl_if) { audio_codec_delete_ctrl_if(s_ctrl_if); s_ctrl_if = NULL; }
+    if (s_data_if) { audio_codec_delete_data_if(s_data_if); s_data_if = NULL; }
+    if (s_gpio_if) { audio_codec_delete_gpio_if(s_gpio_if); s_gpio_if = NULL; }
+    if (s_rx) { (void)i2s_channel_disable(s_rx); i2s_del_channel(s_rx); s_rx = NULL; }
+    if (s_tx) { (void)i2s_channel_disable(s_tx); i2s_del_channel(s_tx); s_tx = NULL; }
+    s_ready = false;
+}
 
 esp_err_t audio_service_init(void)
 {
@@ -102,12 +128,12 @@ esp_err_t audio_service_init(void)
     err = i2s_channel_init_tdm_mode(s_rx, &tdm_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S microphone RX TDM init failed: %s", esp_err_to_name(err));
-        return err;
+        goto fail;
     }
     err = i2s_channel_enable(s_rx);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
     err = i2s_channel_enable(s_tx);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail;
 
     s_gpio_if = audio_codec_new_gpio();
 
@@ -125,6 +151,8 @@ esp_err_t audio_service_init(void)
     };
     s_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
 
+    if (!s_gpio_if || !s_data_if || !s_ctrl_if) { err = ESP_ERR_NO_MEM; goto fail; }
+
     es8311_codec_cfg_t es8311_cfg = {
         .codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC,
         .ctrl_if = s_ctrl_if,
@@ -140,7 +168,8 @@ esp_err_t audio_service_init(void)
     if (s_gpio_if == NULL || s_data_if == NULL ||
         s_ctrl_if == NULL || s_codec_if == NULL) {
         ESP_LOGE(TAG, "ES8311 interface creation failed");
-        return ESP_FAIL;
+        err = ESP_ERR_NO_MEM;
+        goto fail;
     }
 
     esp_codec_dev_cfg_t dev_cfg = {
@@ -149,7 +178,7 @@ esp_err_t audio_service_init(void)
         .dev_type = ESP_CODEC_DEV_TYPE_OUT,
     };
     s_playback = esp_codec_dev_new(&dev_cfg);
-    if (s_playback == NULL) return ESP_FAIL;
+    if (s_playback == NULL) { err = ESP_ERR_NO_MEM; goto fail; }
 
     esp_codec_dev_sample_info_t fs = {
         .sample_rate = AUDIO_SAMPLE_RATE,
@@ -158,7 +187,8 @@ esp_err_t audio_service_init(void)
     };
     if (esp_codec_dev_open(s_playback, &fs) != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "ES8311 playback open failed");
-        return ESP_FAIL;
+        err = ESP_FAIL;
+        goto fail;
     }
 
     /* ES7210 microphone ADC shares the board I2C bus and I2S0 TDM clock
@@ -170,15 +200,15 @@ esp_err_t audio_service_init(void)
         .tx_handle = NULL,
         .rx_handle = s_rx,
     };
-    const audio_codec_data_if_t *rx_data = audio_codec_new_i2s_data(&rx_i2s_cfg);
+    s_rx_data = audio_codec_new_i2s_data(&rx_i2s_cfg);
     audio_codec_i2c_cfg_t rx_i2c_cfg = {
         .port = I2C_NUM_0,
         .addr = ES7210_CODEC_DEFAULT_ADDR,
         .bus_handle = bus,
     };
-    const audio_codec_ctrl_if_t *rx_ctrl = audio_codec_new_i2c_ctrl(&rx_i2c_cfg);
+    s_rx_ctrl = audio_codec_new_i2c_ctrl(&rx_i2c_cfg);
     es7210_codec_cfg_t es7210_cfg = {
-        .ctrl_if = rx_ctrl,
+        .ctrl_if = s_rx_ctrl,
         .master_mode = false,
         /* Mic selection is a bitmask. Some esp_codec_dev releases no longer
          * expose the ES7210_SEL_MICx macros; keep the original MIC1/MIC3
@@ -186,11 +216,11 @@ esp_err_t audio_service_init(void)
         .mic_selected = (1U << 0) | (1U << 2),
         .mclk_src = ES7210_MCLK_FROM_PAD,
     };
-    const audio_codec_if_t *rx_codec = rx_ctrl ? es7210_codec_new(&es7210_cfg) : NULL;
-    if (rx_data && rx_ctrl && rx_codec) {
+    s_rx_codec = s_rx_ctrl ? es7210_codec_new(&es7210_cfg) : NULL;
+    if (s_rx_data && s_rx_ctrl && s_rx_codec) {
         esp_codec_dev_cfg_t rx_dev_cfg = {
-            .codec_if = rx_codec,
-            .data_if = rx_data,
+            .codec_if = s_rx_codec,
+            .data_if = s_rx_data,
             .dev_type = ESP_CODEC_DEV_TYPE_IN,
         };
         s_record = esp_codec_dev_new(&rx_dev_cfg);
@@ -215,6 +245,8 @@ esp_err_t audio_service_init(void)
         ESP_LOGW(TAG, "ES7210 microphone interface initialization failed");
     }
 
+    if (!s_capture_ready) release_capture();
+
     s_volume = AUDIO_DEFAULT_VOLUME;
     esp_codec_dev_set_out_vol(s_playback, s_volume);
     s_ready = true;
@@ -224,16 +256,19 @@ esp_err_t audio_service_init(void)
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     return ESP_OK;
+fail:
+    release_audio();
+    return err;
 }
 
 esp_err_t audio_service_set_volume(uint8_t percent)
 {
     if (percent > 100) percent = 100;
-    s_volume = percent;
     if (!s_ready) return ESP_ERR_INVALID_STATE;
 
-    return esp_codec_dev_set_out_vol(s_playback, percent) == ESP_CODEC_DEV_OK
-               ? ESP_OK : ESP_FAIL;
+    if (esp_codec_dev_set_out_vol(s_playback, percent) != ESP_CODEC_DEV_OK) return ESP_FAIL;
+    s_volume = percent;
+    return ESP_OK;
 }
 
 uint8_t audio_service_get_volume(void)
@@ -256,7 +291,7 @@ bool audio_service_capture_ready(void)
 esp_err_t audio_service_capture_read(void *pcm, size_t bytes)
 {
     if (!s_capture_ready || !s_record) return ESP_ERR_INVALID_STATE;
-    if (!pcm || bytes == 0 || bytes % (AUDIO_CHANNELS * (AUDIO_BITS / 8))) {
+    if (!pcm || bytes == 0 || bytes > INT_MAX || bytes % (AUDIO_CHANNELS * (AUDIO_BITS / 8))) {
         return ESP_ERR_INVALID_ARG;
     }
     return esp_codec_dev_read(s_record, pcm, (int)bytes) == ESP_CODEC_DEV_OK
@@ -267,7 +302,7 @@ static void capture_diagnostic_task(void *arg)
 {
     (void)arg;
     /* 1024 bytes = 256 frames at 24 kHz stereo S16. */
-    int16_t *pcm = heap_caps_malloc(1024, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    int16_t *pcm = heap_caps_malloc(1024, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!pcm) {
         ESP_LOGE(TAG, "microphone diagnostic buffer allocation failed");
         s_capture_task_running = false;

@@ -59,6 +59,7 @@ bool ha_lights_get(int index, ha_light_state_t *out)
 bool ha_lights_send(int index, ha_light_command_t type, int value, int extra)
 {
     if (index < 0 || index >= HA_LIGHT_COUNT || !s_commands) return false;
+    if (type < HA_LIGHT_POWER || type > HA_LIGHT_COLOR) return false;
     command_t cmd = { index, type, value, extra };
     if (xQueueSend(s_commands, &cmd, 0) != pdTRUE) return false;
     if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -79,15 +80,18 @@ bool ha_lights_send(int index, ha_light_command_t type, int value, int extra)
     return true;
 }
 
-typedef struct { char data[2048]; size_t len; } response_t;
+typedef struct { char data[2048]; size_t len; bool overflow; } response_t;
 /* Only worker() calls refresh_one()/send_one(); requests are synchronous. */
 static response_t *s_response;
 static esp_err_t http_event(esp_http_client_event_t *evt)
 {
     if (evt->event_id != HTTP_EVENT_ON_DATA || !evt->user_data) return ESP_OK;
     response_t *r = evt->user_data;
-    if (evt->data_len <= 0 || r->len + (size_t)evt->data_len >= sizeof(r->data))
+    if (evt->data_len <= 0) return ESP_OK;
+    if (r->overflow || (size_t)evt->data_len >= sizeof(r->data) - r->len) {
+        r->overflow = true;
         return ESP_FAIL;
+    }
     memcpy(r->data + r->len, evt->data, evt->data_len);
     r->len += evt->data_len;
     r->data[r->len] = 0;
@@ -119,7 +123,7 @@ static bool request(const char *path, const char *body, response_t *reply)
     esp_err_t err = esp_http_client_perform(client);
     int status = err == ESP_OK ? esp_http_client_get_status_code(client) : 0;
     esp_http_client_cleanup(client);
-    if (err != ESP_OK || status < 200 || status >= 300) {
+    if (err != ESP_OK || status < 200 || status >= 300 || (reply && reply->overflow)) {
         ESP_LOGW(TAG, "HA %s failed: http=%d err=%s", path, status, esp_err_to_name(err));
         return false;
     }
