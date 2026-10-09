@@ -5,6 +5,8 @@
 #include "ui_page_feature.h"
 #include "ui_page_settings.h"
 #include "ui_assets.h"
+#include "ui_page_robot_face.h"
+#include <stdatomic.h>
 
 #include <stdint.h>
 
@@ -40,6 +42,11 @@ static uint32_t s_last_activity_tick = 0;
 static lv_timer_t *s_idle_timer = NULL;
 static bool s_ui_locked = false;
 static lv_obj_t *s_lock_overlay = NULL;
+static lv_obj_t *s_voice_overlay = NULL;
+static lv_timer_t *s_voice_timer = NULL;
+static uint32_t s_voice_until = 0;
+static atomic_bool s_voice_wake_pending = ATOMIC_VAR_INIT(false);
+#define UI_VOICE_PREVIEW_MS 5000u
 #define UI_BACK_UNLOCK_HOLD_MS 3000u
 
 static lv_obj_t *s_settings_root = NULL;
@@ -130,6 +137,60 @@ void ui_unlock_from_back_hold(void)
     s_ui_locked = false;
     refresh_lock_overlay();
     ui_mark_activity();
+}
+
+/* Called by the WakeNet worker (not the LVGL task). Never touch LVGL here. */
+void ui_notify_voice_wakeup(void)
+{
+    atomic_store_explicit(&s_voice_wake_pending, true, memory_order_release);
+}
+
+static void voice_overlay_close(void)
+{
+    ui_page_robot_face_stop();
+    if (s_voice_overlay != NULL) {
+        lv_obj_delete(s_voice_overlay);
+        s_voice_overlay = NULL;
+    }
+    s_voice_until = 0;
+}
+
+static void voice_overlay_show(void)
+{
+    if (ui_navigation_transition_active()) {
+        /* Avoid overlaying a screen that is still being animated. */
+        return;
+    }
+    if (s_voice_overlay == NULL) {
+        s_voice_overlay = lv_obj_create(lv_screen_active());
+        lv_obj_null_on_delete(&s_voice_overlay);
+        lv_obj_remove_style_all(s_voice_overlay);
+        lv_obj_set_size(s_voice_overlay, UI_SCREEN_W, UI_SCREEN_H);
+        lv_obj_set_pos(s_voice_overlay, 0, 0);
+        lv_obj_add_flag(s_voice_overlay, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(s_voice_overlay, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_color(s_voice_overlay, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(s_voice_overlay, LV_OPA_COVER, 0);
+        ui_page_robot_face_build(s_voice_overlay, UI_ROBOT_FACE_LISTENING);
+    }
+    s_voice_until = lv_tick_get() + UI_VOICE_PREVIEW_MS;
+    lv_obj_move_foreground(s_voice_overlay);
+    /* Preserve both the lock and its indicator during voice interaction. */
+    if (s_ui_locked && s_lock_overlay != NULL) lv_obj_move_foreground(s_lock_overlay);
+}
+
+static void voice_overlay_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (atomic_exchange_explicit(&s_voice_wake_pending, false,
+                                  memory_order_acq_rel)) {
+        voice_overlay_show();
+    }
+    if (s_voice_overlay != NULL &&
+        (int32_t)(lv_tick_get() - s_voice_until) >= 0) {
+        voice_overlay_close();
+        if (!s_ui_locked) ui_mark_activity();
+    }
 }
 
 void ui_mark_activity(void)
@@ -550,7 +611,7 @@ static void idle_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
 
-    if (ui_navigation_transition_active() || s_ui_locked) {
+    if (ui_navigation_transition_active() || s_ui_locked || s_voice_overlay != NULL) {
         return;
     }
 
@@ -573,6 +634,7 @@ static void idle_timer_cb(lv_timer_t *timer)
 void ui_lock_from_back_hold(void)
 {
     if (s_ui_locked) return;
+    voice_overlay_close();
     if (s_transition_overlay != NULL) {
         lv_anim_delete(s_transition_overlay, NULL);
         finish_transition_cancel(NULL);
@@ -623,6 +685,7 @@ void ui_set_menu_font(const lv_font_t *font)
 void ui_show_main_menu(void)
 {
     if (s_ui_locked) return;
+    voice_overlay_close();
     if (s_top_page == UI_TOP_SETTINGS) {
         ui_page_settings_stop();
         s_settings_root = NULL;
@@ -643,6 +706,7 @@ void ui_show_main_menu(void)
 
 void ui_show_standby_clock(void)
 {
+    voice_overlay_close();
     if (s_top_page == UI_TOP_SETTINGS) {
         ui_page_settings_stop();
         s_settings_root = NULL;
@@ -673,6 +737,9 @@ void ui_init(void)
 
     if (s_idle_timer == NULL) {
         s_idle_timer = lv_timer_create(idle_timer_cb, 1000, NULL);
+    }
+    if (s_voice_timer == NULL) {
+        s_voice_timer = lv_timer_create(voice_overlay_timer_cb, 100, NULL);
     }
 
     ui_show_standby_clock();
