@@ -115,13 +115,12 @@ lv_obj_t *ui_page_robot_face_build(lv_obj_t *parent, ui_robot_face_mode_t mode)
     lv_obj_clear_flag(s_face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_face, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* The engine is confined to 160x160 within the 640x172 canvas so that
-     * its three RGB565 canvases stay small (~29 KB) and the clock lock
-     * overlay can continue to sit above it. The entire widget remains
-     * replaceable by the existing LVGL geometry below on allocation failure. */
+    /* Landscape face spans 640x172: eyes at ~24% and 76% width,
+     * mouth centered slightly lower. Canvases remain small and PSRAM-first;
+     * the legacy geometry below is retained as an allocation fallback. */
     lv_obj_t *panel = lv_obj_create(s_face);
     lv_obj_remove_style_all(panel);
-    lv_obj_set_size(panel, 160, 160);
+    lv_obj_set_size(panel, FACE_W, FACE_H);
     lv_obj_align(panel, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
