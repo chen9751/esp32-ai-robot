@@ -23,3 +23,9 @@
 - TF 卡缺失或 JSON 错误不会启动旧 AP/HTTP/DNS 配网服务，UI 显示错误原因。
 - 示例仅使用占位密码。**真实密码及 HA Token 不要提交 GitHub**；TF 卡中的明文配置也应妥善保管。
 - 不实现 USB MSC / U 盘模拟。
+
+## Hey Buddy 语音反馈测试
+
+将仓库 `tf卡/audio/hello.wav` 复制到 TF 卡 `/audio/hello.wav`（固件中为 `/sdcard/audio/hello.wav`）。WAV 必须是 24kHz、16-bit PCM、双声道。
+
+如二进制音频文件尚未由 GitHub Actions 生成，可在项目根目录运行 `bash tools/generate_hello.sh`（macOS 使用 say + ffmpeg；Linux 使用 espeak + ffmpeg），或者复制单独提供的 Hello WAV。若文件缺失，固件会记录警告，不影响 UI 锁定和语音唤醒。
