@@ -38,6 +38,10 @@ static ui_top_page_t s_top_page = UI_TOP_STANDBY;
 static ui_standby_view_t s_standby_view = UI_STANDBY_CLOCK;
 static uint32_t s_last_activity_tick = 0;
 static lv_timer_t *s_idle_timer = NULL;
+static bool s_ui_locked = false;
+static lv_obj_t *s_lock_overlay = NULL;
+#define UI_BACK_UNLOCK_HOLD_MS 3000u
+
 static lv_obj_t *s_settings_root = NULL;
 static lv_point_t s_settings_press;
 static bool s_settings_tracking = false;
@@ -57,6 +61,74 @@ static int32_t clamp_i32(int32_t value, int32_t min_value, int32_t max_value)
     if (value < min_value) return min_value;
     if (value > max_value) return max_value;
     return value;
+}
+
+/* ri-lock-line: System/lock-line.svg from Remix Icon, 24x24 silhouette.
+ * Keep this tiny A8 mask self-contained and separate from font resources. */
+static uint8_t s_lock_pixels[24 * 24];
+static lv_image_dsc_t s_lock_image = {
+    .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
+               .w = 24, .h = 24, .stride = 24},
+    .data_size = sizeof(s_lock_pixels), .data = s_lock_pixels
+};
+
+static void init_lock_icon(void)
+{
+    static bool initialized = false;
+    if (initialized) return;
+    initialized = true;
+    /* Pixel-aligned coverage of the original Remix 24x24 lock path:
+     * body x=3..20 y=10..21, cutout x=5..18 y=12..19;
+     * shackle outer and inner are concentric radius 7 and 5 arches. */
+    for (int y = 0; y < 24; ++y) {
+        for (int x = 0; x < 24; ++x) {
+            bool body = x >= 3 && x < 21 && y >= 10 && y < 22 &&
+                        !(x >= 5 && x < 19 && y >= 12 && y < 20);
+            bool keyhole = x >= 11 && x < 13 && y >= 14 && y < 18;
+            int dx = 2 * x + 1 - 24;
+            int dy = 2 * y + 1 - 18;
+            bool arch = y >= 2 && y < 11 &&
+                        (dx * dx + dy * dy <= 196) &&
+                        (dx * dx + dy * dy >= 100 || y >= 9);
+            s_lock_pixels[y * 24 + x] = (body || keyhole || arch) ? 255 : 0;
+        }
+    }
+    s_lock_image.data = s_lock_pixels;
+}
+
+static void refresh_lock_overlay(void)
+{
+    if (s_lock_overlay != NULL) {
+        lv_obj_delete(s_lock_overlay);
+        s_lock_overlay = NULL;
+    }
+    if (!s_ui_locked) return;
+    init_lock_icon();
+    lv_obj_t *screen = lv_screen_active();
+    s_lock_overlay = lv_obj_create(screen);
+    lv_obj_remove_style_all(s_lock_overlay);
+    lv_obj_set_pos(s_lock_overlay, 0, 0);
+    lv_obj_set_size(s_lock_overlay, UI_SCREEN_W, UI_SCREEN_H);
+    lv_obj_add_flag(s_lock_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_lock_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(s_lock_overlay, LV_OPA_TRANSP, 0);
+    lv_obj_t *icon = lv_image_create(s_lock_overlay);
+    lv_image_set_src(icon, &s_lock_image);
+    lv_obj_set_style_image_recolor(icon, lv_color_hex(0x9A9A9A), 0);
+    lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+    lv_obj_set_pos(icon, UI_SCREEN_W - 34, 10);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_move_foreground(s_lock_overlay);
+}
+
+bool ui_is_locked(void) { return s_ui_locked; }
+
+void ui_unlock_from_back_hold(void)
+{
+    if (!s_ui_locked) return;
+    s_ui_locked = false;
+    refresh_lock_overlay();
+    ui_mark_activity();
 }
 
 void ui_mark_activity(void)
@@ -94,7 +166,7 @@ static void feature_back_cb(void *user_data)
 
 static void show_feature_page(ui_menu_action_t action)
 {
-    if (ui_navigation_transition_active() || ui_page_feature_active()) {
+    if (s_ui_locked || ui_navigation_transition_active() || ui_page_feature_active()) {
         return;
     }
 
@@ -376,6 +448,7 @@ static void vertical_drag_cb(int32_t dx,
                              void *user_data)
 {
     (void)user_data;
+    if (s_ui_locked) return;
     ui_mark_activity();
 
     if (s_top_page == UI_TOP_FEATURE || s_top_page == UI_TOP_SETTINGS) {
@@ -437,6 +510,7 @@ static void vertical_drag_cb(int32_t dx,
 static void standby_event_cb(ui_standby_event_t event, void *user_data)
 {
     (void)user_data;
+    if (s_ui_locked) return;
     ui_mark_activity();
 
     if (event == UI_STANDBY_EVENT_OPEN_HOME) {
@@ -475,7 +549,7 @@ static void idle_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
 
-    if (ui_navigation_transition_active()) {
+    if (ui_navigation_transition_active() || s_ui_locked) {
         return;
     }
 
@@ -484,16 +558,17 @@ static void idle_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    if (s_top_page == UI_TOP_STANDBY &&
-        s_standby_view == UI_STANDBY_CLOCK) {
-        return;
+    if (s_top_page != UI_TOP_STANDBY ||
+        s_standby_view != UI_STANDBY_CLOCK) {
+        ui_show_standby_clock();
     }
-
-    ui_show_standby_clock();
+    s_ui_locked = true;
+    refresh_lock_overlay();
 }
 
 void ui_handle_back_action(void)
 {
+    if (s_ui_locked) return;
     ui_mark_activity();
     /* Never delete a page that an in-flight LVGL animation still owns. */
     if (ui_navigation_transition_active()) return;
@@ -531,6 +606,7 @@ void ui_set_menu_font(const lv_font_t *font)
 
 void ui_show_main_menu(void)
 {
+    if (s_ui_locked) return;
     if (s_top_page == UI_TOP_SETTINGS) {
         ui_page_settings_stop();
         s_settings_root = NULL;
@@ -567,6 +643,7 @@ void ui_show_standby_clock(void)
                          NULL,
                          vertical_drag_cb,
                          NULL);
+    if (s_ui_locked) refresh_lock_overlay();
 }
 
 void ui_init(void)
