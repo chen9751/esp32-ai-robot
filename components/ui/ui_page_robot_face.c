@@ -1,0 +1,108 @@
+#include "ui_page_robot_face.h"
+
+#define FACE_W 640
+#define FACE_H 172
+#define FACE_BG lv_color_hex(0x000000)
+#define FACE_CYAN lv_color_hex(0x49E9F0)
+#define FACE_WHITE lv_color_hex(0xF5FAFF)
+
+static lv_obj_t *s_face = NULL;
+static lv_timer_t *s_pulse_timer = NULL;
+static lv_obj_t *s_waves[6];
+static ui_robot_face_mode_t s_mode = UI_ROBOT_FACE_SMILE;
+static uint8_t s_pulse = 0;
+
+static lv_obj_t *pill(lv_obj_t *parent, int32_t x, int32_t y,
+                      int32_t w, int32_t h, lv_color_t color)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_style_bg_color(o, color, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    return o;
+}
+
+static void pulse_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (s_face == NULL || s_mode != UI_ROBOT_FACE_LISTENING) return;
+    ++s_pulse;
+    for (int i = 0; i < 6; ++i) {
+        if (s_waves[i] != NULL) {
+            uint8_t intensity = (uint8_t)((s_pulse + (i % 3)) % 5);
+            lv_obj_set_style_bg_opa(s_waves[i],
+                                    (lv_opa_t)(85 + intensity * 40), 0);
+        }
+    }
+}
+
+void ui_page_robot_face_stop(void)
+{
+    if (s_pulse_timer != NULL) {
+        lv_timer_delete(s_pulse_timer);
+        s_pulse_timer = NULL;
+    }
+    for (int i = 0; i < 6; ++i) s_waves[i] = NULL;
+    if (s_face != NULL) lv_obj_delete(s_face);
+    s_face = NULL;
+}
+
+void ui_page_robot_face_set_mode(ui_robot_face_mode_t mode)
+{
+    s_mode = mode;
+    if (s_face == NULL) return;
+    for (int i = 0; i < 6; ++i) {
+        if (s_waves[i] == NULL) continue;
+        if (mode == UI_ROBOT_FACE_LISTENING)
+            lv_obj_remove_flag(s_waves[i], LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(s_waves[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    if (mode == UI_ROBOT_FACE_LISTENING && s_pulse_timer == NULL)
+        s_pulse_timer = lv_timer_create(pulse_cb, 180, NULL);
+    else if (mode != UI_ROBOT_FACE_LISTENING && s_pulse_timer != NULL) {
+        lv_timer_delete(s_pulse_timer);
+        s_pulse_timer = NULL;
+    }
+}
+
+lv_obj_t *ui_page_robot_face_build(lv_obj_t *parent, ui_robot_face_mode_t mode)
+{
+    ui_page_robot_face_stop();
+    if (parent == NULL) return NULL;
+
+    s_face = lv_obj_create(parent);
+    lv_obj_null_on_delete(&s_face);
+    lv_obj_remove_style_all(s_face);
+    lv_obj_set_size(s_face, FACE_W, FACE_H);
+    lv_obj_set_pos(s_face, 0, 0);
+    lv_obj_set_style_bg_color(s_face, FACE_BG, 0);
+    lv_obj_set_style_bg_opa(s_face, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_face, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_face, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Compact, symmetric friendly face: eyes and five-segment smile.
+     * Objects are monochrome LVGL shapes; no large bitmaps in PSRAM. */
+    pill(s_face, 239, 49, 24, 42, FACE_WHITE);
+    pill(s_face, 377, 49, 24, 42, FACE_WHITE);
+    pill(s_face, 291, 110, 14, 7, FACE_WHITE);
+    pill(s_face, 302, 117, 15, 7, FACE_WHITE);
+    pill(s_face, 314, 120, 15, 7, FACE_WHITE);
+    pill(s_face, 326, 117, 15, 7, FACE_WHITE);
+    pill(s_face, 338, 110, 14, 7, FACE_WHITE);
+
+    /* Three sound-level bars on each side, animated only while listening. */
+    const int32_t xs[6] = {142, 163, 184, 444, 465, 486};
+    const int32_t heights[6] = {25, 50, 35, 35, 50, 25};
+    for (int i = 0; i < 6; ++i) {
+        s_waves[i] = pill(s_face, xs[i], (FACE_H - heights[i]) / 2,
+                          7, heights[i], FACE_CYAN);
+    }
+    ui_page_robot_face_set_mode(mode);
+    return s_face;
+}
