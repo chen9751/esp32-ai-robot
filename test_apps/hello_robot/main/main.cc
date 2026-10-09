@@ -13,6 +13,8 @@
 #include "tensorflow/lite/micro/micro_resource_variable.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
+#include "frontend.h"
+#include "frontend_util.h"
 
 extern "C" void app_main(void);
 extern const uint8_t model_start[] asm("_binary_hello_robot_v1_tflite_start");
@@ -27,7 +29,7 @@ static void memory(const char *where) {
            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 extern "C" void app_main(void) {
-  ESP_LOGI(TAG, "HELLO ROBOT V1 independent streaming inference SMOKE TEST");
+  ESP_LOGI(TAG, "HELLO ROBOT V1 micro_speech FRONTEND + INFERENCE TEST");
   ESP_LOGI(TAG, "model bytes=%u", (unsigned)(model_end - model_start));
   if (model_end-model_start != 62200) { ESP_LOGE(TAG, "model size mismatch"); return; }
   auto *model = tflite::GetModel(model_start);
@@ -103,14 +105,73 @@ extern "C" void app_main(void) {
   }
   ESP_LOGI(TAG, "IO OK; arena used=%u of %u bytes", (unsigned)interpreter->arena_used_bytes(), (unsigned)kArenaBytes);
   memory("after arena");
+  // Match the standard microWakeWord micro_speech frontend rather than
+  // sending arbitrary feature bytes. No live microphone is connected yet.
+  FrontendConfig frontend_cfg = {};
+  FrontendState frontend_state = {};
+  FrontendFillConfigWithDefaults(&frontend_cfg);
+  frontend_cfg.window.size_ms = 30;
+  frontend_cfg.window.step_size_ms = 10;
+  frontend_cfg.filterbank.num_channels = 40;
+  frontend_cfg.filterbank.lower_band_limit = 125.0f;
+  frontend_cfg.filterbank.upper_band_limit = 7500.0f;
+  frontend_cfg.noise_reduction.smoothing_bits = 10;
+  frontend_cfg.noise_reduction.even_smoothing = 0.025f;
+  frontend_cfg.noise_reduction.odd_smoothing = 0.06f;
+  frontend_cfg.noise_reduction.min_signal_remaining = 0.05f;
+  frontend_cfg.pcan_gain_control.enable_pcan = true;
+  frontend_cfg.pcan_gain_control.strength = 0.95f;
+  frontend_cfg.pcan_gain_control.offset = 80.0f;
+  frontend_cfg.pcan_gain_control.gain_bits = 21;
+  frontend_cfg.log_scale.enable_log = true;
+  frontend_cfg.log_scale.scale_shift = 6;
+  if (!FrontendPopulateState(&frontend_cfg, &frontend_state, 16000)) {
+    ESP_LOGE(TAG, "micro_speech FrontendPopulateState failed");
+    return;
+  }
+  ESP_LOGI(TAG, "micro_speech frontend ready: 16kHz 30ms window 10ms hop 40 bins");
   uint64_t total_us=0, max_us=0;
+  uint32_t frames=0;
+  int8_t group[120] = {};
+  const int16_t silence[160] = {};
   for (int i=0; i<200; ++i) {
-    // -128 represents a quantized feature zero (input zero point -128).
-    // It is not a trained speech sample and cannot establish accuracy.
-    memset(input->data.int8, -128, input->bytes);
+    for (int part=0; part<3; ++part) {
+      // A 10ms PCM buffer may not immediately yield one 30ms feature frame.
+      // The frontend retains its 20ms overlap between calls.
+      bool produced = false;
+      for (int feed=0; feed<4 && !produced; ++feed) {
+        size_t consumed=0;
+        FrontendOutput feature = FrontendProcessSamples(
+            &frontend_state, silence, 160, &consumed);
+        if (feature.size == 40) {
+          for (size_t k=0; k<40; ++k) {
+            // ESPHome's microWakeWord integer feature mapping:
+            // frontend uint16 -> int8, matching 0..26 training range.
+            int32_t v = ((int32_t)feature.values[k] * 256 + 333) / 666 - 128;
+            if (v < -128) v=-128;
+            if (v > 127) v=127;
+            group[part*40+k] = (int8_t)v;
+          }
+          ++frames;
+          produced = true;
+        } else if (feature.size != 0 || consumed == 0) {
+          ESP_LOGE(TAG, "frontend stalled: size=%u consumed=%u",
+                   (unsigned)feature.size, (unsigned)consumed);
+          FrontendFreeStateContents(&frontend_state);
+          return;
+        }
+      }
+      if (!produced) {
+        ESP_LOGE(TAG, "frontend did not produce 40 features at part=%d", part);
+        FrontendFreeStateContents(&frontend_state);
+        return;
+      }
+    }
+    memcpy(input->data.int8, group, sizeof(group));
     int64_t t0=esp_timer_get_time();
     if (interpreter->Invoke()!=kTfLiteOk) {
       ESP_LOGE(TAG, "Invoke failed on iteration=%d", i);
+      FrontendFreeStateContents(&frontend_state);
       return;
     }
     uint64_t delta=(uint64_t)(esp_timer_get_time()-t0);
@@ -120,7 +181,9 @@ extern "C" void app_main(void) {
       ESP_LOGI(TAG,"iteration=%d score_uint8=%u inference_us=%llu",i,(unsigned)output->data.uint8[0],(unsigned long long)delta);
     vTaskDelay(1);
   }
-  ESP_LOGI(TAG,"PASS: 200 Invokes; avg_us=%llu max_us=%llu (no microphone, no accuracy verdict)",
+  FrontendFreeStateContents(&frontend_state);
+  ESP_LOGI(TAG, "micro_speech generated %u feature frames from synthetic silence", (unsigned)frames);
+  ESP_LOGI(TAG,"PASS: 200 Invokes; avg_us=%llu max_us=%llu (synthetic silence; no live microphone or accuracy verdict)",
       (unsigned long long)(total_us/200),(unsigned long long)max_us);
   memory("finished");
 }
