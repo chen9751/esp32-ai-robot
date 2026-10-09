@@ -33,8 +33,7 @@ extern "C" void app_main(void) {
     ESP_LOGE(TAG, "schema mismatch model=%d library=%d", model->version(), TFLITE_SCHEMA_VERSION);
     return;
   }
-  // Diagnostic resolver, deliberately accepts all supported builtins.
-  // Once operator inventory is known, replace with minimum resolver.
+  // Register only the operators found in the verified Hello Robot V1 FlatBuffer.
   static tflite::MicroMutableOpResolver<16> resolver;
   // Exact builtin operator inventory from the verified FlatBuffer.
   // Variable op support is version-dependent in esp-tflite-micro.
@@ -47,7 +46,7 @@ extern "C" void app_main(void) {
       resolver.AddConcatenation() != kTfLiteOk ||
       resolver.AddCallOnce() != kTfLiteOk ||
       resolver.AddStridedSlice() != kTfLiteOk ||
-      resolver.AddSplit() != kTfLiteOk ||
+      resolver.AddSplitV() != kTfLiteOk ||
       resolver.AddFullyConnected() != kTfLiteOk ||
       resolver.AddLogistic() != kTfLiteOk ||
       resolver.AddQuantize() != kTfLiteOk) {
