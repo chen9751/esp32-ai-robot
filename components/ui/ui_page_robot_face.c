@@ -86,15 +86,26 @@ lv_obj_t *ui_page_robot_face_build(lv_obj_t *parent, ui_robot_face_mode_t mode)
     lv_obj_clear_flag(s_face, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_face, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Compact, symmetric friendly face: eyes and five-segment smile.
-     * Objects are monochrome LVGL shapes; no large bitmaps in PSRAM. */
+    /* Continuous antialiased smile: one LVGL arc instead of five pills.
+     * LVGL arc angles 25..155 describe the downward-facing lower semicircle.
+     * Hide the background track and knob so only the smooth smile is drawn. */
     pill(s_face, 239, 49, 24, 42, FACE_WHITE);
     pill(s_face, 377, 49, 24, 42, FACE_WHITE);
-    pill(s_face, 291, 110, 14, 7, FACE_WHITE);
-    pill(s_face, 302, 117, 15, 7, FACE_WHITE);
-    pill(s_face, 314, 120, 15, 7, FACE_WHITE);
-    pill(s_face, 326, 117, 15, 7, FACE_WHITE);
-    pill(s_face, 338, 110, 14, 7, FACE_WHITE);
+    lv_obj_t *smile = lv_arc_create(s_face);
+    lv_obj_remove_style_all(smile);
+    lv_obj_set_size(smile, 70, 70);
+    lv_obj_set_pos(smile, 285, 56);
+    lv_arc_set_rotation(smile, 0);
+    lv_arc_set_bg_angles(smile, 0, 0);
+    lv_arc_set_angles(smile, 25, 155);
+    lv_obj_set_style_arc_width(smile, 7, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(smile, FACE_WHITE, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(smile, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(smile, true, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(smile, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(smile, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_clear_flag(smile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(smile, LV_OBJ_FLAG_SCROLLABLE);
 
     /* Three sound-level bars on each side, animated only while listening. */
     const int32_t xs[6] = {142, 163, 184, 444, 465, 486};
