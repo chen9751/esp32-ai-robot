@@ -1,5 +1,8 @@
 #include "ui_page_robot_face.h"
 #include "lvgl_kawaii_face.h"
+#if defined(ESP_PLATFORM)
+#include "esp_random.h"
+#endif
 
 static bool s_kawaii_active = false;
 /* All face APIs are invoked from the LVGL-owned UI context. Avoid recursive
@@ -18,6 +21,17 @@ static lv_timer_t *s_pulse_timer = NULL;
 static lv_obj_t *s_waves[6];
 static ui_robot_face_mode_t s_mode = UI_ROBOT_FACE_SMILE;
 static uint8_t s_pulse = 0;
+
+/* Test mode: pick among the 17 emotions; FACE_BLINK is a transient state. */
+static face_emotion_t random_wakeup_emotion(void)
+{
+#if defined(ESP_PLATFORM)
+    return (face_emotion_t)(esp_random() % (uint32_t)(FACE_COOL + 1));
+#else
+    return (face_emotion_t)lv_rand(0, FACE_COOL);
+#endif
+}
+
 
 static lv_obj_t *pill(lv_obj_t *parent, int32_t x, int32_t y,
                       int32_t w, int32_t h, lv_color_t color)
@@ -68,7 +82,7 @@ void ui_page_robot_face_set_mode(ui_robot_face_mode_t mode)
     s_mode = mode;
     if (s_face == NULL) return;
     if (s_kawaii_active) {
-        face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? FACE_HAPPY : FACE_NEUTRAL, true);
+        face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? random_wakeup_emotion() : FACE_NEUTRAL, true);
         return;
     }
     for (int i = 0; i < 6; ++i) {
@@ -120,7 +134,7 @@ lv_obj_t *ui_page_robot_face_build(lv_obj_t *parent, ui_robot_face_mode_t mode)
     face_set_lvgl_lock_fns(face_noop_lock, face_noop_unlock);
     if (face_animation_init(&cfg) == ESP_OK) {
         s_kawaii_active = true;
-        face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? FACE_HAPPY : FACE_NEUTRAL, false);
+        face_set_emotion(mode == UI_ROBOT_FACE_LISTENING ? random_wakeup_emotion() : FACE_NEUTRAL, false);
         return s_face;
     }
     lv_obj_delete(panel);
