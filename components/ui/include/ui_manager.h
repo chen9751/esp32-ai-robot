@@ -35,6 +35,9 @@ void ui_set_menu_action_cb(ui_menu_action_cb_t cb, void *user_data);
  * Navigation contract:
  * - After 60 seconds without input, return to clock and lock the UI.
  * - Manually returning to clock locks after 60 seconds of inactivity.
+ * - When unlocked, holding physical/custom back for 3 seconds locks
+ *   immediately and returns to clock from any page.
+ * - Voice wake does not alter the lock state.
  * - While locked, touch is blocked; hold the physical/custom back key
  *   for 3 seconds to unlock. Voice wakeup remains independent.
  * - Standby never remembers the previously open function page.
@@ -52,6 +55,7 @@ bool ui_navigation_transition_active(void);
 void ui_handle_back_action(void);
 bool ui_is_locked(void);
 void ui_unlock_from_back_hold(void);
+void ui_lock_from_back_hold(void);
 
 void ui_init(void);
 
