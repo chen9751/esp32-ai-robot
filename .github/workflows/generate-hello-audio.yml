@@ -1,0 +1,29 @@
+name: Build Hello Greeting WAV
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/generate_hello.sh'
+      - '.github/workflows/generate-hello-audio.yml'
+permissions:
+  contents: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Install speech tools
+        run: sudo apt-get update && sudo apt-get install -y espeak ffmpeg
+      - name: Generate 24 kHz PCM WAV
+        run: bash tools/generate_hello.sh
+      - name: Commit sound asset
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add 'tf卡/audio/hello.wav'
+          if ! git diff --cached --quiet; then
+            git commit -m 'assets(audio): generate Hello greeting WAV'
+            git push
+          fi
