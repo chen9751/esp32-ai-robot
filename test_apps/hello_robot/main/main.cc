@@ -150,6 +150,8 @@ extern "C" void app_main(void) {
   int16_t mono[HELLO_AUDIO_TARGET_FRAMES] = {};
   uint32_t read_failures=0, peak=0, detections=0, total_features=0;
   uint32_t above_threshold=0;
+  int64_t last_candidate_us=0;
+  constexpr int64_t kCandidateCooldownUs = 2500000;
   uint64_t sum_abs=0;
   uint64_t window_abs[2]={0,0};
   uint32_t window_peak[2]={0,0};
@@ -157,7 +159,7 @@ extern "C" void app_main(void) {
   uint8_t max_score_window=0;
   // Experimental detection threshold only, NOT validated for this model.
   constexpr uint8_t kScoreThreshold=180;
-  for (int i=0; i<2000; ++i) {
+  for (uint32_t i=0;; ++i) {
     for (int part=0; part<3; ++part) {
       // A 10ms PCM buffer may not immediately yield one 30ms feature frame.
       // The frontend retains its 20ms overlap between calls.
@@ -227,9 +229,13 @@ extern "C" void app_main(void) {
     if(score>max_score_window)max_score_window=score;
     above_threshold = score >= kScoreThreshold ? above_threshold+1 : 0;
     if (above_threshold >= 3) {
-      ++detections;
-      ESP_LOGW(TAG, "HELLO ROBOT CANDIDATE DETECTED: score=%u count=%u (UNCALIBRATED)",
-               (unsigned)score, (unsigned)detections);
+      const int64_t now_us=esp_timer_get_time();
+      if (last_candidate_us == 0 || now_us-last_candidate_us >= kCandidateCooldownUs) {
+        ++detections;
+        last_candidate_us=now_us;
+        ESP_LOGW(TAG, "HELLO ROBOT CANDIDATE DETECTED: score=%u count=%u cooldown=2500ms (UNCALIBRATED)",
+                 (unsigned)score, (unsigned)detections);
+      }
       above_threshold=0;
     }
     if(i<10||i%10==9) {
@@ -244,6 +250,11 @@ extern "C" void app_main(void) {
       window_abs[0]=window_abs[1]=0;
       window_peak[0]=window_peak[1]=0;
       max_score_window=0;
+      if(i % 300 == 299) {
+        ESP_LOGI(TAG,"LIVE_MIC: running continuously; invokes=%u candidates=%u avg_inference_us=%llu",
+                 (unsigned)(i+1),(unsigned)detections,
+                 (unsigned long long)(total_us/(i+1)));
+      }
       ESP_LOGI(TAG,"LIVE_MIC: iteration=%d score=%u probability=%.3f inference_us=%llu rms_proxy=%u peak=%u read_errors=%u",
         i,(unsigned)score,score/256.0f,(unsigned long long)delta,
         (unsigned)(sum_abs/(total_features ? (uint64_t)total_features*160ULL : 1ULL)),
