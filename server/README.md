@@ -62,3 +62,42 @@ python -m server.voice_cli --hello --output ~/ai-voice/recordings/hello.wav --ra
 This first-stage script processes **existing audio files only**, not a live ESP32 upload service. ASR uses FFmpeg -> 16k mono float32 arrays to avoid a known PyAV `metadata_errors` API incompatibility. Input capped at 20MiB and 30s of audio. Generated playback WAV defaults to 16k mono, signed 16-bit PCM; this is a test default, not a proven requirement of the board.
 
 Caution: external actions are STILL mocked. The generated voice speaks the safe simulation message, not actual weather/HA success. No firmware or UI files have been changed.
+
+
+## Authenticated LAN HTTP bridge — Stage 2
+
+New `server/api.py` provides:
+
+- `GET /api/health`: JSON service capabilities; no token required.
+- `POST /api/voice`: raw WAV body (Content-Type `audio/wav`) or M4A (Content-Type `audio/mp4`), authorized by `Authorization: Bearer <token>`. Returns `audio/wav` (16kHz, mono, signed 16-bit PCM) containing Amy's English reply.
+- 2MiB upload limit; 30-second decoded audio cap; one inference job at a time; no persistent recordings; temp files deleted after response.
+
+Start on Debian in foreground (choose a strong, local-only token):
+
+```bash
+cd ~/esp32-ai-robot
+git pull --ff-only
+source ~/ai-voice/venv/bin/activate
+python -m unittest discover -s server/tests -v
+export ROBOT_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
+printf 'Save your local test token somewhere private: %s\\n' "$ROBOT_API_TOKEN"
+python -m server.api --host 0.0.0.0 --port 8765
+```
+
+From another Debian terminal (use the same token generated above):
+
+```bash
+curl -sS http://127.0.0.1:8765/api/health
+curl -fsS --max-time 150 -X POST \
+  -H "Authorization: Bearer $ROBOT_API_TOKEN" \
+  -H 'Content-Type: audio/mp4' \
+  --data-binary @/home/chen/ai-voice/recordings/test-zh.m4a \
+  -o /home/chen/ai-voice/recordings/http-reply.wav \
+  http://127.0.0.1:8765/api/voice
+ffprobe -v error -show_entries stream=codec_name,sample_rate,channels -of default=noprint_wrappers=1 \
+  ~/ai-voice/recordings/http-reply.wav
+```
+
+On a Mac on the same LAN, `curl http://192.168.50.113:8765/api/health` can check network reachability (assuming Debian VM firewall/port permits). Do NOT expose TCP 8765 to the public Internet. Later, ESP32 firmware can upload short PCM WAV recordings directly to this endpoint; hardware compatibility still needs validation before flashing.
+
+**Security limitations**: this is a LAN development server using HTTP bearer-token auth, without TLS, rate limits, or persistent credentials management. Treat LAN traffic as inspectable; do not port-forward. Keep the token out of firmware commits. For production use, strengthen transport and credential storage and implement request timeouts and logging controls. No HA, weather, or external actions are implemented here.
