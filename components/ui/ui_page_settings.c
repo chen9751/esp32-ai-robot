@@ -61,6 +61,10 @@ static int audio_service_set_volume(unsigned char percent)
     (void)percent;
     return 0;
 }
+static unsigned char audio_service_get_volume(void)
+{
+    return 90;
+}
 #endif
 
 #include <stdint.h>
@@ -127,7 +131,7 @@ static lv_obj_t *s_tab_cards[UI_TAB_COUNT] = {0};
 static lv_obj_t *s_tab_icons[UI_TAB_COUNT] = {0};
 static ui_settings_tab_t s_selected = UI_SETTINGS_SOUND;
 static slider_ctx_t s_slider_ctx = {0};
-static int32_t s_sound_value = 30;
+static int32_t s_sound_value = 90;
 static int32_t s_brightness_value = 20;
 
 /* Runtime state mirrored from the network service for rendering. */
@@ -323,6 +327,8 @@ static void build_slider_content(ui_settings_tab_t tab)
     s_slider_ctx.adjusting = false;
 
     if (tab == UI_SETTINGS_SOUND) {
+        /* Hardware audio service is the source of truth, including boot 90%. */
+        s_sound_value = (int32_t)audio_service_get_volume();
         s_slider_ctx.actual_min = 0;
         s_slider_ctx.max_value = 100;
         s_slider_ctx.step = 5;
