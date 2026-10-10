@@ -64,7 +64,7 @@ class ApiTests(unittest.TestCase):
                     wav.setnchannels(2)
                     wav.setsampwidth(2)
                     wav.setframerate(24000)
-                    wav.writeframes(b"\\x00\\x00" * 320)
+                    wav.writeframes(b"\x00\x00" * 320)
                 dest.write_bytes(buffer.getvalue())
             return {"answer": "Hello"}
         mocked.side_effect = pipeline
