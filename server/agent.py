@@ -3,18 +3,25 @@ import json
 import os
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from pathlib import Path
 
 BASE_URL = os.getenv("LMS_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 MODEL = os.getenv("LMS_MODEL", "esp32-chat")
+CONFIG = json.loads((Path(__file__).with_name("config.json")).read_text(encoding="utf-8"))
+LOCATION = CONFIG["location"]
+DEFAULT_CITY = LOCATION["city"] + ", " + LOCATION["district"]
 SYSTEM = ("You are a friendly voice assistant. Understand Chinese and English. "
           "Always answer in English, briefly and naturally. No Markdown. "
+          "Default location is Wuhua District, Kunming, Yunnan, China (Asia/Shanghai). "
+          "Use this location when none is specified; honor explicitly requested other locations. "
+          "Never fabricate live weather, search results or device states. "
           "Never claim an external action succeeded unless its tool result confirms it.")
 
 TOOLS = [
     {"type": "function", "function": {
         "name": "get_weather", "description": "Look up current weather in a city (SIMULATED only).",
-        "parameters": {"type": "object", "properties": {"city": {"type": "string"}},
-                       "required": ["city"], "additionalProperties": False}}},
+        "parameters": {"type": "object", "properties": {"city": {"type": "string", "description": "City or district. Default: Wuhua District, Kunming; use the user-specified place if present."}},
+                       "required": [], "additionalProperties": False}}},
     {"type": "function", "function": {
         "name": "set_light", "description": "Set a Home Assistant room light (SIMULATED only).",
         "parameters": {"type": "object", "properties": {
@@ -31,7 +38,7 @@ def execute_tool(name, args):
     if not isinstance(args, dict):
         return {"ok": False, "error": "arguments must be an object"}
     if name == "get_weather":
-        city = args.get("city")
+        city = args.get("city") or DEFAULT_CITY
         if not isinstance(city, str) or not city.strip() or len(city) > 100:
             return {"ok": False, "error": "invalid city"}
         return {"ok": True, "simulated": True, "city": city, "weather": "mock: sunny", "temperature_c": 22}
@@ -72,11 +79,24 @@ def run(text, max_tool_rounds=2):
         raise ValueError("Empty message")
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": text}]
     trace = []
+    needs_external = any(word in text.lower() for word in (
+        "天气", "气温", "下雨", "weather", "forecast", "灯", "light",
+        "搜索", "查找", "找一个", "找个", "search", "find a", "故事", "story"))
     for turn in range(max_tool_rounds + 1):
         message = completion(messages, use_tools=(turn < max_tool_rounds))
         calls = message.get("tool_calls") or []
         if not calls:
-            return {"answer": message.get("content") or "", "tool_trace": trace}
+            if needs_external and not trace:
+                return {"answer": "I couldn't verify or carry out that request because no tool was used.",
+                        "tool_trace": trace, "verified": False}
+            if needs_external and any(not t["result"].get("ok") for t in trace):
+                return {"answer": "I couldn't complete that request. The tool reported an error.",
+                        "tool_trace": trace, "verified": False}
+            if needs_external and any(t["result"].get("simulated") for t in trace):
+                return {"answer": "This was a simulation only. No live weather, device action, or media search was performed.",
+                        "tool_trace": trace, "verified": False}
+            return {"answer": message.get("content") or "", "tool_trace": trace,
+                    "verified": not needs_external}
         if turn >= max_tool_rounds:
             break
         messages.append({"role": "assistant", "content": message.get("content"), "tool_calls": calls})
