@@ -138,7 +138,9 @@ static esp_err_t load_tf_config(void)
         copy_json_string(wifi_obj, "ssid", wifi.ssid, sizeof(wifi.ssid), true) &&
         copy_json_string(wifi_obj, "password", password, sizeof(password), false) &&
         copy_json_string(ai_obj, "url", backend.ai_url,
-                         sizeof(backend.ai_url), false);
+                         sizeof(backend.ai_url), false) &&
+        copy_json_string(ai_obj, "token", backend.ai_token,
+                         sizeof(backend.ai_token), false);
     if (ha_obj) {
         valid = valid && cJSON_IsObject(ha_obj) &&
             copy_json_string(ha_obj, "url", backend.ha_url,
