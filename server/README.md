@@ -1,54 +1,32 @@
-# Debian AI backend — first iteration
+# Debian LMS backend — plain-text JSON intent prototype
 
-This is a **non-destructive experimental** LMS tool-calling proof of concept. It does **not** change ESP-IDF, LVGL, screen orientation/resolution (**640 × 172**) or existing firmware behavior.
+This experimental server code runs on Debian and **does not modify ESP32 firmware, LVGL, or the fixed 640 × 172 UI**.
 
-## Environment
+## Runtime
 
-- Debian 13 VM on NUC11, approximately 10 GB allocated memory
-- LM Studio / llmster already running on Debian itself
-- Gemma 3 4B QAT Q4_0, CPU, context length 8192, identifier `esp32-chat`
-- OpenAI-compatible server on `http://127.0.0.1:1234/v1`
-- Python standard library only (no pip installs needed yet)
+- LM Studio / llmster, model `esp32-chat` (Gemma 3 4B QAT, 8192 context)
+- OpenAI-compatible API `http://127.0.0.1:1234/v1`
+- Python standard library only
+- Fixed default location: **Wuhua District, Kunming, Yunnan, China**, `Asia/Shanghai` (from `server/config.json`). Explicit locations may override it.
 
-## Running
+## Why this prototype does not use native tool calling
 
-From repository root:
+On this environment, native `tool_calls` remained empty with both `auto` and `required`. LMS `json_schema` failed in llama.cpp grammar sampler initialization with runtimes 2.41.0 and 2.55.0. The supported `text` response mode was observed generating a valid JSON object inside a Markdown fence. The backend now uses plain-text JSON with strict parsing and validation.
+
+## Run tests on Debian
 
 ```bash
-lms ps
-lms server status
+cd ~/esp32-ai-robot
+git pull --ff-only
 python3 -m unittest discover -s server/tests -v
-python3 -m server.cli '请查询昆明天气'
-python3 -m server.cli '请把客厅灯调到30%'
-python3 -m server.cli '找一个Peter Rabbit英文故事'
-python3 -m server.cli '你好，介绍一下自己'
+time python3 -m server.cli '今天的天气怎么样？'
+time python3 -m server.cli '把客厅灯的亮度调到30%'
+time python3 -m server.cli '找一个彼得兔的英文故事'
+time python3 -m server.cli '你好，请用英语介绍自己'
 ```
 
-If LMS is not running, start its daemon/server and load the model explicitly:
+The `intent` field shows model-selected action/parameters, while `tool_trace` records simulated dispatch. If the model emits non-JSON or invalid arguments the backend fails closed. Chat has a conservative external-action keyword guard as an interim safeguard.
 
-```bash
-lms load gemma-3-4b-it-qat --gpu off --context-length 8192 --parallel 1 --identifier esp32-chat
-lms server start --port 1234
-```
+**All external tools are simulations.** A weather request does not fetch conditions, a light request does not contact Home Assistant, and a story request does not search or play audio. `verified: false` is always returned for tool requests, even on a successful simulation. No fictitious weather readings are supplied. Rooms currently allowed are `living_room`, `bedroom`, `study`, `kitchen`; these are placeholders, not configured HA entities.
 
-Optional environment overrides: `LMS_BASE_URL`, `LMS_MODEL`.
-
-### Default location
-
-`server/config.json` stores the fixed location: Wuhua District, Kunming, Yunnan, China; timezone `Asia/Shanghai`. Requests without a specified place use this default. Explicitly specified other places should override it. The current mock weather tool defaults to `Kunming, Wuhua`, but it **does not fetch real weather data**.
-
-## Safety and present limitations
-
-**All three tools are mocks only.** No Home Assistant devices, weather sites, YouTube/media services, or timers are contacted. Weather and story results are fictitious placeholders, not live facts. The returned `tool_trace` marks all actions as `simulated: true`; never announce them as real operations.
-
-First real-model run found **zero tool calls** in four examples. A small keyword-based safety guard now prevents unverified weather/device/search requests from being reported as successful when no tool was used. This guard is deliberately conservative and is not a substitute for robust intent classification; future work must validate more expressions and response types. Simulated results also produce explicit simulation-only answers.
-
-Model tool use is not guaranteed: LM Studio can expose OpenAI-compatible tool calling, but Gemma 3 4B may not consistently produce correctly structured tool calls. If model replies without `tool_calls`, the result will contain only text; that is a test outcome, not proof a tool ran.
-
-The prototype has a hard limit of two tool rounds and three tool calls per round. Unknown tools are refused; arguments are validated. No subprocess execution, filesystem writes, secrets, or unrestricted networking are available through these tools.
-
-This first step **does not yet implement** ASR, TTS, ESP32 HTTP/WebSocket transport, persistent chat history, streaming, HA, actual weather or licensed media playback. Those features should be added as separately tested modules after the tool-calling baseline works. Do not commit tokens, API keys, *.gguf, logs, WAV data or personal settings.
-
-## Next validation
-
-Run the four CLI examples, inspect `tool_trace` for intended tool selection/arguments, and record response time and success rates before moving to real integrations.
+Do not rely on one successful example: collect a Chinese/English regression suite and real-model success rates. The next implementation steps are reliable intent routing, tool allowlist mapping to actual HA entities, genuine weather lookup, and verified English speech output. Never commit tokens, model weights, recordings, logs, or private configuration.
