@@ -56,6 +56,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 413)
 
     @patch("server.api.process_voice")
+    def test_esp32_native_audio_format(self, mocked):
+        def pipeline(source, dest, **kwargs):
+            self.assertEqual(kwargs, {"sample_rate": 24000, "channels": 2})
+            with io.BytesIO() as buffer:
+                with wave.open(buffer, "wb") as wav:
+                    wav.setnchannels(2)
+                    wav.setsampwidth(2)
+                    wav.setframerate(24000)
+                    wav.writeframes(b"\\x00\\x00" * 320)
+                dest.write_bytes(buffer.getvalue())
+            return {"answer": "Hello"}
+        mocked.side_effect = pipeline
+        status, headers, data = self.request(
+            "POST", "/api/voice?rate=24000&channels=2", b"RIFFtest",
+            {"Content-Type": "audio/wav",
+             "Authorization": "Bearer test-token-123456789"})
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "audio/wav")
+        with wave.open(io.BytesIO(data), "rb") as wav:
+            self.assertEqual(wav.getframerate(), 24000)
+            self.assertEqual(wav.getnchannels(), 2)
+
+    def test_reject_unknown_format(self):
+        status, _, _ = self.request("POST", "/api/voice?rate=8000&channels=1",
+                                    b"abc", {"Content-Type": "audio/wav",
+                                             "Authorization": "Bearer test-token-123456789"})
+        self.assertEqual(status, 400)
+
+    @patch("server.api.process_voice")
     def test_voice_returns_wav(self, mocked):
         def pipeline(source, dest, **kwargs):
             with io.BytesIO() as buffer:
