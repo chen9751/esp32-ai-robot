@@ -259,10 +259,10 @@ void app_main(void)
         ESP_LOGW(TAG, "network service init failed: %s", esp_err_to_name(err));
     }
 
-    /* SDMMC must read Hello before BLE reduces internal DMA heap. */
+    /* Read four wake clips before BLE reduces internal DMA heap. */
     esp_err_t hello_err = audio_service_preload_hello();
     if (hello_err != ESP_OK)
-        ESP_LOGW(TAG, "Hello audio preloading failed: %s", esp_err_to_name(hello_err));
+        ESP_LOGW(TAG, "Wake audio preloading failed: %s", esp_err_to_name(hello_err));
     log_memory("after Wi-Fi init");
 
     /* HA state polling and command queues run independently of LVGL. */
