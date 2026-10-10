@@ -6,6 +6,7 @@
 #include "bluetooth_service.h"
 #include "audio_service.h"
 #include "voice_wakeup.h"
+#include "voice_bridge.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -66,6 +67,7 @@ static void on_voice_wakeup(voice_wakeup_state_t state, void *context)
     if (state == VOICE_WAKE_DETECTED) {
         ui_notify_voice_wakeup();
         audio_service_play_hello();
+        voice_bridge_notify();
     }
 }
 
@@ -280,6 +282,9 @@ void app_main(void)
     /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
      * not run simultaneously or steal audio frames. */
     if (audio_service_capture_ready()) {
+        esp_err_t bridge_err = voice_bridge_init(on_voice_wakeup, NULL);
+        if (bridge_err != ESP_OK)
+            ESP_LOGW(TAG, "Voice bridge task failed: %s", esp_err_to_name(bridge_err));
         esp_err_t wake_err = voice_wakeup_start(on_voice_wakeup, NULL);
         if (wake_err != ESP_OK) {
             ESP_LOGW(TAG, "WakeNet startup failed: %s", esp_err_to_name(wake_err));
