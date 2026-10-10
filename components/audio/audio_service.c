@@ -167,9 +167,13 @@ esp_err_t audio_service_play_wav(const uint8_t *wav, size_t length)
 {
     if (!s_ready || !s_playback) return ESP_ERR_INVALID_STATE;
     if (!wav || length < 44 || memcmp(wav, "RIFF", 4) ||
-        memcmp(wav + 8, "WAVE", 4)) return ESP_ERR_INVALID_ARG;
+        memcmp(wav + 8, "WAVE", 4)) {
+        ESP_LOGW(TAG, "AI WAV invalid RIFF header: bytes=%u", (unsigned)length);
+        return ESP_ERR_INVALID_ARG;
+    }
 
     bool format_ok = false;
+    bool found_fmt = false;
     const uint8_t *pcm = NULL;
     size_t pcm_bytes = 0;
     size_t offset = 12;
@@ -177,29 +181,56 @@ esp_err_t audio_service_play_wav(const uint8_t *wav, size_t length)
         const uint8_t *chunk = wav + offset;
         const uint32_t size = u32le(chunk + 4);
         offset += 8;
-        if (size > length - offset) return ESP_ERR_INVALID_SIZE;
+        if (size > length - offset) {
+            ESP_LOGW(TAG, "AI WAV truncated chunk %.4s: size=%lu remaining=%u",
+                     (const char *)chunk, (unsigned long)size, (unsigned)(length - offset));
+            return ESP_ERR_INVALID_SIZE;
+        }
         if (!memcmp(chunk, "fmt ", 4) && size >= 16) {
-            format_ok = u16le(wav + offset) == 1 &&
-                u16le(wav + offset + 2) == AUDIO_CHANNELS &&
-                u32le(wav + offset + 4) == AUDIO_SAMPLE_RATE &&
-                u16le(wav + offset + 12) == 4 &&
-                u16le(wav + offset + 14) == AUDIO_BITS;
+            found_fmt = true;
+            uint16_t encoding = u16le(wav + offset);
+            uint16_t channels = u16le(wav + offset + 2);
+            uint32_t rate = u32le(wav + offset + 4);
+            uint16_t alignment = u16le(wav + offset + 12);
+            uint16_t bits = u16le(wav + offset + 14);
+            /* FFmpeg may write WAVE_FORMAT_EXTENSIBLE (0xfffe) for PCM.
+             * Verify SubFormat GUID, not just the outer format code. */
+            static const uint8_t pcm_guid[16] = {
+                1, 0, 0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113
+            };
+            bool pcm_format = (encoding == 1) ||
+                (encoding == 0xfffe && size >= 40 &&
+                 u16le(wav + offset + 16) >= 22 &&
+                 !memcmp(wav + offset + 24, pcm_guid, sizeof(pcm_guid)));
+            format_ok = pcm_format && channels == AUDIO_CHANNELS &&
+                rate == AUDIO_SAMPLE_RATE && alignment == 4 && bits == AUDIO_BITS;
+            ESP_LOGI(TAG, "AI WAV fmt: tag=0x%04x channels=%u rate=%lu bits=%u align=%u fmt_bytes=%lu accepted=%u",
+                     encoding, channels, (unsigned long)rate, bits, alignment,
+                     (unsigned long)size, (unsigned)format_ok);
         } else if (!memcmp(chunk, "data", 4)) {
             pcm = wav + offset;
             pcm_bytes = size;
+            ESP_LOGI(TAG, "AI WAV data: %u PCM bytes", (unsigned)pcm_bytes);
+            /* Stop at data: optional trailing metadata does not affect playback. */
+            break;
         }
         const size_t advance = (size_t)size + (size & 1u);
         if (advance > length - offset) return ESP_ERR_INVALID_SIZE;
         offset += advance;
     }
-    if (!format_ok || !pcm || !pcm_bytes || (pcm_bytes & 3u))
+    if (!found_fmt || !format_ok || !pcm || !pcm_bytes || (pcm_bytes & 3u)) {
+        ESP_LOGW(TAG, "AI WAV rejected: fmt=%u valid=%u data=%u pcm_bytes=%u file=%u",
+                 (unsigned)found_fmt, (unsigned)format_ok, (unsigned)(pcm != NULL),
+                 (unsigned)pcm_bytes, (unsigned)length);
         return ESP_ERR_INVALID_ARG;
-
+    }
     for (size_t i = 0; i < pcm_bytes;) {
         size_t n = pcm_bytes - i;
         if (n > 1024) n = 1024;
-        if (esp_codec_dev_write(s_playback, (void *)(pcm + i), (int)n) != ESP_CODEC_DEV_OK)
+        if (esp_codec_dev_write(s_playback, (void *)(pcm + i), (int)n) != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG, "AI WAV codec write failed at byte %u", (unsigned)i);
             return ESP_FAIL;
+        }
         i += n;
     }
     return ESP_OK;
