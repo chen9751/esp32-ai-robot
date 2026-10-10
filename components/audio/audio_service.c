@@ -28,7 +28,8 @@ static const char *TAG = "audio";
 #define AUDIO_I2S_DOUT GPIO_NUM_45
 #define AUDIO_I2S_DIN GPIO_NUM_6
 #define AUDIO_MIC_GAIN_DB 30.0f
-#define AUDIO_DEFAULT_VOLUME 30
+#define AUDIO_DEFAULT_VOLUME 90
+#define HELLO_MAX_PCM_BYTES (256u * 1024u)
 
 
 static esp_codec_dev_handle_t s_playback = NULL;
@@ -46,48 +47,105 @@ static const audio_codec_ctrl_if_t *s_rx_ctrl;
 static const audio_codec_if_t *s_rx_codec;
 static bool s_ready = false;
 static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
+
 static TaskHandle_t s_greeting_task = NULL;
 static uint8_t s_greeting_buffer[1024];
+static uint8_t *s_hello_pcm = NULL;
+static size_t s_hello_bytes = 0;
 static uint16_t u16le(const uint8_t *p) { return p[0] | ((uint16_t)p[1] << 8); }
 static uint32_t u32le(const uint8_t *p) {
     return p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
-static void greeting_play(void)
+
+/* Preload once while SDMMC has adequate internal DMA heap. BLE may be
+ * enabled later. No TF-card access is performed during wake playback. */
+esp_err_t audio_service_preload_hello(void)
 {
+    if (!s_ready) return ESP_ERR_INVALID_STATE;
+    if (s_hello_pcm) return ESP_OK;
+    ESP_LOGI(TAG, "Hello preload begin: internal=%u largest_DMA=%u PSRAM=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+
     FILE *f = fopen("/sdcard/audio/hello.wav", "rb");
-    if (!f) { ESP_LOGW(TAG, "No /sdcard/audio/hello.wav"); return; }
+    if (!f) {
+        ESP_LOGW(TAG, "Hello preload: TF unavailable or /sdcard/audio/hello.wav missing");
+        return ESP_ERR_NOT_FOUND;
+    }
     uint8_t riff[12], chunk[8], fmt[16];
-    bool correct_format = false;
-    uint32_t remaining = 0;
+    bool valid = false;
+    uint32_t bytes = 0;
+    esp_err_t result = ESP_ERR_INVALID_RESPONSE;
     if (fread(riff, 1, 12, f) != 12 ||
         memcmp(riff, "RIFF", 4) || memcmp(riff + 8, "WAVE", 4)) goto finish;
-    for (unsigned i = 0; i < 24 && fread(chunk, 1, 8, f) == 8; ++i) {
+    for (unsigned i = 0; i < 24 && fread(chunk, 1, 8, f) == 8; i++) {
         uint32_t n = u32le(chunk + 4);
         if (!memcmp(chunk, "fmt ", 4)) {
             if (n < 16 || fread(fmt, 1, 16, f) != 16) goto finish;
-            correct_format = u16le(fmt) == 1 && u16le(fmt + 2) == 2 &&
-                u32le(fmt + 4) == 24000 && u16le(fmt + 14) == 16;
-            if (fseek(f, (long)(n - 16 + (n & 1)), SEEK_CUR)) goto finish;
+            valid = u16le(fmt) == 1 && u16le(fmt + 2) == 2 &&
+                    u32le(fmt + 4) == 24000 && u16le(fmt + 12) == 4 &&
+                    u16le(fmt + 14) == 16;
+            if (fseek(f, (long)(n - 16 + (n & 1u)), SEEK_CUR)) goto finish;
         } else if (!memcmp(chunk, "data", 4)) {
-            remaining = n; break;
-        } else if (fseek(f, (long)(n + (n & 1)), SEEK_CUR)) goto finish;
+            bytes = n;
+            break;
+        } else if (fseek(f, (long)(n + (n & 1u)), SEEK_CUR)) goto finish;
     }
-    if (!correct_format || remaining == 0) {
-        ESP_LOGW(TAG, "Invalid Hello WAV (expect stereo 24kHz PCM16)"); goto finish;
+    if (!valid || !bytes || bytes > HELLO_MAX_PCM_BYTES || (bytes & 3u)) {
+        ESP_LOGW(TAG, "Hello preload: invalid WAV (need <=256KB, 24kHz stereo PCM16)");
+        result = ESP_ERR_INVALID_ARG;
+        goto finish;
     }
-    ESP_LOGI(TAG, "Playing Hello greeting (%lu bytes)", (unsigned long)remaining);
-    while (remaining >= 4) {
-        size_t n = remaining >= sizeof(s_greeting_buffer) ?
-                   sizeof(s_greeting_buffer) : (remaining & ~3u);
-        if (fread(s_greeting_buffer, 1, n, f) != n) break;
-        if (esp_codec_dev_write(s_playback, s_greeting_buffer, (int)n) != ESP_CODEC_DEV_OK) {
-            ESP_LOGW(TAG, "Hello playback write failed"); break;
-        }
-        remaining -= n;
+    uint8_t *pcm = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!pcm) {
+        ESP_LOGW(TAG, "Hello preload: PSRAM allocation failed for %lu bytes",
+                 (unsigned long)bytes);
+        result = ESP_ERR_NO_MEM;
+        goto finish;
     }
+    size_t got = fread(pcm, 1, bytes, f);
+    if (got != bytes || ferror(f)) {
+        ESP_LOGW(TAG, "Hello preload: SD read error got=%u expected=%lu",
+                 (unsigned)got, (unsigned long)bytes);
+        heap_caps_free(pcm);
+        result = ESP_FAIL;
+        goto finish;
+    }
+    s_hello_pcm = pcm;
+    s_hello_bytes = bytes;
+    result = ESP_OK;
+    ESP_LOGI(TAG, "Hello preload OK: %lu PCM bytes stored in PSRAM",
+             (unsigned long)bytes);
 finish:
     fclose(f);
+    ESP_LOGI(TAG, "Hello preload end: status=%s internal=%u largest_DMA=%u PSRAM=%u",
+             esp_err_to_name(result),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    return result;
 }
+
+static void greeting_play(void)
+{
+    if (!s_hello_pcm || !s_hello_bytes) return;
+    ESP_LOGI(TAG, "Playing Hello from PSRAM (%lu bytes)",
+             (unsigned long)s_hello_bytes);
+    for (size_t offset = 0; offset < s_hello_bytes;) {
+        size_t n = s_hello_bytes - offset;
+        if (n > sizeof(s_greeting_buffer)) n = sizeof(s_greeting_buffer);
+        memcpy(s_greeting_buffer, s_hello_pcm + offset, n);
+        if (esp_codec_dev_write(s_playback, s_greeting_buffer, (int)n) != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG, "Hello PSRAM playback failed at offset=%lu",
+                     (unsigned long)offset);
+            return;
+        }
+        offset += n;
+    }
+    ESP_LOGI(TAG, "Hello PSRAM playback finished");
+}
+
 static void greeting_worker(void *arg)
 {
     (void)arg;
@@ -96,11 +154,11 @@ static void greeting_worker(void *arg)
         if (s_ready && s_playback) greeting_play();
     }
 }
+
 void audio_service_play_hello(void)
 {
-    if (s_greeting_task) xTaskNotifyGive(s_greeting_task);
+    if (s_greeting_task && s_hello_pcm) xTaskNotifyGive(s_greeting_task);
 }
-
 
 static void release_capture(void)
 {
