@@ -10,6 +10,7 @@ extern "C" {
 #define NETWORK_WIFI_SSID_MAX 33
 #define NETWORK_WIFI_PASSWORD_MAX 65
 #define NETWORK_AI_URL_MAX 128
+#define NETWORK_AI_TOKEN_MAX 128
 #define NETWORK_HA_URL_MAX 128
 #define NETWORK_HA_TOKEN_MAX 256
 
@@ -27,6 +28,7 @@ typedef struct {
 
 typedef struct {
     char ai_url[NETWORK_AI_URL_MAX];
+    char ai_token[NETWORK_AI_TOKEN_MAX];
     char ha_url[NETWORK_HA_URL_MAX];
     char ha_token[NETWORK_HA_TOKEN_MAX];
 } network_backend_config_t;
