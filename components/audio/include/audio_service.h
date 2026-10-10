@@ -22,6 +22,8 @@ esp_err_t audio_service_capture_diagnostic_start(void);
 void audio_service_stop(void);
 /* Nonblocking greeting trigger for WakeNet callback. */
 void audio_service_play_hello(void);
+/* After TF mount, before WakeNet and optional BLE startup. */
+esp_err_t audio_service_preload_hello(void);
 
 #ifdef __cplusplus
 }
