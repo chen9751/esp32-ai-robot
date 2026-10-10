@@ -7,6 +7,7 @@
 
 #include "audio_service.h"
 #include "network_service.h"
+#include "ui_manager.h"
 #include "esp_http_client.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -140,6 +141,7 @@ static void bridge_worker(void *arg)
         network_service_get_backend_config(&cfg);
         if (!wifi.connected || !cfg.ai_url[0] || !cfg.ai_token[0]) {
             ESP_LOGW(TAG, "AI bridge disabled: require Wi-Fi, ai.url and ai.token");
+            ui_notify_voice_finished();
             continue;
         }
 
@@ -149,10 +151,13 @@ static void bridge_worker(void *arg)
         voice_wakeup_stop();
         if (voice_wakeup_get_state() != VOICE_WAKE_UNAVAILABLE) {
             ESP_LOGW(TAG, "WakeNet stop unsuccessful; skip recording");
+            ui_notify_voice_finished();
             continue;
         }
         esp_err_t err = perform_roundtrip(&cfg);
         ESP_LOGI(TAG, "Voice roundtrip: %s", esp_err_to_name(err));
+        /* Includes synchronous ES8311 PCM playback; close after it returns. */
+        ui_notify_voice_finished();
         err = voice_wakeup_start(s_wake_callback, s_wake_context);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "WakeNet resume failed: %s", esp_err_to_name(err));
