@@ -33,9 +33,15 @@ lms server start --port 1234
 
 Optional environment overrides: `LMS_BASE_URL`, `LMS_MODEL`.
 
+### Default location
+
+`server/config.json` stores the fixed location: Wuhua District, Kunming, Yunnan, China; timezone `Asia/Shanghai`. Requests without a specified place use this default. Explicitly specified other places should override it. The current mock weather tool defaults to `Kunming, Wuhua`, but it **does not fetch real weather data**.
+
 ## Safety and present limitations
 
 **All three tools are mocks only.** No Home Assistant devices, weather sites, YouTube/media services, or timers are contacted. Weather and story results are fictitious placeholders, not live facts. The returned `tool_trace` marks all actions as `simulated: true`; never announce them as real operations.
+
+First real-model run found **zero tool calls** in four examples. A small keyword-based safety guard now prevents unverified weather/device/search requests from being reported as successful when no tool was used. This guard is deliberately conservative and is not a substitute for robust intent classification; future work must validate more expressions and response types. Simulated results also produce explicit simulation-only answers.
 
 Model tool use is not guaranteed: LM Studio can expose OpenAI-compatible tool calling, but Gemma 3 4B may not consistently produce correctly structured tool calls. If model replies without `tool_calls`, the result will contain only text; that is a test outcome, not proof a tool ran.
 
