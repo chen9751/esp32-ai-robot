@@ -46,6 +46,8 @@ static lv_obj_t *s_voice_overlay = NULL;
 static lv_timer_t *s_voice_timer = NULL;
 static uint32_t s_voice_until = 0;
 static atomic_bool s_voice_wake_pending = ATOMIC_VAR_INIT(false);
+static atomic_bool s_voice_busy = ATOMIC_VAR_INIT(false);
+static atomic_bool s_voice_finish_pending = ATOMIC_VAR_INIT(false);
 #define UI_VOICE_PREVIEW_MS 5000u
 #define UI_BACK_UNLOCK_HOLD_MS 3000u
 
@@ -142,7 +144,15 @@ void ui_unlock_from_back_hold(void)
 /* Called by the WakeNet worker (not the LVGL task). Never touch LVGL here. */
 void ui_notify_voice_wakeup(void)
 {
+    atomic_store_explicit(&s_voice_busy, true, memory_order_release);
+    atomic_store_explicit(&s_voice_finish_pending, false, memory_order_release);
     atomic_store_explicit(&s_voice_wake_pending, true, memory_order_release);
+}
+
+void ui_notify_voice_finished(void)
+{
+    atomic_store_explicit(&s_voice_busy, false, memory_order_release);
+    atomic_store_explicit(&s_voice_finish_pending, true, memory_order_release);
 }
 
 static void voice_overlay_close(void)
@@ -189,8 +199,11 @@ static void voice_overlay_timer_cb(lv_timer_t *timer)
                                   memory_order_acq_rel)) {
         voice_overlay_show();
     }
-    if (s_voice_overlay != NULL &&
-        (int32_t)(lv_tick_get() - s_voice_until) >= 0) {
+    const bool completed = atomic_exchange_explicit(&s_voice_finish_pending, false,
+                                                     memory_order_acq_rel);
+    const bool busy = atomic_load_explicit(&s_voice_busy, memory_order_acquire);
+    if (s_voice_overlay != NULL && !busy &&
+        (completed || (int32_t)(lv_tick_get() - s_voice_until) >= 0)) {
         voice_overlay_close();
         if (!s_ui_locked) ui_mark_activity();
     }
