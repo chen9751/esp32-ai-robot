@@ -30,6 +30,7 @@ static const char *TAG = "audio";
 #define AUDIO_MIC_GAIN_DB 30.0f
 #define AUDIO_DEFAULT_VOLUME 90
 #define HELLO_MAX_PCM_BYTES (256u * 1024u)
+#define HELLO_CLIP_COUNT 4u
 
 
 static esp_codec_dev_handle_t s_playback = NULL;
@@ -50,27 +51,23 @@ static uint8_t s_volume = AUDIO_DEFAULT_VOLUME;
 
 static TaskHandle_t s_greeting_task = NULL;
 static uint8_t s_greeting_buffer[1024];
-static uint8_t *s_hello_pcm = NULL;
-static size_t s_hello_bytes = 0;
+static uint8_t *s_hello_pcm[HELLO_CLIP_COUNT] = {0};
+static size_t s_hello_bytes[HELLO_CLIP_COUNT] = {0};
+static uint32_t s_hello_random = 0x91a4357bu;
+static int s_hello_last = -1;
 static uint16_t u16le(const uint8_t *p) { return p[0] | ((uint16_t)p[1] << 8); }
 static uint32_t u32le(const uint8_t *p) {
     return p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-/* Preload once while SDMMC has adequate internal DMA heap. BLE may be
- * enabled later. No TF-card access is performed during wake playback. */
-esp_err_t audio_service_preload_hello(void)
+/* Load the four greetings before BLE starts. Wake playback never touches TF. */
+static esp_err_t preload_one_hello(unsigned index)
 {
-    if (!s_ready) return ESP_ERR_INVALID_STATE;
-    if (s_hello_pcm) return ESP_OK;
-    ESP_LOGI(TAG, "Hello preload begin: internal=%u largest_DMA=%u PSRAM=%u",
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-
-    FILE *f = fopen("/sdcard/audio/hello.wav", "rb");
+    char path[40];
+    snprintf(path, sizeof(path), "/sdcard/audio/wake_%02u.wav", index + 1);
+    FILE *f = fopen(path, "rb");
     if (!f) {
-        ESP_LOGW(TAG, "Hello preload: TF unavailable or /sdcard/audio/hello.wav missing");
+        ESP_LOGW(TAG, "Wake preload: missing %s", path);
         return ESP_ERR_NOT_FOUND;
     }
     uint8_t riff[12], chunk[8], fmt[16];
@@ -93,33 +90,33 @@ esp_err_t audio_service_preload_hello(void)
         } else if (fseek(f, (long)(n + (n & 1u)), SEEK_CUR)) goto finish;
     }
     if (!valid || !bytes || bytes > HELLO_MAX_PCM_BYTES || (bytes & 3u)) {
-        ESP_LOGW(TAG, "Hello preload: invalid WAV (need <=256KB, 24kHz stereo PCM16)");
+        ESP_LOGW(TAG, "Wake preload: invalid WAV (need <=256KB, 24kHz stereo PCM16)");
         result = ESP_ERR_INVALID_ARG;
         goto finish;
     }
     uint8_t *pcm = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!pcm) {
-        ESP_LOGW(TAG, "Hello preload: PSRAM allocation failed for %lu bytes",
+        ESP_LOGW(TAG, "Wake preload: PSRAM allocation failed for %lu bytes",
                  (unsigned long)bytes);
         result = ESP_ERR_NO_MEM;
         goto finish;
     }
     size_t got = fread(pcm, 1, bytes, f);
     if (got != bytes || ferror(f)) {
-        ESP_LOGW(TAG, "Hello preload: SD read error got=%u expected=%lu",
+        ESP_LOGW(TAG, "Wake preload: SD read error got=%u expected=%lu",
                  (unsigned)got, (unsigned long)bytes);
         heap_caps_free(pcm);
         result = ESP_FAIL;
         goto finish;
     }
-    s_hello_pcm = pcm;
-    s_hello_bytes = bytes;
+    s_hello_pcm[index] = pcm;
+    s_hello_bytes[index] = bytes;
     result = ESP_OK;
-    ESP_LOGI(TAG, "Hello preload OK: %lu PCM bytes stored in PSRAM",
+    ESP_LOGI(TAG, "Wake preload clip %u OK: %lu PCM bytes stored in PSRAM", (unsigned)(index + 1),
              (unsigned long)bytes);
 finish:
     fclose(f);
-    ESP_LOGI(TAG, "Hello preload end: status=%s internal=%u largest_DMA=%u PSRAM=%u",
+    ESP_LOGI(TAG, "Wake preload end: status=%s internal=%u largest_DMA=%u PSRAM=%u",
              esp_err_to_name(result),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA),
@@ -127,23 +124,60 @@ finish:
     return result;
 }
 
+
+esp_err_t audio_service_preload_hello(void)
+{
+    if (!s_ready) return ESP_ERR_INVALID_STATE;
+    unsigned loaded = 0;
+    esp_err_t last_err = ESP_ERR_NOT_FOUND;
+    for (unsigned i = 0; i < HELLO_CLIP_COUNT; ++i) {
+        if (!s_hello_pcm[i]) {
+            esp_err_t err = preload_one_hello(i);
+            if (err != ESP_OK) last_err = err;
+        }
+        if (s_hello_pcm[i]) ++loaded;
+    }
+    ESP_LOGI(TAG, "Wake preload: %u/%u clips resident in PSRAM (TF not used on wake)",
+             loaded, HELLO_CLIP_COUNT);
+    return loaded ? ESP_OK : last_err;
+}
+
 static void greeting_play(void)
 {
-    if (!s_hello_pcm || !s_hello_bytes) return;
-    ESP_LOGI(TAG, "Playing Hello from PSRAM (%lu bytes)",
-             (unsigned long)s_hello_bytes);
-    for (size_t offset = 0; offset < s_hello_bytes;) {
-        size_t n = s_hello_bytes - offset;
+    unsigned available[HELLO_CLIP_COUNT];
+    unsigned count = 0;
+    for (unsigned i = 0; i < HELLO_CLIP_COUNT; ++i)
+        if (s_hello_pcm[i] && s_hello_bytes[i]) available[count++] = i;
+    if (!count) {
+        ESP_LOGW(TAG, "Wake greeting unavailable: no clips preloaded");
+        return;
+    }
+    /* Tiny PRNG; exclude prior clip when possible without touching TF. */
+    s_hello_random ^= s_hello_random << 13;
+    s_hello_random ^= s_hello_random >> 17;
+    s_hello_random ^= s_hello_random << 5;
+    unsigned choice = available[s_hello_random % count];
+    if (count > 1 && (int)choice == s_hello_last) {
+        choice = available[(s_hello_random % (count - 1) + 1) % count];
+        if ((int)choice == s_hello_last) {
+            for (unsigned j = 0; j < count; ++j)
+                if ((int)available[j] != s_hello_last) { choice = available[j]; break; }
+        }
+    }
+    s_hello_last = (int)choice;
+    ESP_LOGI(TAG, "Playing wake_%02u from PSRAM (%u bytes)",
+             choice + 1, (unsigned)s_hello_bytes[choice]);
+    for (size_t offset = 0; offset < s_hello_bytes[choice];) {
+        size_t n = s_hello_bytes[choice] - offset;
         if (n > sizeof(s_greeting_buffer)) n = sizeof(s_greeting_buffer);
-        memcpy(s_greeting_buffer, s_hello_pcm + offset, n);
+        memcpy(s_greeting_buffer, s_hello_pcm[choice] + offset, n);
         if (esp_codec_dev_write(s_playback, s_greeting_buffer, (int)n) != ESP_CODEC_DEV_OK) {
-            ESP_LOGW(TAG, "Hello PSRAM playback failed at offset=%lu",
-                     (unsigned long)offset);
+            ESP_LOGW(TAG, "Wake greeting playback failed at offset=%u", (unsigned)offset);
             return;
         }
         offset += n;
     }
-    ESP_LOGI(TAG, "Hello PSRAM playback finished");
+    ESP_LOGI(TAG, "Wake greeting finished");
 }
 
 static void greeting_worker(void *arg)
@@ -157,7 +191,7 @@ static void greeting_worker(void *arg)
 
 void audio_service_play_hello(void)
 {
-    if (s_greeting_task && s_hello_pcm) xTaskNotifyGive(s_greeting_task);
+    if (s_greeting_task) xTaskNotifyGive(s_greeting_task);
 }
 
 
