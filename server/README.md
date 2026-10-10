@@ -101,3 +101,41 @@ ffprobe -v error -show_entries stream=codec_name,sample_rate,channels -of defaul
 On a Mac on the same LAN, `curl http://192.168.50.113:8765/api/health` can check network reachability (assuming Debian VM firewall/port permits). Do NOT expose TCP 8765 to the public Internet. Later, ESP32 firmware can upload short PCM WAV recordings directly to this endpoint; hardware compatibility still needs validation before flashing.
 
 **Security limitations**: this is a LAN development server using HTTP bearer-token auth, without TLS, rate limits, or persistent credentials management. Treat LAN traffic as inspectable; do not port-forward. Keep the token out of firmware commits. For production use, strengthen transport and credential storage and implement request timeouts and logging controls. No HA, weather, or external actions are implemented here.
+
+
+## ESP32 firmware bridge — experimental, opt-in
+
+On this hardware the codec input and output are **24,000 Hz, 2-channel, signed 16-bit PCM**, while WakeNet uses a 16kHz mono conversion inside its existing worker. The ESP32 bridge therefore uploads a **3-second, native 24kHz/stereo WAV** and explicitly requests the matching playback output with `?rate=24000&channels=2`. The default standalone API output (16kHz mono) remains unchanged.
+
+The existing `/sdcard/config.json` configuration accepts optional **`ai.token`** and **`ai.url`**:
+
+```json
+{
+  "wifi": {"ssid": "YOUR_WIFI", "password": "YOUR_WIFI_PASSWORD"},
+  "ai": {
+    "url": "http://192.168.50.113:8765/api/voice?rate=24000&channels=2",
+    "token": "MATCH_DEBIAN_ROBOT_API_TOKEN"
+  }
+}
+```
+
+This is an **example fragment**, not a prescription to discard other existing fields such as `ha`. Preserve all existing settings. Put the configured API secret only on the TF card, never in Git source. The bridge stays inactive if `ai.url` or `ai.token` is missing, or Wi-Fi is unavailable. Do not expose this HTTP endpoint on the Internet.
+
+WakeNet's detector callback still only schedules lightweight work and the preloaded greeting. A single resident task waits briefly for the greeting, stops the WakeNet AFE to avoid two readers on the same microphone, captures 3 seconds of 24kHz/stereo audio into PSRAM, HTTP POSTs, receives a <=1MiB 24kHz/stereo PCM WAV into PSRAM, plays using the existing ES8311 codec, and restarts WakeNet. UI dimensions (640x172), LVGL objects and the previously optimized allocation paths are unchanged. This first iteration uses **fixed-duration recording, not end-of-speech detection**.
+
+**Before flashing:** Run `idf.py build` with the existing IDF project environment, and review any compiler diagnostics; this source change has not yet been compiled on the user's Mac nor flashed/verified on the actual board. Back up the working firmware before the first device test. A good first test is to confirm the Debian endpoint (same bearer token as TF) returns 24k stereo with:
+
+```bash
+curl -fsS --max-time 150 \
+  -H "Authorization: Bearer $ROBOT_API_TOKEN" \
+  -H 'Content-Type: audio/mp4' \
+  --data-binary @/home/chen/ai-voice/recordings/test-zh.m4a \
+  -o /home/chen/ai-voice/recordings/native-reply.wav \
+  'http://127.0.0.1:8765/api/voice?rate=24000&channels=2'
+ffprobe -v error -show_entries stream=codec_name,sample_rate,channels -of default=noprint_wrappers=1 \
+  ~/ai-voice/recordings/native-reply.wav
+```
+
+**Wake reply reminder:** `audio_service_preload_hello()` currently loads only `/sdcard/audio/wake_01.wav` through `wake_04.wav`; each must be **24kHz/stereo/16-bit PCM WAV** and <=256KiB raw PCM. `wake_05.wav` is not preloaded until firmware support is expanded separately.
+
+After initial testing, review recorded audio amplitude, WakeNet suspend/resume, speaker playback timing, HTTP server availability, network disconnections, internal free DMA memory, PSRAM peaks and battery power usage. A 30-second HTTP timeout is per network operation; inference can last several seconds.
