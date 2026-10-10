@@ -1,68 +1,127 @@
-"""Minimal LM Studio tool-calling loop; tools are simulated until explicitly integrated."""
+"""LM Studio plain-text JSON intent parser and safe simulated tool dispatcher."""
 import json
 import os
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
+import re
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 BASE_URL = os.getenv("LMS_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 MODEL = os.getenv("LMS_MODEL", "esp32-chat")
-CONFIG = json.loads((Path(__file__).with_name("config.json")).read_text(encoding="utf-8"))
-LOCATION = CONFIG["location"]
-DEFAULT_CITY = LOCATION["city"] + ", " + LOCATION["district"]
-SYSTEM = ("You are a friendly voice assistant. Understand Chinese and English. "
-          "Always answer in English, briefly and naturally. No Markdown. "
-          "Default location is Wuhua District, Kunming, Yunnan, China (Asia/Shanghai). "
-          "Use this location when none is specified; honor explicitly requested other locations. "
-          "Never fabricate live weather, search results or device states. "
-          "Never claim an external action succeeded unless its tool result confirms it.")
+CONFIG = json.loads(Path(__file__).with_name("config.json").read_text(encoding="utf-8"))
+DEFAULT_CITY = CONFIG["location"]["city"] + ", " + CONFIG["location"]["district"]
 
-TOOLS = [
-    {"type": "function", "function": {
-        "name": "get_weather", "description": "Look up current weather in a city (SIMULATED only).",
-        "parameters": {"type": "object", "properties": {"city": {"type": "string", "description": "City or district. Default: Wuhua District, Kunming; use the user-specified place if present."}},
-                       "required": [], "additionalProperties": False}}},
-    {"type": "function", "function": {
-        "name": "set_light", "description": "Set a Home Assistant room light (SIMULATED only).",
-        "parameters": {"type": "object", "properties": {
-            "room": {"type": "string"}, "brightness_pct": {"type": "integer", "minimum": 0, "maximum": 100}},
-            "required": ["room", "brightness_pct"], "additionalProperties": False}}},
-    {"type": "function", "function": {
-        "name": "search_story", "description": "Find an English story for later authorized playback (SIMULATED only).",
-        "parameters": {"type": "object", "properties": {"query": {"type": "string"}},
-                       "required": ["query"], "additionalProperties": False}}},
-]
+INTENT_SYSTEM = (
+    "You classify bilingual Chinese/English requests for a smart voice assistant. "
+    "Output exactly ONE JSON object, preferably without Markdown fences. No other text. "
+    "Use one of these schemas, with EXACT keys:\n"
+    '{"action":"chat","answer":"brief English response"}\n'
+    '{"action":"get_weather","city":"Kunming, Wuhua"}\n'
+    '{"action":"set_light","room":"living_room","brightness_pct":30}\n'
+    '{"action":"search_story","query":"Peter Rabbit"}\n'
+    '{"action":"none"}\n'
+    "Weather (including forecast/rain questions) => get_weather. If no place is stated, "
+    "use Kunming, Wuhua, Yunnan, China. If a different place is given, use that place. "
+    "Changing a light brightness => set_light; extract the actual user-requested percentage. "
+    "Do not invent brightness or room. If required values are missing use action none. "
+    "For living room use living_room; other rooms may use their literal name. "
+    "Finding a story => search_story, extract title/search phrase. "
+    "General conversation => chat and answer in English. "
+    "Never claim an external action completed. Do not include executable commands."
+)
+
+FENCE = re.compile(r"\A```(?:json)?[ \t]*\r?\n(.*?)\r?\n```\Z", re.I | re.S)
+ACTIONS = frozenset(("chat", "get_weather", "set_light", "search_story", "none"))
+ROOMS = frozenset(("living_room", "bedroom", "study", "kitchen"))
+EXTERNAL_WORDS = (
+    "天气", "气温", "下雨", "温度", "预报", "weather", "forecast", "rain",
+    "灯", "light", "亮度", "开灯", "关灯", "故事", "story", "搜索", "查找",
+    "找一个", "找个", "search", "find", "播放", "play", "音乐", "music",
+    "闹钟", "alarm", "提醒", "remind", "设备", "device", "打开", "关闭",
+)
+
+def parse_json_response(content):
+    if not isinstance(content, str) or len(content) > 4096:
+        raise ValueError("Invalid model response")
+    value = content.strip()
+    match = FENCE.fullmatch(value)
+    if match:
+        value = match.group(1).strip()
+    obj = json.loads(value)
+    if type(obj) is not dict:
+        raise ValueError("Expected a JSON object")
+    return obj
+
+def validate_intent(obj):
+    """Return a normalized intent. Never trust model output directly."""
+    if type(obj) is not dict or obj.get("action") not in ACTIONS:
+        raise ValueError("Unknown action")
+    action = obj["action"]
+    fields = {
+        "chat": {"action", "answer"},
+        "none": {"action"},
+        "get_weather": {"action", "city"},
+        "set_light": {"action", "room", "brightness_pct"},
+        "search_story": {"action", "query"},
+    }[action]
+    if set(obj) - fields:
+        raise ValueError("Unexpected intent fields")
+    if action == "chat":
+        answer = obj.get("answer")
+        if not isinstance(answer, str) or not answer.strip() or len(answer) > 1000:
+            raise ValueError("Invalid chat answer")
+        return {"action": action, "answer": answer.strip()}
+    if action == "none":
+        return {"action": action}
+    if action == "get_weather":
+        city = obj.get("city", DEFAULT_CITY)
+        if not isinstance(city, str) or not city.strip() or len(city) > 100:
+            raise ValueError("Invalid city")
+        return {"action": action, "city": city.strip()}
+    if action == "set_light":
+        room, level = obj.get("room"), obj.get("brightness_pct")
+        if not isinstance(room, str) or room not in ROOMS:
+            raise ValueError("Room not allowlisted or not configured")
+        if type(level) is not int or not 0 <= level <= 100:
+            raise ValueError("Invalid brightness")
+        return {"action": action, "room": room, "brightness_pct": level}
+    query = obj.get("query")
+    if not isinstance(query, str) or not query.strip() or len(query) > 200:
+        raise ValueError("Invalid story query")
+    return {"action": action, "query": query.strip()}
 
 def execute_tool(name, args):
-    """Deliberately NO network writes, device control or media downloads."""
+    """Simulation ONLY. No network calls, external actions or media downloads."""
     if not isinstance(args, dict):
-        return {"ok": False, "error": "arguments must be an object"}
+        return {"ok": False, "error": "Invalid arguments"}
     if name == "get_weather":
-        city = args.get("city") or DEFAULT_CITY
-        if not isinstance(city, str) or not city.strip() or len(city) > 100:
-            return {"ok": False, "error": "invalid city"}
-        return {"ok": True, "simulated": True, "city": city, "weather": "mock: sunny", "temperature_c": 22}
+        try:
+            intent = validate_intent({"action": name, **args})
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "simulated": True, "city": intent["city"],
+                "note": "No live weather data was queried"}
     if name == "set_light":
-        room, level = args.get("room"), args.get("brightness_pct")
-        if not isinstance(room, str) or not room.strip() or len(room) > 100 or type(level) is not int or not 0 <= level <= 100:
-            return {"ok": False, "error": "invalid room or brightness"}
-        return {"ok": True, "simulated": True, "room": room, "brightness_pct": level}
+        try:
+            intent = validate_intent({"action": name, **args})
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "simulated": True, "room": intent["room"],
+                "brightness_pct": intent["brightness_pct"]}
     if name == "search_story":
-        query = args.get("query")
-        if not isinstance(query, str) or not query.strip() or len(query) > 200:
-            return {"ok": False, "error": "invalid query"}
-        return {"ok": True, "simulated": True, "results": [
-            {"title": "The Tale of Peter Rabbit (public-domain text candidate)",
-             "query": query, "playable": False}]}
-    return {"ok": False, "error": "tool not allowed"}
+        try:
+            intent = validate_intent({"action": name, **args})
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "simulated": True, "query": intent["query"],
+                "results": [], "note": "No search was performed"}
+    return {"ok": False, "error": "Tool not allowed"}
 
-def completion(messages, *, use_tools=True):
-    payload = {"model": MODEL, "messages": messages, "temperature": 0.2,
-               "max_tokens": 160, "stream": False}
-    if use_tools:
-        payload.update(tools=TOOLS, tool_choice="auto")
-    data = json.dumps(payload, ensure_ascii=False).encode()
-    req = Request(BASE_URL + "/chat/completions", data=data,
+def completion(messages):
+    payload = {"model": MODEL, "messages": messages, "temperature": 0,
+               "max_tokens": 240, "stream": False}
+    req = Request(BASE_URL + "/chat/completions",
+                  data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                   headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urlopen(req, timeout=90) as response:
@@ -74,41 +133,37 @@ def completion(messages, *, use_tools=True):
         raise RuntimeError("LMS returned no completion choices")
     return choices[0]["message"]
 
-def run(text, max_tool_rounds=2):
-    if not text.strip():
-        raise ValueError("Empty message")
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": text}]
+def run(text):
+    if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+        raise ValueError("Invalid user message")
     trace = []
-    needs_external = any(word in text.lower() for word in (
-        "天气", "气温", "下雨", "weather", "forecast", "灯", "light",
-        "搜索", "查找", "找一个", "找个", "search", "find a", "故事", "story"))
-    for turn in range(max_tool_rounds + 1):
-        message = completion(messages, use_tools=(turn < max_tool_rounds))
-        calls = message.get("tool_calls") or []
-        if not calls:
-            if needs_external and not trace:
-                return {"answer": "I couldn't verify or carry out that request because no tool was used.",
-                        "tool_trace": trace, "verified": False}
-            if needs_external and any(not t["result"].get("ok") for t in trace):
-                return {"answer": "I couldn't complete that request. The tool reported an error.",
-                        "tool_trace": trace, "verified": False}
-            if needs_external and any(t["result"].get("simulated") for t in trace):
-                return {"answer": "This was a simulation only. No live weather, device action, or media search was performed.",
-                        "tool_trace": trace, "verified": False}
-            return {"answer": message.get("content") or "", "tool_trace": trace,
-                    "verified": not needs_external}
-        if turn >= max_tool_rounds:
-            break
-        messages.append({"role": "assistant", "content": message.get("content"), "tool_calls": calls})
-        for call in calls[:3]:
-            fn = call.get("function") or {}
-            name = fn.get("name", "")
-            try:
-                args = json.loads(fn.get("arguments", "{}"))
-            except (json.JSONDecodeError, TypeError):
-                args = None
-            result = execute_tool(name, args)
-            trace.append({"tool": name, "arguments": args, "result": result})
-            messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
-                             "name": name, "content": json.dumps(result, ensure_ascii=False)})
-    return {"answer": "Sorry, I couldn't complete that request.", "tool_trace": trace}
+    try:
+        message = completion([{"role": "system", "content": INTENT_SYSTEM},
+                              {"role": "user", "content": text}])
+        intent = validate_intent(parse_json_response(message.get("content")))
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        return {"answer": "Sorry, I couldn't safely understand that request.",
+                "intent": None, "tool_trace": trace, "verified": False,
+                "error": type(exc).__name__}
+    action = intent["action"]
+    if action == "chat":
+        # A chat classification must not bypass external-action safety.
+        if any(word in text.lower() for word in EXTERNAL_WORDS):
+            return {"answer": "I couldn't verify or perform that request.",
+                    "intent": intent, "tool_trace": trace, "verified": False}
+        return {"answer": intent["answer"], "intent": intent, "tool_trace": trace,
+                "verified": True}
+    if action == "none":
+        return {"answer": "I need more details before I can do that.",
+                "intent": intent, "tool_trace": trace, "verified": False}
+    args = {key: value for key, value in intent.items() if key != "action"}
+    result = execute_tool(action, args)
+    trace.append({"tool": action, "arguments": args, "result": result})
+    if not result.get("ok"):
+        answer = "I couldn't complete that request."
+    elif result.get("simulated"):
+        answer = "This was a simulation only. No real-world action or live lookup was performed."
+    else:
+        # Keep fail-closed until verified integrations are implemented.
+        answer = "The tool result was not independently verified."
+    return {"answer": answer, "intent": intent, "tool_trace": trace, "verified": False}
