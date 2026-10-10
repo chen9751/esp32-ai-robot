@@ -178,4 +178,5 @@ esp_err_t voice_bridge_init(voice_wakeup_event_callback_t callback, void *contex
 void voice_bridge_notify(void)
 {
     if (s_worker) xTaskNotifyGive(s_worker);
+    else ui_notify_voice_finished(); /* Worker unavailable: don't leave overlay stuck. */
 }
