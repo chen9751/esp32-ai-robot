@@ -58,6 +58,8 @@ void ui_unlock_from_back_hold(void);
 void ui_lock_from_back_hold(void);
 /* Thread-safe event signal only; presentation runs on the LVGL timer. */
 void ui_notify_voice_wakeup(void);
+/* Thread-safe lifecycle: keep face shown during AI work; dismiss on completion/failure. */
+void ui_notify_voice_finished(void);
 
 void ui_init(void);
 
