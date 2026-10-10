@@ -160,6 +160,51 @@ void audio_service_play_hello(void)
     if (s_greeting_task && s_hello_pcm) xTaskNotifyGive(s_greeting_task);
 }
 
+
+/* AI reply is already resampled on Debian to the native ES8311 format.
+ * Parse RIFF chunks, never pass the 44-byte WAV header to the codec. */
+esp_err_t audio_service_play_wav(const uint8_t *wav, size_t length)
+{
+    if (!s_ready || !s_playback) return ESP_ERR_INVALID_STATE;
+    if (!wav || length < 44 || memcmp(wav, "RIFF", 4) ||
+        memcmp(wav + 8, "WAVE", 4)) return ESP_ERR_INVALID_ARG;
+
+    bool format_ok = false;
+    const uint8_t *pcm = NULL;
+    size_t pcm_bytes = 0;
+    size_t offset = 12;
+    while (offset <= length && length - offset >= 8) {
+        const uint8_t *chunk = wav + offset;
+        const uint32_t size = u32le(chunk + 4);
+        offset += 8;
+        if (size > length - offset) return ESP_ERR_INVALID_SIZE;
+        if (!memcmp(chunk, "fmt ", 4) && size >= 16) {
+            format_ok = u16le(wav + offset) == 1 &&
+                u16le(wav + offset + 2) == AUDIO_CHANNELS &&
+                u32le(wav + offset + 4) == AUDIO_SAMPLE_RATE &&
+                u16le(wav + offset + 12) == 4 &&
+                u16le(wav + offset + 14) == AUDIO_BITS;
+        } else if (!memcmp(chunk, "data", 4)) {
+            pcm = wav + offset;
+            pcm_bytes = size;
+        }
+        const size_t advance = (size_t)size + (size & 1u);
+        if (advance > length - offset) return ESP_ERR_INVALID_SIZE;
+        offset += advance;
+    }
+    if (!format_ok || !pcm || !pcm_bytes || (pcm_bytes & 3u))
+        return ESP_ERR_INVALID_ARG;
+
+    for (size_t i = 0; i < pcm_bytes;) {
+        size_t n = pcm_bytes - i;
+        if (n > 1024) n = 1024;
+        if (esp_codec_dev_write(s_playback, (void *)(pcm + i), (int)n) != ESP_CODEC_DEV_OK)
+            return ESP_FAIL;
+        i += n;
+    }
+    return ESP_OK;
+}
+
 static void release_capture(void)
 {
     s_capture_ready = false;
