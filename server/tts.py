@@ -1,6 +1,7 @@
 """Piper Amy synthesis plus explicit PCM WAV conversion for ESP32 playback."""
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def synthesize_wav(text, output_path, sample_rate=16000, channels=1):
     with tempfile.TemporaryDirectory(prefix="piper-") as temp_dir:
         raw = Path(temp_dir) / "piper.wav"
         subprocess.run(
-            ["python", "-m", "piper", "--model", str(MODEL),
+            [sys.executable, "-m", "piper", "--model", str(MODEL),
              "--output_file", str(raw)],
             input=text.strip() + "\n", text=True,
             capture_output=True, check=True, timeout=90,
