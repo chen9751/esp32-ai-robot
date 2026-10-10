@@ -26,7 +26,19 @@ class ToolTests(unittest.TestCase):
         ]
         response = run("昆明天气")
         self.assertEqual(response["tool_trace"][0]["tool"], "get_weather")
-        self.assertIn("sunny", response["answer"])
+        self.assertFalse(response["verified"])
+        self.assertIn("simulation", response["answer"].lower())
+
+    def test_default_location(self):
+        self.assertEqual(execute_tool("get_weather", {})["city"], "Kunming, Wuhua")
+        self.assertEqual(execute_tool("get_weather", {"city": "Beijing"})["city"], "Beijing")
+
+    @patch("server.agent.completion")
+    def test_no_tool_does_not_claim_success(self, mocked):
+        mocked.return_value = {"content": "The living room light is on.", "tool_calls": []}
+        response = run("把客厅灯打开")
+        self.assertFalse(response["verified"])
+        self.assertNotIn("is on", response["answer"])
 
     @patch("server.agent.completion")
     def test_plain_chat(self, mocked):
