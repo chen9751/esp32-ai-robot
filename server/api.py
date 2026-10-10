@@ -97,7 +97,7 @@ class VoiceHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(audio)
         except (ValueError, OSError, RuntimeError) as exc:
-            self.log_error("voice processing failed: %s", type(exc).__name__)
+            self.log_error("voice processing failed: %s: %s", type(exc).__name__, str(exc)[:200])
             self.respond_json(422, {"error": "voice processing failed", "type": type(exc).__name__})
         except Exception as exc:
             self.log_error("unexpected voice error: %s", type(exc).__name__)
