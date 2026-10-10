@@ -50,6 +50,14 @@ class VoiceHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if urlsplit(self.path).path != "/api/voice":
             return self.respond_json(404, {"error": "not found"})
+        params = urlsplit(self.path).query
+        # The existing ESP32 codec accepts 24kHz/stereo; default remains 16kHz/mono.
+        if params == "rate=24000&channels=2":
+            rate, channels = 24000, 2
+        elif not params:
+            rate, channels = 16000, 1
+        else:
+            return self.respond_json(400, {"error": "unsupported audio output parameters"})
         if not self.authenticated():
             return self.respond_json(401, {"error": "unauthorized"})
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].lower()
@@ -77,7 +85,7 @@ class VoiceHandler(BaseHTTPRequestHandler):
                             return self.respond_json(400, {"error": "incomplete upload"})
                         dest.write(block)
                         remaining -= len(block)
-                result = process_voice(source, target, sample_rate=16000, channels=1)
+                result = process_voice(source, target, sample_rate=rate, channels=channels)
                 audio = target.read_bytes()
                 if not audio.startswith(b"RIFF") or audio[8:12] != b"WAVE":
                     raise ValueError("Generated audio is not a WAV")
