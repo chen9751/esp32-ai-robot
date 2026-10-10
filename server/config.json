@@ -1,0 +1,16 @@
+{
+  "location": {
+    "country": "China",
+    "province": "Yunnan",
+    "city": "Kunming",
+    "district": "Wuhua",
+    "timezone": "Asia/Shanghai"
+  },
+  "assistant": {
+    "input_languages": [
+      "zh",
+      "en"
+    ],
+    "output_language": "en"
+  }
+}
