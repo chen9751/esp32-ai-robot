@@ -1,5 +1,7 @@
 """Local loopback HTTP tests; pipeline and model are mocked."""
 import http.client
+import io
+import wave
 import json
 import threading
 import unittest
@@ -56,7 +58,13 @@ class ApiTests(unittest.TestCase):
     @patch("server.api.process_voice")
     def test_voice_returns_wav(self, mocked):
         def pipeline(source, dest, **kwargs):
-            dest.write_bytes(b"RIFF" + b"\\x00" * 4 + b"WAVE" + b"x" * 16)
+            with io.BytesIO() as buffer:
+                with wave.open(buffer, "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(b"\x00\x00" * 160)
+                dest.write_bytes(buffer.getvalue())
             return {"answer": "Hello"}
         mocked.side_effect = pipeline
         status, headers, data = self.request(
