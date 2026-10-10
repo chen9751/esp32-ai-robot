@@ -20,9 +20,9 @@ bool audio_service_capture_ready(void);
 esp_err_t audio_service_capture_read(void *pcm, size_t bytes);
 esp_err_t audio_service_capture_diagnostic_start(void);
 void audio_service_stop(void);
-/* Nonblocking greeting trigger for WakeNet callback. */
+/* Nonblocking random wake reply from PSRAM; never reads TF during playback. */
 void audio_service_play_hello(void);
-/* After TF mount, before WakeNet and optional BLE startup. */
+/* Loads up to four /sdcard/audio/wake_01..04.wav PCM clips into PSRAM.\n * Must run after TF mount, before WakeNet and optional BLE startup. */
 esp_err_t audio_service_preload_hello(void);
 
 #ifdef __cplusplus
