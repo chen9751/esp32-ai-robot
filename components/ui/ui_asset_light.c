@@ -1,5 +1,8 @@
 #include "ui_assets.h"
 #include <stddef.h>
+#include <stdlib.h>
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 
 static void decode_rle(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len)
 {
@@ -32,10 +35,10 @@ static const uint8_t ui_icon_light_rle[] = {
     0x26,0x00,0x01,0x96,0x12,0xff,0x01,0x94,0x26,0x00,0x01,0x51,0x12,0xff,0x01,0x4e,0x26,0x00,0x01,0x02,0x01,0xc4,0x10,0xff,0x01,0xc2,0x01,0x01,0x27,0x00,0x01,0x14,
     0x01,0xbd,0x0e,0xff,0x01,0xbc,0x01,0x14,0x2a,0x00,0x01,0x42,0x01,0x81,0x0a,0x99,0x01,0x81,0x01,0x41,0x8a,0x00,
 };
-static uint8_t ui_icon_light_buf[3364];
+#define UI_ICON_LIGHT_BUF_SIZE 3364u
 lv_image_dsc_t ui_icon_light = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=58,.h=58,.stride=58,.reserved_2=0},
-    .data_size = sizeof(ui_icon_light_buf), .data = ui_icon_light_buf, .reserved = NULL,
+    .data_size = UI_ICON_LIGHT_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 static const uint8_t ui_label_light_rle[] = {
@@ -64,14 +67,32 @@ static const uint8_t ui_label_light_rle[] = {
     0x01,0xf5,0x05,0xff,0x01,0x95,0x06,0x00,0x01,0x51,0x01,0x34,0x07,0x00,0x01,0x29,0x01,0x9d,0x01,0x99,0x01,0x8a,0x01,0x5c,0x01,0x02,0x05,0x00,0x01,0x3e,0x01,0x20,
     0x09,0x00,0x01,0x23,0x01,0x60,0x03,0x6b,0x01,0x51,0x01,0x05,0x5b,0x00,
 };
-static uint8_t ui_label_light_buf[1056];
+#define UI_LABEL_LIGHT_BUF_SIZE 1056u
 lv_image_dsc_t ui_label_light = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=44,.h=24,.stride=44,.reserved_2=0},
-    .data_size = sizeof(ui_label_light_buf), .data = ui_label_light_buf, .reserved = NULL,
+    .data_size = UI_LABEL_LIGHT_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 void ui_asset_light_init(void)
 {
-    decode_rle(ui_icon_light_rle, sizeof(ui_icon_light_rle), ui_icon_light_buf, sizeof(ui_icon_light_buf));
-    decode_rle(ui_label_light_rle, sizeof(ui_label_light_rle), ui_label_light_buf, sizeof(ui_label_light_buf));
+    /* Assets live for the whole LVGL runtime. Allocate once, before UI objects
+     * reference descriptors; no image pixel buffer occupies static internal DRAM. */
+    if (ui_icon_light.data != NULL) return;
+
+    uint8_t *icon = heap_caps_malloc(UI_ICON_LIGHT_BUF_SIZE,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *label = heap_caps_malloc(UI_LABEL_LIGHT_BUF_SIZE,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (icon == NULL || label == NULL) {
+        free(icon);
+        free(label);
+        ESP_LOGE("ui_assets", "PSRAM allocation failed for light image assets");
+        abort(); /* Never publish invalid LVGL image descriptors. */
+    }
+    decode_rle(ui_icon_light_rle, sizeof(ui_icon_light_rle), icon,
+               UI_ICON_LIGHT_BUF_SIZE);
+    decode_rle(ui_label_light_rle, sizeof(ui_label_light_rle), label,
+               UI_LABEL_LIGHT_BUF_SIZE);
+    ui_icon_light.data = icon;
+    ui_label_light.data = label;
 }

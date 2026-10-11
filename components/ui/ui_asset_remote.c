@@ -1,5 +1,8 @@
 #include "ui_assets.h"
 #include <stddef.h>
+#include <stdlib.h>
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 
 static void decode_rle(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len)
 {
@@ -47,10 +50,10 @@ static const uint8_t ui_icon_remote_rle[] = {
     0x1c,0x00,0x01,0x80,0x1c,0xff,0x01,0x80,0x1c,0x00,0x01,0x80,0x1c,0xff,0x01,0x80,0x1c,0x00,0x01,0x80,0x1c,0xff,0x01,0x80,
     0x1c,0x00,0x01,0x80,0x1c,0xff,0x01,0x80,0x1c,0x00,0x01,0x80,0x1c,0xff,0x01,0x80,0x1c,0x00,0x01,0x1a,0x1c,0x33,0x01,0x1a,0xf6,0x00,
 };
-static uint8_t ui_icon_remote_buf[3364];
+#define UI_ICON_REMOTE_BUF_SIZE 3364u
 lv_image_dsc_t ui_icon_remote = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=58,.h=58,.stride=58,.reserved_2=0},
-    .data_size = sizeof(ui_icon_remote_buf), .data = ui_icon_remote_buf, .reserved = NULL,
+    .data_size = UI_ICON_REMOTE_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 static const uint8_t ui_label_remote_rle[] = {
@@ -96,14 +99,32 @@ static const uint8_t ui_label_remote_rle[] = {
     0x01,0x61,0x01,0x62,0x01,0x60,0x01,0x5a,0x01,0x53,0x01,0x4b,0x01,0x41,0x01,0x2b,0x02,0x00,0x01,0x3a,0x01,0x5d,0x01,0x3d,0x01,0x01,0x11,0x00,0x01,0x4a,0x01,0x9c,
     0x03,0x00,0x01,0x8c,0x01,0x92,0x02,0x00,0x01,0xd2,0x01,0x6c,0x03,0x00,0x01,0x7b,0x01,0x3f,0x84,0x00,
 };
-static uint8_t ui_label_remote_buf[1536];
+#define UI_LABEL_REMOTE_BUF_SIZE 1536u
 lv_image_dsc_t ui_label_remote = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=64,.h=24,.stride=64,.reserved_2=0},
-    .data_size = sizeof(ui_label_remote_buf), .data = ui_label_remote_buf, .reserved = NULL,
+    .data_size = UI_LABEL_REMOTE_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 void ui_asset_remote_init(void)
 {
-    decode_rle(ui_icon_remote_rle, sizeof(ui_icon_remote_rle), ui_icon_remote_buf, sizeof(ui_icon_remote_buf));
-    decode_rle(ui_label_remote_rle, sizeof(ui_label_remote_rle), ui_label_remote_buf, sizeof(ui_label_remote_buf));
+    /* Assets live for the whole LVGL runtime. Allocate once, before UI objects
+     * reference descriptors; no image pixel buffer occupies static internal DRAM. */
+    if (ui_icon_remote.data != NULL) return;
+
+    uint8_t *icon = heap_caps_malloc(UI_ICON_REMOTE_BUF_SIZE,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *label = heap_caps_malloc(UI_LABEL_REMOTE_BUF_SIZE,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (icon == NULL || label == NULL) {
+        free(icon);
+        free(label);
+        ESP_LOGE("ui_assets", "PSRAM allocation failed for remote image assets");
+        abort(); /* Never publish invalid LVGL image descriptors. */
+    }
+    decode_rle(ui_icon_remote_rle, sizeof(ui_icon_remote_rle), icon,
+               UI_ICON_REMOTE_BUF_SIZE);
+    decode_rle(ui_label_remote_rle, sizeof(ui_label_remote_rle), label,
+               UI_LABEL_REMOTE_BUF_SIZE);
+    ui_icon_remote.data = icon;
+    ui_label_remote.data = label;
 }

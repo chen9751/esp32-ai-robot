@@ -1,5 +1,8 @@
 #include "ui_assets.h"
 #include <stddef.h>
+#include <stdlib.h>
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 
 static void decode_rle(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len)
 {
@@ -38,10 +41,10 @@ static const uint8_t ui_icon_music_rle[] = {
     0x07,0xff,0x01,0xe6,0x01,0x67,0x01,0x03,0x15,0x00,0x01,0x11,0x01,0x5b,0x01,0x95,0x01,0xb1,0x01,0xb4,0x01,0x9a,0x01,0x67,0x01,0x19,0x13,0x00,0x01,0x2d,0x01,0x79,
     0x01,0xa1,0x01,0xb8,0x01,0xa9,0x01,0x8c,0x01,0x46,0x01,0x06,0xff,0x00,0xa6,0x00,
 };
-static uint8_t ui_icon_music_buf[3364];
+#define UI_ICON_MUSIC_BUF_SIZE 3364u
 lv_image_dsc_t ui_icon_music = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=58,.h=58,.stride=58,.reserved_2=0},
-    .data_size = sizeof(ui_icon_music_buf), .data = ui_icon_music_buf, .reserved = NULL,
+    .data_size = UI_ICON_MUSIC_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 static const uint8_t ui_label_music_rle[] = {
@@ -66,14 +69,32 @@ static const uint8_t ui_label_music_rle[] = {
     0x01,0x07,0x03,0x00,0x01,0x75,0x01,0xff,0x01,0xfd,0x01,0xff,0x01,0xe9,0x01,0x04,0x05,0x00,0x01,0x0a,0x01,0x02,0x08,0x00,0x01,0x1a,0x01,0xbf,0x01,0x3e,0x08,0x00,
     0x01,0x24,0x01,0xb3,0x01,0x40,0x09,0x00,0x01,0x18,0x01,0x79,0x01,0x74,0x01,0x5a,0x01,0x18,0x63,0x00,
 };
-static uint8_t ui_label_music_buf[1056];
+#define UI_LABEL_MUSIC_BUF_SIZE 1056u
 lv_image_dsc_t ui_label_music = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=44,.h=24,.stride=44,.reserved_2=0},
-    .data_size = sizeof(ui_label_music_buf), .data = ui_label_music_buf, .reserved = NULL,
+    .data_size = UI_LABEL_MUSIC_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 void ui_asset_music_init(void)
 {
-    decode_rle(ui_icon_music_rle, sizeof(ui_icon_music_rle), ui_icon_music_buf, sizeof(ui_icon_music_buf));
-    decode_rle(ui_label_music_rle, sizeof(ui_label_music_rle), ui_label_music_buf, sizeof(ui_label_music_buf));
+    /* Assets live for the whole LVGL runtime. Allocate once, before UI objects
+     * reference descriptors; no image pixel buffer occupies static internal DRAM. */
+    if (ui_icon_music.data != NULL) return;
+
+    uint8_t *icon = heap_caps_malloc(UI_ICON_MUSIC_BUF_SIZE,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *label = heap_caps_malloc(UI_LABEL_MUSIC_BUF_SIZE,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (icon == NULL || label == NULL) {
+        free(icon);
+        free(label);
+        ESP_LOGE("ui_assets", "PSRAM allocation failed for music image assets");
+        abort(); /* Never publish invalid LVGL image descriptors. */
+    }
+    decode_rle(ui_icon_music_rle, sizeof(ui_icon_music_rle), icon,
+               UI_ICON_MUSIC_BUF_SIZE);
+    decode_rle(ui_label_music_rle, sizeof(ui_label_music_rle), label,
+               UI_LABEL_MUSIC_BUF_SIZE);
+    ui_icon_music.data = icon;
+    ui_label_music.data = label;
 }

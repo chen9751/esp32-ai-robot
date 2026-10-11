@@ -1,5 +1,8 @@
 #include "ui_assets.h"
 #include <stddef.h>
+#include <stdlib.h>
+#include "esp_heap_caps.h"
+#include "esp_log.h"
 
 static void decode_rle(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len)
 {
@@ -31,10 +34,10 @@ static const uint8_t ui_icon_devices_rle[] = {
     0x01,0xbf,0x0e,0x00,0x01,0xbf,0x2a,0xff,0x01,0xbf,0x0e,0x00,0x01,0xb4,0x2a,0xff,0x01,0xb3,0x0e,0x00,0x01,0x63,0x2a,0xff,0x01,0x62,0x0e,0x00,0x01,0x01,0x01,0x63,
     0x01,0xb2,0x26,0xbb,0x01,0xb2,0x01,0x62,0x01,0x01,0xff,0x00,0x9e,0x00,
 };
-static uint8_t ui_icon_devices_buf[3364];
+#define UI_ICON_DEVICES_BUF_SIZE 3364u
 lv_image_dsc_t ui_icon_devices = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=58,.h=58,.stride=58,.reserved_2=0},
-    .data_size = sizeof(ui_icon_devices_buf), .data = ui_icon_devices_buf, .reserved = NULL,
+    .data_size = UI_ICON_DEVICES_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 static const uint8_t ui_label_devices_rle[] = {
@@ -65,14 +68,32 @@ static const uint8_t ui_label_devices_rle[] = {
     0x01,0x23,0x01,0xac,0x01,0xfa,0x01,0xff,0x01,0xe4,0x01,0x0f,0x03,0x00,0x01,0x9b,0x0c,0xff,0x01,0x87,0x0a,0x00,0x01,0x0a,0x03,0x00,0x01,0x61,0x01,0x4e,0x01,0x05,
     0x06,0x00,0x01,0x14,0x01,0x6a,0x01,0x63,0x04,0x00,0x01,0x68,0x01,0xa3,0x09,0x00,0x01,0x0c,0x01,0xa3,0x01,0x57,0x5d,0x00,
 };
-static uint8_t ui_label_devices_buf[1056];
+#define UI_LABEL_DEVICES_BUF_SIZE 1056u
 lv_image_dsc_t ui_label_devices = {
     .header = {.magic=LV_IMAGE_HEADER_MAGIC,.cf=LV_COLOR_FORMAT_A8,.flags=0,.w=44,.h=24,.stride=44,.reserved_2=0},
-    .data_size = sizeof(ui_label_devices_buf), .data = ui_label_devices_buf, .reserved = NULL,
+    .data_size = UI_LABEL_DEVICES_BUF_SIZE, .data = NULL, .reserved = NULL,
 };
 
 void ui_asset_devices_init(void)
 {
-    decode_rle(ui_icon_devices_rle, sizeof(ui_icon_devices_rle), ui_icon_devices_buf, sizeof(ui_icon_devices_buf));
-    decode_rle(ui_label_devices_rle, sizeof(ui_label_devices_rle), ui_label_devices_buf, sizeof(ui_label_devices_buf));
+    /* Assets live for the whole LVGL runtime. Allocate once, before UI objects
+     * reference descriptors; no image pixel buffer occupies static internal DRAM. */
+    if (ui_icon_devices.data != NULL) return;
+
+    uint8_t *icon = heap_caps_malloc(UI_ICON_DEVICES_BUF_SIZE,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *label = heap_caps_malloc(UI_LABEL_DEVICES_BUF_SIZE,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (icon == NULL || label == NULL) {
+        free(icon);
+        free(label);
+        ESP_LOGE("ui_assets", "PSRAM allocation failed for devices image assets");
+        abort(); /* Never publish invalid LVGL image descriptors. */
+    }
+    decode_rle(ui_icon_devices_rle, sizeof(ui_icon_devices_rle), icon,
+               UI_ICON_DEVICES_BUF_SIZE);
+    decode_rle(ui_label_devices_rle, sizeof(ui_label_devices_rle), label,
+               UI_LABEL_DEVICES_BUF_SIZE);
+    ui_icon_devices.data = icon;
+    ui_label_devices.data = label;
 }
