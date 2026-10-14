@@ -38,8 +38,8 @@ For small monochrome UI icons, compact A8 image subsets rasterized directly from
 The device only reads configuration from the TF card; no Wi-Fi setup hotspot,
 HTTP/DNS provisioning server or interactive Wi-Fi / AI editor is provided.
 
-- See [tf卡/README.md](tf卡/README.md) and [tf卡/config.json](tf卡/config.json).
-- Copy `tf卡/config.json` to the **root** of a FAT32-formatted TF card.
+- See [tf_card/README.md](tf_card/README.md) and [tf_card/config.json](tf_card/config.json).
+- Copy `tf_card/config.json` to the **root** of a FAT32-formatted TF card.
 - Boot-time SDMMC uses Waveshare V2 CMD=GPIO39, D0=GPIO40, CLK=GPIO41 (1-bit).
 - The firmware mounts `/sdcard` and reads `/sdcard/config.json`.
 - Wi-Fi / AI settings are read-only status views; edits require reboot.
