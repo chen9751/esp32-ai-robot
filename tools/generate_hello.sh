@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$ROOT/tf卡/audio/hello.wav"
+OUT="$ROOT/tf_card/audio/hello.wav"
 mkdir -p "$(dirname "$OUT")"
 if ! command -v ffmpeg >/dev/null; then
   echo 'ffmpeg is required to encode WAV as 24kHz stereo PCM16' >&2
