@@ -114,3 +114,9 @@ The enclosure exposes three physical buttons. Their product behavior is:
 - Real-device report: Remote icons previously rotated for physical counterclockwise 90°, but not clockwise 90°.
 - Remote UI now handles `BOARD_ORIENTATION_PORTRAIT_LEFT` for the clockwise 90° icon response; board-wide IMU axis mapping and LCD/touch geometry remain unchanged. **Verify the clockwise response on device after flashing; this is a code fix, not yet a passed hardware retest.**
 - WakeNet lifecycle and memory behavior remain separate follow-up work.
+
+### HOME SRAM + clock color changes (2026-10-16)
+
+- Four HOME icons and four HOME text masks previously used 18,160 bytes of writable A8 buffers, initialized by RLE decoding. They now contain **bit-identical, zero-tail-preserving** `static const` A8 data in flash. UI tile geometry, gradients, gestures, labels, and actions are unchanged. Check the firmware linker map and runtime heap before claiming an exact free-heap gain.
+- Clock digits and both clock battery icon variants now use cyan `#78DCE8` from smart-terminal. Lock overlay icon style is unchanged.
+- Battery inspection (no functional change): `board_power_get_status` reads VBAT via ADC GPIO4; `BOARD_BATTERY_LOW_MV=3500`; low-battery icon only appears below that threshold **when USB Serial/JTAG is not connected**. USB-host detection is used as a surrogate for charging; it **does not prove charging current**. There is no normal-battery symbol. Low-battery glyph flashes every 500 ms, polling battery status every ~1 second. Confirm behavior with USB unplugged; do not confuse USB host presence with charge-current telemetry.
