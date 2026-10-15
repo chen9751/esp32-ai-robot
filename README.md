@@ -8,6 +8,7 @@ Initial stack: ESP-IDF 5.5.4 + LVGL 9. Hardware, UI, audio, networking and robot
 
 - Target UI resolution: **640 × 172**, landscape. Do not design against the panel's official portrait orientation.
 - Physical mounting baseline: **speaker down, BOOT/custom key bottom-left, TF slot top-left**. The board driver maps the frame and touch coordinates to this orientation; IMU interpretation must follow the same baseline.
+- Rotation mapping (factory mount): logical display `640×172` → native `172×640` using `native_x=logical_y`, `native_y=639-logical_x`; the touchscreen applies the inverse. The QMI8658 board orientation mapping and Remote icon tilt use this same baseline. Remote icons reset to upright when the page is rebuilt, then follow the IMU; UI button geometry and touch actions do not rotate.
 - Main UI background: pure black unless a page explicitly needs otherwise.
 - UI framework: LVGL 9.
 - The current Web Preview compatibility baseline is **LVGL 9.2.2**. UI code must stay compatible with this baseline unless the project deliberately raises it and updates the preview/build checks at the same time.
@@ -100,7 +101,7 @@ The enclosure exposes three physical buttons. Their product behavior is:
 ## Cleanup and verification status (2026-10-16)
 
 - Removed obsolete standby carousel event types and unreachable handlers; only the clock standby view exists.
-- Restored physical-mounting LCD/touch transform and remapped IMU orientation for the remote icon tilt logic. **Awaiting real-device orientation and touch regression tests**.
+- Restored physical-mounting LCD/touch transform, remapped IMU orientation for Remote icon tilt, and reset stale Remote icon angle on each page rebuild. **Awaiting real-device orientation, touch, and gyro regression tests**.
 - Replaced eight runtime-expanded system icon A8 buffers and the generated lock-icon mask with identical read-only alpha data. The expected writable-static-data reduction is 8,768 bytes; verify internal DRAM in the linker map and running firmware before reporting heap gains.
 - Deleted uncompiled 44px and 72px temperature-font files; retained the built 84px subset.
 - Clock-only WakeNet lifecycle is now wired to committed page state: the dedicated worker serializes start/stop using existing model/AFE teardown. **Not yet firmware-built or soak-tested; heap recovery remains unverified.**
