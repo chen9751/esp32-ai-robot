@@ -489,12 +489,11 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     if (pressed && point_count > 0) {
         /* Touch driver coordinates are in the panel's native 172x640 space.
          * The final display mapping is:
-         *     nx = 171 - ly
-         *     ny = lx
-         * Apply the inverse transform so touch follows the 180-degree-corrected
-         * 640x172 UI orientation. */
-        int32_t logical_x = (int32_t)y;
-        int32_t logical_y = (BOARD_UI_V_RES - 1) - (int32_t)x;
+         *     nx = ly
+         *     ny = 639 - lx
+         * Apply the exact inverse transform for the factory physical mounting. */
+        int32_t logical_x = (BOARD_UI_H_RES - 1) - (int32_t)y;
+        int32_t logical_y = (int32_t)x;
         if (logical_x < 0) logical_x = 0;
         if (logical_x >= BOARD_UI_H_RES) logical_x = BOARD_UI_H_RES - 1;
         if (logical_y < 0) logical_y = 0;
@@ -539,9 +538,9 @@ static void display_flush_cb(lv_display_t *display,
      * while the product UI is permanently 640x172. Convert the framebuffer
      * explicitly so its memory layout is deterministic across LVGL versions.
      *
-     * Mapping (90 degrees):
-     *     native_x = 171 - logical_y
-     *     native_y = logical_x
+     * Mapping (original physical mounting; opposite quarter-turn):
+     *     native_x = logical_y
+     *     native_y = 639 - logical_x
      *
      * AXS15231B expects RGB565 bytes in wire order, so swap each 16-bit
      * pixel while copying into the native framebuffer. */
@@ -566,8 +565,8 @@ static void display_flush_cb(lv_display_t *display,
             const uint16_t pixel = logical_pixels[src_row + (size_t)logical_x];
             const uint16_t wire_pixel =
                 (uint16_t)((pixel << 8) | (pixel >> 8));
-            const int32_t native_x = (BOARD_UI_V_RES - 1) - logical_y;
-            const int32_t native_y = logical_x;
+            const int32_t native_x = logical_y;
+            const int32_t native_y = (BOARD_UI_H_RES - 1) - logical_x;
             native_pixels_mut[(size_t)native_y * BOARD_LCD_NATIVE_H_RES +
                               (size_t)native_x] = wire_pixel;
         }
@@ -972,16 +971,16 @@ esp_err_t board_imu_get_orientation(board_orientation_t *orientation)
     }
 
     if (abs_y > abs_x + QMI8658_ORIENTATION_BIAS) {
-        /* QMI8658 is mounted 180 degrees relative to the product's final
-         * screen orientation, so invert the raw board axes here. */
+        /* In the original physical mounting, the previous UI's 180-degree
+         * correction is no longer applied to the board axes. */
         *orientation = ay > 0
-                           ? BOARD_ORIENTATION_LANDSCAPE_INVERTED
-                           : BOARD_ORIENTATION_LANDSCAPE;
+                           ? BOARD_ORIENTATION_LANDSCAPE
+                           : BOARD_ORIENTATION_LANDSCAPE_INVERTED;
     }
     else if (abs_x > abs_y + QMI8658_ORIENTATION_BIAS) {
         *orientation = ax > 0
-                           ? BOARD_ORIENTATION_PORTRAIT_LEFT
-                           : BOARD_ORIENTATION_PORTRAIT_RIGHT;
+                           ? BOARD_ORIENTATION_PORTRAIT_RIGHT
+                           : BOARD_ORIENTATION_PORTRAIT_LEFT;
     }
 
     return ESP_OK;
