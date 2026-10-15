@@ -34,18 +34,36 @@ static int16_t *s_source, *s_mono;
 static int s_samples;
 static size_t s_source_bytes;
 
+/* A worker's "done" flag alone is not proof that it has stopped
+ * executing: it previously set that flag just before vTaskDelete(NULL).
+ * Each worker now parks itself in Suspended after its last AFE access.
+ * Only the lifecycle owner deletes a proven-suspended task, before
+ * destroying the AFE/model and reusing their memory. */
+static bool worker_parked(TaskHandle_t task, bool done)
+{
+    return done && (task == NULL || eTaskGetState(task) == eSuspended);
+}
+
 static bool join_workers(void)
 {
-    TickType_t start = xTaskGetTickCount();
-    while (!s_feed_done || !s_detect_done) {
+    const TickType_t start = xTaskGetTickCount();
+    while (!worker_parked(s_feed_task, s_feed_done) ||
+           !worker_parked(s_detect_task, s_detect_done)) {
         if (xTaskGetTickCount() - start >= pdMS_TO_TICKS(3500)) {
-            ESP_LOGE(TAG, "workers still active; retaining AFE until stop completes");
+            ESP_LOGE(TAG, "workers not parked; retaining AFE until stop completes");
             return false;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    s_feed_task = NULL;
-    s_detect_task = NULL;
+
+    if (s_feed_task != NULL) {
+        vTaskDelete(s_feed_task);
+        s_feed_task = NULL;
+    }
+    if (s_detect_task != NULL) {
+        vTaskDelete(s_detect_task);
+        s_detect_task = NULL;
+    }
     return true;
 }
 
@@ -103,7 +121,7 @@ static void feed_task(void *arg)
         }
     }
     s_feed_done = true;
-    vTaskDelete(NULL);
+    vTaskSuspend(NULL); /* Owner deletes us only after eSuspended. */
 }
 
 static void detect_task(void *arg)
@@ -135,7 +153,7 @@ static void detect_task(void *arg)
         }
     }
     s_detect_done = true;
-    vTaskDelete(NULL);
+    vTaskSuspend(NULL); /* Owner deletes us only after eSuspended. */
 }
 
 esp_err_t voice_wakeup_start(voice_wakeup_event_callback_t cb, void *ctx)
