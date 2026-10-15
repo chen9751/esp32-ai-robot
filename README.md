@@ -107,3 +107,10 @@ The enclosure exposes three physical buttons. Their product behavior is:
 - Clock-only WakeNet lifecycle is now wired to committed page state: the dedicated worker serializes start/stop using existing model/AFE teardown. **Not yet firmware-built or soak-tested; heap recovery remains unverified.**
 - Wi-Fi STA-start-to-IP and IP-to-first-SNTP timing diagnostics have been added. Optimization decisions must follow measured latency.
 - Still pending: full source/resource reachability audit, firmware build, on-device LCD/touch/IMU checks, long-running page-toggle and memory soak tests. Sony TV live-control validation intentionally deferred.
+
+### Remote IMU regression (2026-10-16)
+
+- Hardware confirmed: factory-facing UI rotation and touchscreen corners are correct.
+- Real-device report: Remote icons previously rotated for physical counterclockwise 90°, but not clockwise 90°.
+- Remote UI now handles `BOARD_ORIENTATION_PORTRAIT_LEFT` for the clockwise 90° icon response; board-wide IMU axis mapping and LCD/touch geometry remain unchanged. **Verify the clockwise response on device after flashing; this is a code fix, not yet a passed hardware retest.**
+- WakeNet lifecycle and memory behavior remain separate follow-up work.
