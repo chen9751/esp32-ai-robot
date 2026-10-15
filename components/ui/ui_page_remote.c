@@ -318,6 +318,11 @@ void ui_page_remote_build(lv_obj_t *parent, ui_remote_activity_cb_t activity_cb,
     s_activity_cb = activity_cb;
     s_activity_user_data = activity_user_data;
     s_touch_active = false;
+    /* An earlier remote visit may have left icons tilted. Always build the
+     * new page in its factory landscape orientation; the IMU timer then
+     * applies the current physical pose instead of carrying stale UI state. */
+    s_icon_angle = 0;
+    s_icons_ccw90 = false;
     s_icon_count = 0;
     for (uint8_t i = 0; i < REMOTE_ICON_COUNT; i++) s_icons[i] = NULL;
 
