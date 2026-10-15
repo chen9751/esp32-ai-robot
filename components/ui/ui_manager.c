@@ -37,6 +37,7 @@ static void *s_action_user_data = NULL;
 static const lv_font_t *s_menu_font = NULL;
 
 static ui_top_page_t s_top_page = UI_TOP_STANDBY;
+static atomic_bool s_clock_page_active = ATOMIC_VAR_INIT(false);
 static ui_standby_view_t s_standby_view = UI_STANDBY_CLOCK;
 static uint32_t s_last_activity_tick = 0;
 static lv_timer_t *s_idle_timer = NULL;
@@ -130,6 +131,10 @@ static void refresh_lock_overlay(void)
 }
 
 bool ui_is_locked(void) { return s_ui_locked; }
+bool ui_is_clock_page_active(void)
+{
+    return atomic_load_explicit(&s_clock_page_active, memory_order_acquire);
+}
 
 void ui_unlock_from_back_hold(void)
 {
@@ -667,6 +672,7 @@ void ui_show_main_menu(void)
     ui_page_feature_stop();
     ui_page_standby_stop();
     s_top_page = UI_TOP_HOME;
+    atomic_store_explicit(&s_clock_page_active, false, memory_order_release);
     ui_mark_activity();
 
     ui_page_home_show(home_menu_action_cb,
@@ -688,6 +694,7 @@ void ui_show_standby_clock(void)
     ui_page_feature_stop();
     s_top_page = UI_TOP_STANDBY;
     s_standby_view = UI_STANDBY_CLOCK;
+    atomic_store_explicit(&s_clock_page_active, true, memory_order_release);
     ui_mark_activity();
 
     ui_page_standby_show(UI_STANDBY_CLOCK,
