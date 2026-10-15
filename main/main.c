@@ -69,6 +69,32 @@ static void on_voice_wakeup(voice_wakeup_state_t state, void *context)
     }
 }
 
+/* The clock owns WakeNet; keep AFE allocation and cleanup off the LVGL
+ * thread. Exactly one worker serializes starts/stops (including retries on
+ * timed-out stop) so navigation cannot race with model destruction. */
+static void clock_voice_lifecycle_task(void *arg)
+{
+    (void)arg;
+    bool active = false;
+    for (;;) {
+        const bool wanted = ui_is_clock_page_active();
+        if (!wanted && active) {
+            voice_wakeup_stop();
+            active = voice_wakeup_get_state() != VOICE_WAKE_UNAVAILABLE;
+            if (!active) log_memory("after WakeNet stop");
+        } else if (wanted && !active && audio_service_capture_ready()) {
+            esp_err_t err = voice_wakeup_start(on_voice_wakeup, NULL);
+            if (err == ESP_OK) {
+                active = true;
+                log_memory("after WakeNet start");
+            } else {
+                ESP_LOGW(TAG, "clock WakeNet start failed: %s", esp_err_to_name(err));
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(active ? 100 : 500));
+    }
+}
+
 static void enter_power_off(void)
 {
     ESP_LOGI(TAG, "PWR long press: shutting down");
@@ -277,16 +303,12 @@ void app_main(void)
 
     log_memory("after HA init");
 
-    /* Microphone has one reader: WakeNet AFE. Diagnostic capture must
-     * not run simultaneously or steal audio frames. */
-    if (audio_service_capture_ready()) {
-        esp_err_t wake_err = voice_wakeup_start(on_voice_wakeup, NULL);
-        if (wake_err != ESP_OK) {
-            ESP_LOGW(TAG, "WakeNet startup failed: %s", esp_err_to_name(wake_err));
-        }
+    /* Microphone has one reader: WakeNet AFE. Clock-only lifecycle is
+     * asynchronous and never blocks the display event loop. */
+    if (xTaskCreate(clock_voice_lifecycle_task, "clock_voice", 6144,
+                    NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "failed to start clock WakeNet lifecycle worker");
     }
-
-    log_memory("after WakeNet start");
 
     if (xTaskCreate(physical_buttons_task, "phys_buttons", 3072,
                     NULL, 3, NULL) != pdPASS) {
