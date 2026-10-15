@@ -68,13 +68,20 @@
 #define BOARD_LCD_DMA_CHUNKS            (BOARD_LCD_NATIVE_V_RES / BOARD_LCD_DMA_ROWS)
 
 /*
- * AXS15231B reports the V2 touch panel in its raw 640 x 172 orientation.
- * Waveshare's own V2 example maps it to the native LCD coordinates as:
+ * AXS15231B touch reports raw 640 x 172 coordinates. The touch driver
+ * mirrors raw X, then swaps axes into native panel coordinates:
  *     native_x = raw_y
- *     native_y = 640 - raw_x
- * esp_lcd_touch applies mirror before swap, therefore mirror-X + swap-XY
- * reproduces that mapping. LVGL 9.2 then applies the display's 90 degree
- * rotation to produce the project's final 640 x 172 logical coordinates.
+ *     native_y = 639 - raw_x
+ * The board LVGL input port converts native to logical coordinates:
+ *     logical_x = 639 - native_y = raw_x
+ *     logical_y = native_x = raw_y
+ *
+ * The display flush converts the same 640 x 172 logical frame to native:
+ *     native_x = logical_y
+ *     native_y = 639 - logical_x
+ * Both mappings belong to the factory physical mounting (speaker down,
+ * custom/BOOT key at lower-left, TF card slot at upper-left).
+ * Do not add a second 180-degree correction in LVGL or individual UI pages.
  */
 #define BOARD_TOUCH_RAW_X_MAX           BOARD_LCD_NATIVE_V_RES
 #define BOARD_TOUCH_RAW_Y_MAX           BOARD_LCD_NATIVE_H_RES
