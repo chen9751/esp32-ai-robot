@@ -12,7 +12,7 @@
 #define UI_SCREEN_H              172
 
 #define CLOCK_BLUE               lv_color_hex(0x78DCE8)
-#define CLOCK_LOW                lv_color_hex(0xFF5A5A)
+#define CLOCK_LOW                CLOCK_BLUE
 #define CLOCK_CHARGING           CLOCK_BLUE
 #define PIXEL_SIZE               14
 #define PIXEL_STEP               18
