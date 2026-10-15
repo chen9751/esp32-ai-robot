@@ -575,39 +575,9 @@ static void vertical_drag_cb(int32_t dx,
 static void standby_event_cb(ui_standby_event_t event, void *user_data)
 {
     (void)user_data;
-    if (s_ui_locked) return;
+    if (s_ui_locked || event != UI_STANDBY_EVENT_OPEN_HOME) return;
     ui_mark_activity();
-
-    if (event == UI_STANDBY_EVENT_OPEN_HOME) {
-        if (!ui_navigation_transition_active()) {
-            ui_show_main_menu();
-        }
-        return;
-    }
-
-    if (ui_navigation_transition_active()) {
-        return;
-    }
-
-    if (event == UI_STANDBY_EVENT_NEXT) {
-        s_standby_view =
-            (ui_standby_view_t)(((int)s_standby_view + 1) % UI_STANDBY_COUNT);
-    }
-    else if (event == UI_STANDBY_EVENT_PREVIOUS) {
-        s_standby_view =
-            (ui_standby_view_t)(((int)s_standby_view + UI_STANDBY_COUNT - 1) %
-                                UI_STANDBY_COUNT);
-    }
-    else {
-        return;
-    }
-
-    ui_page_standby_show(s_standby_view,
-                         false,
-                         standby_event_cb,
-                         NULL,
-                         vertical_drag_cb,
-                         NULL);
+    if (!ui_navigation_transition_active()) ui_show_main_menu();
 }
 
 static void idle_timer_cb(lv_timer_t *timer)
