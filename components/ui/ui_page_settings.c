@@ -224,7 +224,7 @@ static void style_slider(lv_obj_t *slider)
     lv_obj_set_style_bg_color(slider, UI_COLOR_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, UI_COLOR_ACCENT, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(slider, UI_COLOR_FG, LV_PART_KNOB);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
     lv_obj_set_style_width(slider, 18, LV_PART_KNOB);
     lv_obj_set_style_height(slider, 18, LV_PART_KNOB);
