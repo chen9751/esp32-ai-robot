@@ -70,38 +70,39 @@ static int32_t clamp_i32(int32_t value, int32_t min_value, int32_t max_value)
     return value;
 }
 
-/* ri-lock-line: System/lock-line.svg from Remix Icon, 24x24 silhouette.
- * Keep this tiny A8 mask self-contained and separate from font resources. */
-static uint8_t s_lock_pixels[24 * 24];
-static lv_image_dsc_t s_lock_image = {
+/* Immutable 24x24 lock alpha mask; previous runtime-generated pixels
+ * are now stored as read-only flash data rather than permanent SRAM. */
+static const uint8_t s_lock_pixels[24 * 24] = {
+      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,255,255,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,255,255,255,255,255,255,255,255,  0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,255,255,255,  0,  0,  0,  0,255,255,255,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,255,255,255,  0,  0,  0,  0,  0,  0,  0,  0,255,255,255,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  0,  0,  0,  0,  0,
+      0,  0,  0,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  0,  0,  0,
+      0,  0,  0,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,255,255,  0,  0,  0,
+      0,  0,  0,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  0,  0,  0,
+      0,  0,  0,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+};
+static const lv_image_dsc_t s_lock_image = {
     .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8,
                .w = 24, .h = 24, .stride = 24},
     .data_size = sizeof(s_lock_pixels), .data = s_lock_pixels
 };
-
-static void init_lock_icon(void)
-{
-    static bool initialized = false;
-    if (initialized) return;
-    initialized = true;
-    /* Pixel-aligned coverage of the original Remix 24x24 lock path:
-     * body x=3..20 y=10..21, cutout x=5..18 y=12..19;
-     * shackle outer and inner are concentric radius 7 and 5 arches. */
-    for (int y = 0; y < 24; ++y) {
-        for (int x = 0; x < 24; ++x) {
-            bool body = x >= 3 && x < 21 && y >= 10 && y < 22 &&
-                        !(x >= 5 && x < 19 && y >= 12 && y < 20);
-            bool keyhole = x >= 11 && x < 13 && y >= 14 && y < 18;
-            int dx = 2 * x + 1 - 24;
-            int dy = 2 * y + 1 - 18;
-            bool arch = y >= 2 && y < 11 &&
-                        (dx * dx + dy * dy <= 196) &&
-                        (dx * dx + dy * dy >= 100 || y >= 9);
-            s_lock_pixels[y * 24 + x] = (body || keyhole || arch) ? 255 : 0;
-        }
-    }
-    s_lock_image.data = s_lock_pixels;
-}
 
 static void refresh_lock_overlay(void)
 {
@@ -110,7 +111,6 @@ static void refresh_lock_overlay(void)
         s_lock_overlay = NULL;
     }
     if (!s_ui_locked) return;
-    init_lock_icon();
     lv_obj_t *screen = lv_screen_active();
     s_lock_overlay = lv_obj_create(screen);
     lv_obj_null_on_delete(&s_lock_overlay);
