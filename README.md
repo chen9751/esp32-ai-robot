@@ -7,6 +7,7 @@ Initial stack: ESP-IDF 5.5.4 + LVGL 9. Hardware, UI, audio, networking and robot
 ## UI baseline
 
 - Target UI resolution: **640 × 172**, landscape. Do not design against the panel's official portrait orientation.
+- Physical mounting baseline: **speaker down, BOOT/custom key bottom-left, TF slot top-left**. The board driver maps the frame and touch coordinates to this orientation; IMU interpretation must follow the same baseline.
 - Main UI background: pure black unless a page explicitly needs otherwise.
 - UI framework: LVGL 9.
 - The current Web Preview compatibility baseline is **LVGL 9.2.2**. UI code must stay compatible with this baseline unless the project deliberately raises it and updates the preview/build checks at the same time.
@@ -61,8 +62,8 @@ UI pages are intentionally split into separate modules so the project does not g
 - `ui_system_icons.c`: shared system/device icon assets; current settings icons are compact A8 subsets generated from Remix Icon sources.
 - `ui_page_standby.c`: standby gesture/navigation controller only.
 - `ui_page_clock.c`: standby clock content.
-- Weather standby panel is planned; no weather service is currently wired.
-- Calendar standby panel is planned; no calendar service is currently wired.
+- **Implementation note (f760bcc lineage):** `ui_page_clock.c` still renders digits from a compact 5×7 table using LVGL rectangles, despite Fusion Pixel being the selected design-source font. Do not remove that code until an actual replacement is integrated and verified. Font design policy does not prove that the firmware is already using the font.
+- Standby currently contains the clock only; obsolete weather/calendar carousel events have been removed.
 
 Music behavior is defined as follows: the page has no album artwork and no shuffle, repeat or volume controls. The upper-right selector switches only between `TV` and `Speaker`; there is no additional "control target" label. `TV` is reserved for direct ESP32 Bluetooth-HID media control of the television, while `Speaker` is reserved for commands sent to the Debian playback service that outputs to the paired iPad mini / CM220 speaker path. The LVGL module stores presentation state, exposes metadata/playback setters and emits target/transport/seek actions; transport-specific code must consume those actions elsewhere.
 
@@ -78,7 +79,7 @@ The Drying Rack page uses three icon-only controls: Remix Icon `arrow-up-line` a
 
 Timer behavior is defined as follows: the page contains no text labels. It shows only `HH:MM:SS` and circular icon controls. In the setting state, the single large Play control is green. Starting replaces it with two smaller circular controls: an orange Pause control above and a red Stop control below. Pausing freezes the remaining time and changes the upper control to an orange Play/Resume icon. Stop cancels the active countdown and restores the most recently configured duration. When the countdown reaches zero it remains at `00:00:00`; the upper action can immediately replay the last configured duration, while Stop returns to the editable setting state with that duration restored. A zero-duration timer does not start. Button backgrounds are translucent while their icons remain fully colored.
 
-Standby behavior is fixed as follows: after 60 seconds without input, an inactive page returns to the clock. **While a countdown timer is actively running, the automatic 60-second return to the standby clock is suppressed.** Pause, Stop or countdown completion restores the normal idle behavior. The clock/weather/calendar pages loop horizontally. A short tap from any standby page opens HOME. Upward swiping from standby moves the standby page itself upward with the finger, revealing a stationary HOME page underneath. From HOME, a downward swipe brings the clock in from above to cover HOME. These are intentionally asymmetric inverse transitions. These vertical transitions never return to a previously active function page.
+Standby behavior is fixed as follows: after 60 seconds without input, an inactive page returns to the clock. **While a countdown timer is actively running, the automatic 60-second return to the standby clock is suppressed.** Pause, Stop or countdown completion restores the normal idle behavior. There is no standby weather/calendar carousel. A short tap on the clock opens HOME. Upward swiping from standby moves the standby page itself upward with the finger, revealing a stationary HOME page underneath. From HOME, a downward swipe brings the clock in from above to cover HOME. These are intentionally asymmetric inverse transitions. These vertical transitions never return to a previously active function page.
 
 ## Alert presentation and physical buttons
 
@@ -95,3 +96,11 @@ The enclosure exposes three physical buttons. Their product behavior is:
 - **RESET / CHIP_PU:** hardware reset only; application code does not remap it.
 - **PWR:** GPIO16 is sampled active-low, matching Waveshare's V2 power example. Holding it for **1.5 seconds** requests power-off. On battery, EXIO6 / `SYS_EN` is driven low to cut the system rail. If USB still powers the MCU, the firmware enters deep sleep after the button is released and uses GPIO16 active-low as the wake source.
 - **BOOT / custom key (GPIO0):** after normal boot it acts as Back. While an alarm or timer is ringing it acknowledges/stops the alert first. Otherwise Feature -> HOME, HOME -> standby clock; inside the Alarm editor it closes the editor before leaving the Alarm feature. RESET/download-mode behavior at boot is not changed.
+
+## Cleanup and verification status (2026-10-16)
+
+- Removed obsolete standby carousel event types and unreachable handlers; only the clock standby view exists.
+- Restored physical-mounting LCD/touch transform and remapped IMU orientation for the remote icon tilt logic. **Awaiting real-device orientation and touch regression tests**.
+- Replaced eight runtime-expanded system icon A8 buffers and the generated lock-icon mask with identical read-only alpha data. The expected writable-static-data reduction is 8,768 bytes; verify internal DRAM in the linker map and running firmware before reporting heap gains.
+- Deleted uncompiled 44px and 72px temperature-font files; retained the built 84px subset.
+- Still pending: clock-only WakeNet lifecycle with actual resource reclamation, NTP/Wi-Fi timing diagnostics, full source-resource reachability audit, firmware build and repeated UI/memory soak tests. Sony TV live-control validation intentionally deferred.
