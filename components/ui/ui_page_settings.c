@@ -94,7 +94,7 @@ static unsigned char audio_service_get_volume(void)
 #define UI_STATUS_RIGHT_W        (UI_CONTENT_W - UI_STATUS_LEFT_W)
 
 #define UI_COLOR_BG          lv_color_hex(0x000000)
-#define UI_COLOR_ACCENT      lv_color_hex(0x45D7F0)
+#define UI_COLOR_ACCENT      lv_color_hex(0x78DCE8)
 #define UI_COLOR_FG          lv_color_hex(0xF4F7F8)
 #define UI_COLOR_MUTED       lv_color_hex(0x6B7178)
 #define UI_COLOR_TRACK       lv_color_hex(0x2A2D31)
@@ -224,7 +224,7 @@ static void style_slider(lv_obj_t *slider)
     lv_obj_set_style_bg_color(slider, UI_COLOR_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(slider, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, UI_COLOR_FG, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(slider, UI_COLOR_ACCENT, LV_PART_KNOB);
     lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
     lv_obj_set_style_width(slider, 18, LV_PART_KNOB);
     lv_obj_set_style_height(slider, 18, LV_PART_KNOB);
@@ -307,11 +307,11 @@ static void slider_event_cb(lv_event_t *e)
 
 static void build_slider_content(ui_settings_tab_t tab)
 {
-    lv_obj_t *icon = make_icon(s_content, tab, UI_COLOR_FG);
+    lv_obj_t *icon = make_icon(s_content, tab, UI_COLOR_ACCENT);
     lv_obj_set_pos(icon, UI_CONTENT_ICON_X - UI_CONTENT_X, UI_CONTENT_ICON_Y);
 
     lv_obj_t *value_label = lv_label_create(s_content);
-    lv_obj_set_style_text_color(value_label, UI_COLOR_FG, 0);
+    lv_obj_set_style_text_color(value_label, UI_COLOR_ACCENT, 0);
     lv_obj_add_flag(value_label, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *slider = lv_slider_create(s_content);
