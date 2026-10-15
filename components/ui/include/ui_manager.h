@@ -49,6 +49,8 @@ void ui_show_standby_clock(void);
 
 void ui_mark_activity(void);
 bool ui_navigation_transition_active(void);
+/* Thread-safe, committed-page state for background resource ownership. */
+bool ui_is_clock_page_active(void);
 
 /* Physical/custom back key contract: alert acknowledgement first, then
  * feature -> HOME, HOME -> standby clock. */
