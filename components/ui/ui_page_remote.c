@@ -299,15 +299,14 @@ static void orientation_timer_cb(lv_timer_t *timer)
      * normal landscape -> normal icons;
      * physical clockwise quarter-turn -> icons rotate CCW 90 degrees.
      *
-     * Real-device validation shows that, after the board-level 180-degree
-     * sensor correction, that physical clockwise pose is reported as
-     * PORTRAIT_LEFT. Real-device validation shows the final LCD mapping makes
-     * 2700 the upright icon orientation for this pose. */
+     * The factory physical mounting reverses the former 180-degree
+     * board-axis correction: the same clockwise pose is PORTRAIT_RIGHT.
+     * Preserve the existing 2700 icon animation in the 640x172 UI. */
     if (orientation == BOARD_ORIENTATION_LANDSCAPE) {
         s_last_orientation = orientation;
         set_icon_angle(0, true);
     }
-    else if (orientation == BOARD_ORIENTATION_PORTRAIT_LEFT) {
+    else if (orientation == BOARD_ORIENTATION_PORTRAIT_RIGHT) {
         s_last_orientation = orientation;
         set_icon_angle(2700, true);
     }
