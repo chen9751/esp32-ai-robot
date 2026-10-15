@@ -11,9 +11,9 @@
 #define UI_SCREEN_W              640
 #define UI_SCREEN_H              172
 
-#define CLOCK_GREEN              lv_color_hex(0x39FF14)
+#define CLOCK_BLUE               lv_color_hex(0x78DCE8)
 #define CLOCK_LOW                lv_color_hex(0xFF5A5A)
-#define CLOCK_CHARGING           lv_color_hex(0x39FF14)
+#define CLOCK_CHARGING           CLOCK_BLUE
 #define PIXEL_SIZE               14
 #define PIXEL_STEP               18
 #define DIGIT_W                  ((5 * PIXEL_STEP) - (PIXEL_STEP - PIXEL_SIZE))
@@ -123,7 +123,7 @@ static void finish_rect_frame(void)
 
 static void draw_pixel(int32_t x, int32_t y)
 {
-    (void)use_rect(x, y, PIXEL_SIZE, PIXEL_SIZE, CLOCK_GREEN, 2);
+    (void)use_rect(x, y, PIXEL_SIZE, PIXEL_SIZE, CLOCK_BLUE, 2);
 }
 
 static void draw_digit(uint8_t digit, int32_t x, int32_t y)
