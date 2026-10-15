@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
@@ -38,6 +39,8 @@ static char s_password[NETWORK_WIFI_PASSWORD_MAX];
 static const char *s_config_status = "TF NOT READ";
 static bool s_initialized;
 static bool s_sntp_started;
+static int64_t s_wifi_start_us;
+static int64_t s_got_ip_us;
 static sdmmc_card_t *s_card;
 static portMUX_TYPE s_status_guard = portMUX_INITIALIZER_UNLOCKED;
 
@@ -175,7 +178,10 @@ static void on_time_synced(struct timeval *tv)
     portENTER_CRITICAL(&s_status_guard);
     s_status.time_synced = true;
     portEXIT_CRITICAL(&s_status_guard);
-    ESP_LOGI(TAG, "SNTP synchronized");
+    int64_t elapsed_ms = s_got_ip_us > 0 ?
+        (esp_timer_get_time() - s_got_ip_us) / 1000 : -1;
+    ESP_LOGI(TAG, "SNTP synchronized, IP-to-time=%lld ms",
+             (long long)elapsed_ms);
 }
 
 static void start_time_sync(void)
@@ -197,6 +203,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     network_wifi_status_t current;
     network_service_get_wifi_status(&current);
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
+        s_wifi_start_us = esp_timer_get_time();
         if (current.configured && current.enabled) (void)esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         portENTER_CRITICAL(&s_status_guard);
@@ -219,8 +226,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         memcpy(s_status.mac, current.mac, sizeof(s_status.mac));
         s_status.connected = true;
         portEXIT_CRITICAL(&s_status_guard);
+        s_got_ip_us = esp_timer_get_time();
+        ESP_LOGI(TAG, "Wi-Fi connected, IP=%s, STA-start-to-IP=%lld ms",
+                 current.ip,
+                 (long long)(s_wifi_start_us > 0 ?
+                     (s_got_ip_us - s_wifi_start_us) / 1000 : -1));
         start_time_sync();
-        ESP_LOGI(TAG, "Wi-Fi connected, IP=%s", current.ip);
     }
 }
 
