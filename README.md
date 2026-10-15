@@ -103,4 +103,6 @@ The enclosure exposes three physical buttons. Their product behavior is:
 - Restored physical-mounting LCD/touch transform and remapped IMU orientation for the remote icon tilt logic. **Awaiting real-device orientation and touch regression tests**.
 - Replaced eight runtime-expanded system icon A8 buffers and the generated lock-icon mask with identical read-only alpha data. The expected writable-static-data reduction is 8,768 bytes; verify internal DRAM in the linker map and running firmware before reporting heap gains.
 - Deleted uncompiled 44px and 72px temperature-font files; retained the built 84px subset.
-- Still pending: clock-only WakeNet lifecycle with actual resource reclamation, NTP/Wi-Fi timing diagnostics, full source-resource reachability audit, firmware build and repeated UI/memory soak tests. Sony TV live-control validation intentionally deferred.
+- Clock-only WakeNet lifecycle is now wired to committed page state: the dedicated worker serializes start/stop using existing model/AFE teardown. **Not yet firmware-built or soak-tested; heap recovery remains unverified.**
+- Wi-Fi STA-start-to-IP and IP-to-first-SNTP timing diagnostics have been added. Optimization decisions must follow measured latency.
+- Still pending: full source/resource reachability audit, firmware build, on-device LCD/touch/IMU checks, long-running page-toggle and memory soak tests. Sony TV live-control validation intentionally deferred.
